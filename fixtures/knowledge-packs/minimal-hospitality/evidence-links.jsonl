@@ -1,0 +1,3 @@
+{"id":"evidence-room-revenue-2020","assertionID":"assertion-room-revenue-2020","passageID":"passage-revpar-2020","relation":"supports","note":"Direct source input to the RevPAR calculation."}
+{"id":"evidence-available-room-nights-2020","assertionID":"assertion-available-room-nights-2020","passageID":"passage-revpar-2020","relation":"supports","note":"Direct source input to the RevPAR calculation."}
+{"id":"evidence-revpar-2020","assertionID":"assertion-revpar-2020","passageID":"passage-revpar-2020","relation":"derives","note":"Room revenue divided by available room nights."}

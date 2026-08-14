@@ -37,5 +37,8 @@ jobs:
       - name: Build release
         run: swift build -c release
 
+      - name: Validate the KnowledgePack contract fixture
+        run: swift run knowledge-pack validate ../fixtures/knowledge-packs/minimal-hospitality
+
       - name: Run Swift tests
         run: swift test
