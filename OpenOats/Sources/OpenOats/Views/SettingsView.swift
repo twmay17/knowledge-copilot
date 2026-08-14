@@ -754,6 +754,7 @@ private struct TranscriptionSettingsTab: View {
 
 private struct IntelligenceSettingsTab: View {
     @Bindable var settings: AppSettings
+    @Environment(KnowledgePackStore.self) private var knowledgePackStore
 
     private var knowledgeBaseConfigured: Bool {
         !settings.kbFolderPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -871,6 +872,36 @@ private struct IntelligenceSettingsTab: View {
                     }
                 }
 
+                Section("Knowledge Copilot Pack") {
+                    Text("Experimental. Choose one validated, versioned evidence pack for grounded live answers. This is separate from the loose-document Knowledge Base above.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+
+                    HStack {
+                        Text(settings.knowledgePackFolderPath.isEmpty ? "Not set" : settings.knowledgePackFolderPath)
+                            .font(.system(size: 12))
+                            .foregroundStyle(settings.knowledgePackFolderPath.isEmpty ? .tertiary : .primary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+
+                        Spacer()
+
+                        if !settings.knowledgePackFolderPath.isEmpty {
+                            Button("Clear") {
+                                settings.knowledgePackFolderPath = ""
+                                knowledgePackStore.clear()
+                            }
+                            .font(.system(size: 12))
+                        }
+
+                        Button("Choose...") {
+                            chooseKnowledgePackFolder()
+                        }
+                    }
+
+                    knowledgePackStatus
+                }
+
                 Section("Knowledge base retrieval") {
                     if knowledgeBaseConfigured {
                         Text("Choose how OpenOats indexes and searches your Knowledge Base folder. This affects knowledge retrieval during meetings, not note generation. Indexed chunks and vectors are still cached locally on this Mac.")
@@ -973,6 +1004,54 @@ private struct IntelligenceSettingsTab: View {
 
         if panel.runModal() == .OK, let url = panel.url {
             settings.kbFolderPath = url.path
+        }
+    }
+
+    @ViewBuilder
+    private var knowledgePackStatus: some View {
+        switch knowledgePackStore.state {
+        case .idle:
+            Text("No pack loaded. Answers from the grounded path remain disabled.")
+                .foregroundStyle(.secondary)
+        case .loading:
+            HStack(spacing: 8) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Validating manifest, references, profile semantics, and source hashes…")
+            }
+            .foregroundStyle(.secondary)
+        case .loaded(_, let summary):
+            VStack(alignment: .leading, spacing: 3) {
+                Label("Validated: \(summary.title)", systemImage: "checkmark.shield.fill")
+                    .foregroundStyle(.green)
+                Text("\(summary.sourceCount) source(s) · \(summary.assertionCount) assertion(s) · \(summary.responseCardCount) prepared card(s)")
+                    .foregroundStyle(.secondary)
+            }
+        case .failed(_, let message):
+            VStack(alignment: .leading, spacing: 5) {
+                Label("Pack rejected", systemImage: "exclamationmark.shield.fill")
+                    .foregroundStyle(.red)
+                Text(message)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                Button("Validate Again") {
+                    Task { await knowledgePackStore.retry() }
+                }
+                .font(.system(size: 11))
+            }
+        }
+    }
+
+    private func chooseKnowledgePackFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.message = "Choose a KnowledgePack folder containing manifest.json"
+
+        if panel.runModal() == .OK, let url = panel.url {
+            settings.knowledgePackFolderPath = url.path
+            Task { await knowledgePackStore.load(fromPath: url.path) }
         }
     }
 }

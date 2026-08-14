@@ -1370,6 +1370,17 @@ final class SettingsStore {
         }
     }
 
+    @ObservationIgnored nonisolated(unsafe) private var _knowledgePackFolderPath: String
+    var knowledgePackFolderPath: String {
+        get { access(keyPath: \.knowledgePackFolderPath); return _knowledgePackFolderPath }
+        set {
+            withMutation(keyPath: \.knowledgePackFolderPath) {
+                _knowledgePackFolderPath = newValue
+                defaults.set(newValue, forKey: "knowledgePackFolderPath")
+            }
+        }
+    }
+
     @ObservationIgnored nonisolated(unsafe) private var _hasSeenLaunchAtLoginSuggestion: Bool
     var hasSeenLaunchAtLoginSuggestion: Bool {
         get { access(keyPath: \.hasSeenLaunchAtLoginSuggestion); return _hasSeenLaunchAtLoginSuggestion }
@@ -1596,6 +1607,7 @@ final class SettingsStore {
             defaults.data(forKey: "meetingFamilyPreferencesByKey")
         ) ?? [:]
         self._kbFolderPath = defaults.string(forKey: "kbFolderPath") ?? ""
+        self._knowledgePackFolderPath = defaults.string(forKey: "knowledgePackFolderPath") ?? ""
         self._hasSeenLaunchAtLoginSuggestion = defaults.bool(forKey: "hasSeenLaunchAtLoginSuggestion")
 
         // Ensure notes folder exists
@@ -1623,6 +1635,11 @@ final class SettingsStore {
     var kbFolderURL: URL? {
         guard !kbFolderPath.isEmpty else { return nil }
         return URL(fileURLWithPath: kbFolderPath)
+    }
+
+    var knowledgePackFolderURL: URL? {
+        guard !knowledgePackFolderPath.isEmpty else { return nil }
+        return URL(fileURLWithPath: knowledgePackFolderPath, isDirectory: true)
     }
 
     var locale: Locale {

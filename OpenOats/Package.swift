@@ -10,6 +10,10 @@ let package = Package(
             name: "OpenOatsKit",
             targets: ["OpenOatsKit"]
         ),
+        .library(
+            name: "HospitalityDomainProfile",
+            targets: ["HospitalityDomainProfile"]
+        ),
         .executable(
             name: "OpenOats",
             targets: ["OpenOatsAppExecutable"]
@@ -17,6 +21,10 @@ let package = Package(
         .executable(
             name: "Benchmark",
             targets: ["Benchmark"]
+        ),
+        .executable(
+            name: "knowledge-pack",
+            targets: ["KnowledgePackTool"]
         ),
     ],
     dependencies: [
@@ -41,7 +49,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "OpenOatsAppExecutable",
-            dependencies: ["OpenOatsKit"],
+            dependencies: ["OpenOatsKit", "HospitalityDomainProfile"],
             path: "Sources/OpenOatsApp"
         ),
         .executableTarget(
@@ -51,9 +59,19 @@ let package = Package(
             ],
             path: "Sources/Benchmark"
         ),
+        .executableTarget(
+            name: "KnowledgePackTool",
+            dependencies: ["OpenOatsKit", "HospitalityDomainProfile"],
+            path: "Sources/KnowledgePackTool"
+        ),
+        .target(
+            name: "HospitalityDomainProfile",
+            dependencies: ["OpenOatsKit"],
+            path: "Sources/DomainProfiles/Hospitality"
+        ),
         .testTarget(
             name: "OpenOatsTests",
-            dependencies: ["OpenOatsKit"],
+            dependencies: ["OpenOatsKit", "HospitalityDomainProfile"],
             path: "Tests/OpenOatsTests"
         ),
     ]

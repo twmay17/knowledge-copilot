@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "packID": "synthetic-hotel-2020-v1",
+  "title": "Synthetic Hotel 2020 Reference Pack",
+  "createdAt": "2026-08-14T00:00:00Z",
+  "defaultLocale": "en-US",
+  "domainProfiles": [
+    {
+      "id": "hospitality",
+      "version": "0.1.0"
+    }
+  ]
+}

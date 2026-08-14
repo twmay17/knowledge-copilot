@@ -21,15 +21,23 @@ public struct OpenOatsRootApp: App {
     @State private var coordinator: AppCoordinator
     @State private var container: AppContainer
     @State private var whatsNewController: WhatsNewController
+    @State private var knowledgePackStore: KnowledgePackStore
     private let updaterController: AppUpdaterController
     private let defaults: UserDefaults
 
     public init() {
+        self.init(profileRegistry: .empty)
+    }
+
+    public init(profileRegistry: KnowledgeDomainProfileRegistry) {
         let context = AppContainer.bootstrap()
         self._settings = State(initialValue: context.settings)
         self._coordinator = State(initialValue: context.coordinator)
         self._container = State(initialValue: context.container)
         self._whatsNewController = State(initialValue: WhatsNewController(defaults: context.container.defaults))
+        self._knowledgePackStore = State(
+            initialValue: KnowledgePackStore(profileRegistry: profileRegistry)
+        )
         self.updaterController = context.updaterController
         self.defaults = context.container.defaults
         AppLaunchBootstrap.context = .init(
@@ -46,6 +54,7 @@ public struct OpenOatsRootApp: App {
             ContentView(settings: settings)
                 .environment(container)
                 .environment(coordinator)
+                .environment(knowledgePackStore)
                 .defaultAppStorage(defaults)
                 .onAppear {
                     appDelegate.configure(
@@ -61,6 +70,9 @@ public struct OpenOatsRootApp: App {
                 }
                 .task {
                     await whatsNewController.presentPostUpdateReleaseNotesIfNeeded()
+                }
+                .task(id: settings.knowledgePackFolderPath) {
+                    await knowledgePackStore.load(fromPath: settings.knowledgePackFolderPath)
                 }
                 .onOpenURL { url in
                     guard let command = OpenOatsDeepLink.parse(url) else { return }
@@ -134,6 +146,7 @@ public struct OpenOatsRootApp: App {
             NotesView(settings: settings)
                 .environment(container)
                 .environment(coordinator)
+                .environment(knowledgePackStore)
                 .defaultAppStorage(defaults)
         }
         .windowResizability(.contentMinSize)
@@ -146,6 +159,7 @@ public struct OpenOatsRootApp: App {
             TranscriptWindowView()
                 .environment(container)
                 .environment(coordinator)
+                .environment(knowledgePackStore)
                 .environment(coordinator.transcriptStore)
                 .defaultAppStorage(defaults)
         }
@@ -155,6 +169,7 @@ public struct OpenOatsRootApp: App {
             SettingsView(settings: settings, updater: updaterController.updater)
                 .environment(container)
                 .environment(coordinator)
+                .environment(knowledgePackStore)
                 .defaultAppStorage(defaults)
         }
     }

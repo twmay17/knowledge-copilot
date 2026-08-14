@@ -1,0 +1,1 @@
+{"id":"calculation-revpar-v1","name":"Revenue per available room","version":"1.0.0","expression":"room_revenue / available_room_nights","inputAssertionIDs":["assertion-room-revenue-2020","assertion-available-room-nights-2020"],"outputAssertionID":"assertion-revpar-2020"}

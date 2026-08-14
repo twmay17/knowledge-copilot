@@ -92,6 +92,7 @@ final class AppContainer {
             defaults.set(false, forKey: "enableLiveTranscriptCleanup")
             defaults.set(notesDirectory.path, forKey: "notesFolderPath")
             defaults.set("", forKey: "kbFolderPath")
+            defaults.set("", forKey: "knowledgePackFolderPath")
 
             let storage = AppSettingsStorage(
                 defaults: defaults,
