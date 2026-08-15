@@ -93,6 +93,7 @@ redistributable; private Study Bundles must never be committed to the open-sourc
 ## Current acceptance slices
 
 KC-15 establishes deterministic export and the user-operated preparation workflow. KC-16 defines
-the machine-readable analysis-result contract and a human review/import gate. Direct API
-automation, if added later, remains a replaceable adapter and is not required to obtain value from
-the subscription-assisted workflow.
+the machine-readable analysis-result contract and human review gate. KC-17 adds read-only import
+planning plus locked, recoverable application of the approved artifact. Direct API automation, if
+added later, remains a replaceable adapter and is not required to obtain value from the
+subscription-assisted workflow.

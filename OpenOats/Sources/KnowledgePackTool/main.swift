@@ -34,6 +34,10 @@ struct KnowledgePackTool {
         try prepareStudyReview(arguments: arguments, profiles: profiles)
       case "approve-study-review":
         try approveStudyReview(arguments: arguments, profiles: profiles)
+      case "plan-study-import":
+        try planStudyImport(arguments: arguments, profiles: profiles)
+      case "apply-study-import":
+        try applyStudyImport(arguments: arguments, profiles: profiles)
       case "help", "--help", "-h":
         print(usage)
       default:
@@ -323,6 +327,76 @@ struct KnowledgePackTool {
     print("Result: \(outputURL.path)")
   }
 
+  private static func planStudyImport(
+    arguments: [String],
+    profiles: KnowledgeDomainProfileRegistry
+  ) throws {
+    guard arguments.count == 5 else { fail(usage) }
+    let directory = URL(fileURLWithPath: arguments[1], isDirectory: true).standardizedFileURL
+    let importURL = URL(fileURLWithPath: arguments[2]).standardizedFileURL
+    let options = parseOptions(
+      Array(arguments.dropFirst(3)),
+      supported: ["--output"]
+    )
+    guard let outputPath = options["--output"] else { fail(usage) }
+
+    let approvedImport = try decodeJSON(KnowledgeStudyApprovedImport.self, from: importURL)
+    let outputURL = URL(fileURLWithPath: outputPath).standardizedFileURL
+    requireOutputOutsidePack(outputURL, packDirectory: directory)
+    let plan = try KnowledgeStudyImportApplier(profileRegistry: profiles).plan(
+      approvedImport: approvedImport,
+      packDirectory: directory
+    )
+    try writeJSON(plan, to: outputURL)
+
+    print("Study Import Plan: \(plan.state.rawValue)")
+    print("Import: \(plan.importID); pack: \(plan.packID)")
+    print(
+      "Approved question families: \(plan.approvedQuestionFamilyIDs.count); response cards: \(plan.approvedResponseCardIDs.count); rejected: \(plan.rejectedProposalCount)"
+    )
+    print("No KnowledgePack files were modified.")
+    print("Result: \(outputURL.path)")
+  }
+
+  private static func applyStudyImport(
+    arguments: [String],
+    profiles: KnowledgeDomainProfileRegistry
+  ) throws {
+    guard arguments.count == 5 else { fail(usage) }
+    let directory = URL(fileURLWithPath: arguments[1], isDirectory: true).standardizedFileURL
+    let importURL = URL(fileURLWithPath: arguments[2]).standardizedFileURL
+    let options = parseOptions(
+      Array(arguments.dropFirst(3)),
+      supported: ["--output"]
+    )
+    guard let outputPath = options["--output"] else { fail(usage) }
+
+    let approvedImport = try decodeJSON(KnowledgeStudyApprovedImport.self, from: importURL)
+    let outputURL = URL(fileURLWithPath: outputPath).standardizedFileURL
+    requireOutputOutsidePack(outputURL, packDirectory: directory)
+    try FileManager.default.createDirectory(
+      at: outputURL.deletingLastPathComponent(),
+      withIntermediateDirectories: true
+    )
+    guard FileManager.default.isWritableFile(atPath: outputURL.deletingLastPathComponent().path)
+    else {
+      throw CocoaError(.fileWriteNoPermission)
+    }
+    let receipt = try KnowledgeStudyImportApplier(profileRegistry: profiles).apply(
+      approvedImport: approvedImport,
+      to: directory
+    )
+    try writeJSON(receipt, to: outputURL)
+
+    print("Study Import: \(receipt.outcome.rawValue)")
+    print("Import: \(receipt.importID); reviewer: \(receipt.reviewer)")
+    print(
+      "Question families: \(receipt.approvedQuestionFamilyIDs.count); response cards: \(receipt.approvedResponseCardIDs.count)"
+    )
+    print("Pack hash: \(receipt.resultingPackContentHash)")
+    print("Receipt: \(outputURL.path)")
+  }
+
   private static func decodeJSON<T: Decodable>(_ type: T.Type, from url: URL) throws -> T {
     let decoder = JSONDecoder()
     decoder.dateDecodingStrategy = .iso8601
@@ -339,6 +413,16 @@ struct KnowledgePackTool {
       withIntermediateDirectories: true
     )
     try data.write(to: url, options: .atomic)
+  }
+
+  private static func requireOutputOutsidePack(_ outputURL: URL, packDirectory: URL) {
+    let root = packDirectory.standardizedFileURL.resolvingSymlinksInPath()
+    let target = outputURL.standardizedFileURL.resolvingSymlinksInPath()
+    guard target.path != root.path, !target.path.hasPrefix(root.path + "/") else {
+      fail(
+        "Output must be outside the KnowledgePack directory so a plan or receipt cannot overwrite corpus files."
+      )
+    }
   }
 
   private static func parseOptions(
@@ -432,5 +516,7 @@ struct KnowledgePackTool {
       knowledge-pack export-study-bundle <pack-directory> --output <study-bundle.json>
       knowledge-pack prepare-study-review <pack-directory> <study-analysis.json> --output <review-queue.json>
       knowledge-pack approve-study-review <pack-directory> <review-queue.json> <review-decisions.json> --output <approved-import.json>
+      knowledge-pack plan-study-import <pack-directory> <approved-import.json> --output <plan.json>
+      knowledge-pack apply-study-import <pack-directory> <approved-import.json> --output <receipt.json>
     """
 }

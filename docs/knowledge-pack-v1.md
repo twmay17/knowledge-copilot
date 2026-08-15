@@ -223,7 +223,20 @@ swift run knowledge-pack approve-study-review \
   ../outputs/review-queue.json \
   ../fixtures/study-analysis/synthetic-hospitality-decisions.json \
   --output ../outputs/approved-import.json
+swift run knowledge-pack plan-study-import \
+  ../fixtures/knowledge-packs/minimal-hospitality \
+  ../outputs/approved-import.json \
+  --output ../outputs/import-plan.json
+swift run knowledge-pack apply-study-import \
+  <writable-pack-directory> \
+  ../outputs/approved-import.json \
+  --output ../outputs/import-receipt.json
 ```
+
+`plan-study-import` is read-only. `apply-study-import` deliberately mutates the named pack through
+the locked, hash-checked, recoverable transaction described in
+[reviewed study import application](study-import-application.md). Use a writable working copy when
+experimenting with the synthetic fixture.
 
 The fixture is synthetic and redistributable. It exercises the generic contract through the
 separate `HospitalityDomainProfile` Swift target. The core loader depends only on the public

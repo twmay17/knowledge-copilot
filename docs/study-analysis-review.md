@@ -16,17 +16,18 @@ validated KnowledgePack
   -> validated pending review queue (still generated)
   -> explicit human approve/reject decisions
   -> reviewed import artifact
-  -> future atomic pack application
+  -> reviewed import plan
+  -> recoverable pack application and receipt
 ```
 
 Only the human decision gate creates `KnowledgeResponseCard` records with `reviewStatus` equal to
 `reviewed`. The analysis input type has no review-status field. If model output includes one anyway,
 Swift decoding ignores it and the queue explicitly records `generated`.
 
-The final command in KC-16 still does not mutate the active pack. It emits an approved-import
+The final review command does not mutate the active pack. It emits an approved-import
 artifact containing the reviewed additions, base pack hash, resulting pack hash, reviewer,
-timestamp, source analysis, and source queue identity. This makes the next atomic-write step
-auditable and prevents a half-written pack.
+timestamp, source analysis, and source queue identity. KC-17 consumes that artifact through the
+separate [reviewed import application boundary](study-import-application.md).
 
 ## Stage 1: validate model analysis
 
@@ -99,7 +100,7 @@ files.
 
 ## What remains manual
 
-KC-16 proves the contract and command-line review gate, not the final reviewer UI. Today, the human
-reviews JSON and writes the small decision file. The next slice can add an in-app review surface and
-an atomic pack writer that rechecks `basePackContentHash` immediately before applying the approved
-additions.
+The command-line trust boundary is complete, but the final reviewer UI is not. Today, the human
+reviews JSON and writes the small decision file, previews the import plan, then deliberately runs
+the apply command. The next product slice can expose those same gates in an in-app review surface
+without weakening them.

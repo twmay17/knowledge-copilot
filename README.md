@@ -21,6 +21,12 @@ Frontier-model analysis returns through a bundle-hash-bound proposal schema and 
 response card. The gate validates the would-be merged pack before emitting an auditable import
 artifact. See [study analysis and human review](docs/study-analysis-review.md).
 
+Reviewed imports can now be planned without mutation and then applied through a locked,
+recoverable transaction. The writer rechecks the active corpus hash immediately before staging,
+preserves the existing JSONL content, validates the installed pack, rolls back partial failures,
+and returns an idempotent JSON receipt. See
+[reviewed import application](docs/study-import-application.md).
+
 The no-admin Microsoft Teams capture baseline is documented in the [Teams audio-capture verification runbook](docs/teams-audio-verification.md).
 
 <p align="center">

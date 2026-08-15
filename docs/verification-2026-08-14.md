@@ -603,3 +603,58 @@ See [the analysis/review contract](study-analysis-review.md), the
 [public model-output schema](../schemas/study-analysis-v1.schema.json), the
 [public human-decision schema](../schemas/study-review-decisions-v1.schema.json), and the
 [public-safe KC-16 evidence summary](evidence/kc16-study-analysis-review-2026-08-15.md).
+
+## KC-17 reviewed-import application
+
+The approved artifact now has a deliberate, fail-closed path into a writable KnowledgePack:
+
+- planning validates the artifact and exact before/after hashes without mutation;
+- only IDs with explicit `approve` decisions may appear in the import;
+- every imported response card must still be `reviewed`;
+- the pack is reloaded under an exclusive advisory lock immediately before staging;
+- existing JSONL bytes are preserved and only approved records are appended;
+- a recovery journal and original-file backups protect the two-file update;
+- an ordinary mid-transaction failure rolls back and verifies the original full-corpus hash;
+- the next apply recovers a simulated interrupted mixed state before retrying;
+- a repeated import is idempotent; and
+- each application returns a machine-readable audit receipt.
+
+Focused checks:
+
+```bash
+swift test --filter KnowledgeStudyImportApplierTests
+swift run knowledge-pack plan-study-import <pack> <approved-import> --output <plan>
+swift run knowledge-pack apply-study-import <pack-copy> <approved-import> --output <receipt>
+swift run knowledge-pack apply-study-import <pack-copy> <approved-import> --output <second-receipt>
+swift run knowledge-pack validate <pack-copy>
+```
+
+Passing local checks:
+
+```bash
+swift test --filter \
+  'KnowledgeStudyImportApplierTests|KnowledgeStudyReviewTests|KnowledgeStudyBundleTests'
+swift test --skip MeetingDetectorTests
+swift build -c release --product knowledge-pack
+swift build -c release --product OpenOats
+xcrun swift-format lint --strict <four changed Swift files>
+jq empty schemas/study-import-plan-v1.schema.json \
+  schemas/study-import-receipt-v1.schema.json
+git diff --check
+```
+
+Results:
+
+- 10 of 10 KC-17 application tests and all 31 preparation/review/application tests passed;
+- the CLI preview reported `ready` without changing the pack;
+- the first CLI application reported `applied` with the exact approved result hash;
+- the second application reported `already_applied` without duplicating records;
+- an unsafe in-pack plan-output path was rejected before any file was written;
+- the resulting synthetic pack passed full loader and Domain Profile validation with 10 reviewed
+  response cards;
+- all 790 non-environmental tests passed;
+- both release products built successfully; and
+- public schemas, strict Swift formatting, and whitespace checks passed.
+
+See [the application contract](study-import-application.md) and the
+[public-safe KC-17 evidence summary](evidence/kc17-study-import-application-2026-08-15.md).

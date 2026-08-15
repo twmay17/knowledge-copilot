@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:knowledge-copilot:schema:study-import-plan:v1",
+  "title": "Knowledge Copilot Study Import Plan v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "state",
+    "importID",
+    "packID",
+    "activePackContentHash",
+    "basePackContentHash",
+    "resultingPackContentHash",
+    "approvedQuestionFamilyIDs",
+    "approvedResponseCardIDs",
+    "rejectedProposalCount"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "state": { "enum": ["ready", "already_applied", "no_changes"] },
+    "importID": { "type": "string", "pattern": "^import-[a-f0-9]{24}$" },
+    "packID": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "activePackContentHash": { "$ref": "#/$defs/hash" },
+    "basePackContentHash": { "$ref": "#/$defs/hash" },
+    "resultingPackContentHash": { "$ref": "#/$defs/hash" },
+    "approvedQuestionFamilyIDs": { "$ref": "#/$defs/idArray" },
+    "approvedResponseCardIDs": { "$ref": "#/$defs/idArray" },
+    "rejectedProposalCount": { "type": "integer", "minimum": 0, "maximum": 400 }
+  },
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9._-]*$"
+    },
+    "idArray": {
+      "type": "array",
+      "maxItems": 200,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/id" }
+    }
+  }
+}

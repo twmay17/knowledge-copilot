@@ -1,4 +1,3 @@
-import CryptoKit
 import Foundation
 
 public enum KnowledgeStudyProposalKind: String, Codable, Equatable, Sendable {
@@ -302,7 +301,7 @@ public struct KnowledgeStudyReviewGate: Sendable {
       ($0.proposalKind.rawValue, $0.proposalID) < ($1.proposalKind.rawValue, $1.proposalID)
     }
     let rejected = sortedDecisions.filter { $0.disposition == .reject }
-    let importID = try Self.importID(
+    let importID = try KnowledgeStudyImportIntegrity.importID(
       queueID: queue.queueID,
       reviewer: decisions.reviewer,
       reviewedAt: decisions.reviewedAt,
@@ -351,36 +350,9 @@ public struct KnowledgeStudyReviewGate: Sendable {
     }
   }
 
-  private static func importID(
-    queueID: String,
-    reviewer: String,
-    reviewedAt: Date,
-    decisions: [KnowledgeStudyReviewDecision]
-  ) throws -> String {
-    let content = CanonicalReviewDecisionContent(
-      queueID: queueID,
-      reviewer: reviewer,
-      reviewedAt: reviewedAt,
-      decisions: decisions.sorted {
-        ($0.proposalKind.rawValue, $0.proposalID) < ($1.proposalKind.rawValue, $1.proposalID)
-      }
-    )
-    let encoder = JSONEncoder()
-    encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-    let data = try encoder.encode(content)
-    let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-    return "import-\(digest.prefix(24))"
-  }
 }
 
 private struct DecisionKey: Hashable {
   let kind: KnowledgeStudyProposalKind
   let id: String
-}
-
-private struct CanonicalReviewDecisionContent: Encodable {
-  let queueID: String
-  let reviewer: String
-  let reviewedAt: Date
-  let decisions: [KnowledgeStudyReviewDecision]
 }
