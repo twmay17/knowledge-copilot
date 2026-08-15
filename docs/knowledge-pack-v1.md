@@ -178,6 +178,19 @@ profile interface, removability boundary, hospitality reference rules, and opera
 provenance are documented in
 [Domain Profile and calculation registry](domain-profile-registry.md).
 
+## Study Bundle export
+
+A validated pack can be transformed into a deterministic, provider-neutral Study Bundle for
+deliberate pre-meeting analysis with a heavier frontier model. The export includes the assertion
+ledger, registered calculations, exact cited excerpts, existing question families, and reviewed
+cards. It also embeds a closed-corpus policy that disables web authority, requires citations, and
+uses `not_found_in_corpus` when evidence is absent.
+
+The Study Bundle is a preparation artifact, not a trusted model result. It never promotes generated
+content to `reviewed`, and the subscription-assisted path is a manual user workflow rather than an
+attempt to programmatically drive a ChatGPT account. See the
+[Study Bundle preparation boundary](study-bundle.md).
+
 Warnings are retained for reviewable conditions that do not make the pack structurally unsafe.
 Low-quality extracted text is one such warning and remains visibly flagged on the passage.
 
@@ -197,6 +210,9 @@ swift run knowledge-pack ingest-document \
 swift run knowledge-pack ingest-spreadsheet \
   ../fixtures/spreadsheet-ingestion/sample-evidence.xlsx \
   --relative-path sources/sample-evidence.xlsx
+swift run knowledge-pack export-study-bundle \
+  ../fixtures/knowledge-packs/minimal-hospitality \
+  --output ../outputs/study-bundle.json
 ```
 
 The fixture is synthetic and redistributable. It exercises the generic contract through the

@@ -515,3 +515,49 @@ Results:
 
 See [the import contract](hospitality-underwriting-import-profile.md) and
 [the public-safe KC-14 evidence summary](evidence/kc14-hospitality-underwriting-import-2026-08-15.md).
+
+## KC-15 closed-corpus Study Bundle
+
+The preparation lane can now package a validated corpus for deeper frontier-model study without
+making the live application depend on that model or provider:
+
+- the export is domain-neutral and works without a Domain Profile;
+- its canonical full-content hash produces a deterministic bundle identity;
+- source paths remain pack-relative and every used citation carries an exact excerpt and locator;
+- registered calculations, existing question families, and reviewed cards are included;
+- generated or rejected cards are excluded;
+- broken evidence and reviewed-card references fail closed; and
+- the embedded policy requires citations, disables web authority, treats document instructions as
+  evidence data, and abstains when the corpus is missing an answer.
+
+The first subscription-assisted workflow is intentionally user operated: export the JSON, upload it
+to an approved ChatGPT account, and use the repository's closed-corpus study prompt. It neither
+automates a ChatGPT session nor assumes that a subscription supplies application API access.
+
+Passing local checks:
+
+```bash
+swift test --filter KnowledgeStudyBundleTests
+swift run knowledge-pack export-study-bundle \
+  ../fixtures/knowledge-packs/minimal-hospitality \
+  --output ../outputs/kc15-study-bundle.json
+swift test --skip MeetingDetectorTests
+swift build -c release --product knowledge-pack
+swift build -c release --product OpenOats
+xcrun swift-format lint --strict <three changed Swift files>
+git diff --check
+```
+
+Results:
+
+- 9 of 9 focused acceptance tests passed, including a generic product-pitch pack;
+- two independent CLI exports were byte-for-byte identical;
+- the synthetic bundle contains 3 sources, 3 cited passages, 18 assertions, 6 calculations, 9
+  question families, and 9 reviewed cards;
+- all 768 non-environmental tests passed;
+- both release products built successfully; and
+- strict Swift formatting, policy/citation closure, and whitespace checks passed.
+
+See [the Study Bundle boundary](study-bundle.md),
+[the reusable preparation prompt](study-bundle-chatgpt-prompt.md), and
+[the public-safe KC-15 evidence summary](evidence/kc15-study-bundle-2026-08-15.md).

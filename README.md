@@ -11,6 +11,11 @@ into typed, cited KnowledgePack assertions while keeping broker evidence, analys
 comparison basis, and modeled values distinct. See the
 [hospitality underwriting import profile](docs/hospitality-underwriting-import-profile.md).
 
+Validated packs can also be exported as a deterministic, closed-corpus Study Bundle for deliberate
+pre-meeting analysis in a user-operated frontier-model session. This keeps subscription-assisted
+preparation separate from the fast local meeting path and never treats generated material as
+reviewed. See the [Study Bundle preparation boundary](docs/study-bundle.md).
+
 The no-admin Microsoft Teams capture baseline is documented in the [Teams audio-capture verification runbook](docs/teams-audio-verification.md).
 
 <p align="center">

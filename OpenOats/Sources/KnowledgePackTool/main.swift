@@ -28,6 +28,8 @@ struct KnowledgePackTool {
         try ingestSpreadsheet(arguments: arguments)
       case "import-underwriting-csv":
         try importUnderwritingCSV(arguments: arguments)
+      case "export-study-bundle":
+        try exportStudyBundle(arguments: arguments, profiles: profiles)
       case "help", "--help", "-h":
         print(usage)
       default:
@@ -218,6 +220,40 @@ struct KnowledgePackTool {
     }
   }
 
+  private static func exportStudyBundle(
+    arguments: [String],
+    profiles: KnowledgeDomainProfileRegistry
+  ) throws {
+    guard arguments.count == 4 else { fail(usage) }
+    let directory = URL(fileURLWithPath: arguments[1], isDirectory: true).standardizedFileURL
+    let options = parseOptions(
+      Array(arguments.dropFirst(2)),
+      supported: ["--output"]
+    )
+    guard let outputPath = options["--output"] else { fail(usage) }
+
+    let pack = try KnowledgePackLoader(profileRegistry: profiles).load(from: directory)
+    let bundle = try KnowledgeStudyBundleBuilder().build(from: pack)
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+    encoder.dateEncodingStrategy = .iso8601
+    let data = try encoder.encode(bundle)
+    let outputURL = URL(fileURLWithPath: outputPath).standardizedFileURL
+    try FileManager.default.createDirectory(
+      at: outputURL.deletingLastPathComponent(),
+      withIntermediateDirectories: true
+    )
+    try data.write(to: outputURL, options: .atomic)
+
+    print("Exported Study Bundle: \(bundle.bundleID)")
+    print("Pack: \(bundle.packTitle) [\(bundle.packID)]")
+    print(
+      "Sources: \(bundle.sources.count); cited passages: \(bundle.citedPassages.count); assertions: \(bundle.assertions.count); calculations: \(bundle.calculations.count); reviewed cards: \(bundle.reviewedResponseCards.count)"
+    )
+    print("Closed corpus: yes; web search: disabled; citations: required")
+    print("Result: \(outputURL.path)")
+  }
+
   private static func parseOptions(
     _ arguments: [String],
     supported: Set<String>
@@ -306,5 +342,6 @@ struct KnowledgePackTool {
       knowledge-pack ingest-document <document.pdf|document.docx> --relative-path <pack-relative-path> [--title <title>] [--output <result.json>]
       knowledge-pack ingest-spreadsheet <spreadsheet.xlsx|spreadsheet.csv> --relative-path <pack-relative-path> [--title <title>] [--output <result.json>]
       knowledge-pack import-underwriting-csv <pl-or-star.csv> --relative-path <pack-relative-path> --asset-id <stable-asset-id> [--period <YYYY|YYYY-MM|TTM:YYYY-MM|YTD:YYYY-MM>] [--status <actual|budget|forecast>] [--title <title>] [--output <result.json>]
+      knowledge-pack export-study-bundle <pack-directory> --output <study-bundle.json>
     """
 }
