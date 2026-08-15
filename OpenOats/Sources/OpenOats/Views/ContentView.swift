@@ -11,6 +11,7 @@ struct ContentView: View {
     @Bindable var settings: AppSettings
     @Environment(AppContainer.self) private var container
     @Environment(AppCoordinator.self) private var coordinator
+    @Environment(KnowledgePackStore.self) private var knowledgePackStore
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
     @State private var overlayManager = OverlayManager()
@@ -376,6 +377,28 @@ struct ContentView: View {
             guard liveSessionController?.state.isRunning == true, settings.suggestionPanelEnabled else { return }
             showSidebarContent()
         }
+        .onChange(of: coordinator.transcriptStore.volatileThemText) { _, text in
+            let partial = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !partial.isEmpty else { return }
+            knowledgePackStore.processTranscriptText(
+                streamID: "remote",
+                text: partial,
+                stability: .partial
+            )
+        }
+        .onChange(of: coordinator.transcriptStore.lastRemoteUtterance?.id) {
+            guard let utterance = coordinator.transcriptStore.lastRemoteUtterance else { return }
+            knowledgePackStore.processTranscriptText(
+                streamID: "remote",
+                text: utterance.text,
+                stability: .final
+            )
+        }
+        .onChange(of: liveSessionController?.state.isRunning ?? false) { wasRunning, isRunning in
+            if wasRunning && !isRunning {
+                knowledgePackStore.cancelTranscriptStream("remote")
+            }
+        }
     }
 
     private var contentWithEventHandlers: some View {
@@ -437,7 +460,12 @@ struct ContentView: View {
     private func toggleOverlay() {
         switch settings.sidebarMode {
         case .classicSuggestions:
-            overlayManager.toggle(content: SuggestionPanelContent(engine: coordinator.suggestionEngine))
+            overlayManager.toggle(
+                content: SuggestionPanelContent(
+                    engine: coordinator.suggestionEngine,
+                    knowledgePackStore: knowledgePackStore
+                )
+            )
         case .sidecast:
             overlayManager.toggleSidecast(content: sidecastContent())
         }
@@ -446,14 +474,23 @@ struct ContentView: View {
     private func showSidebarContent() {
         switch settings.sidebarMode {
         case .classicSuggestions:
-            overlayManager.showSidePanel(content: SuggestionPanelContent(engine: coordinator.suggestionEngine))
+            overlayManager.showSidePanel(
+                content: SuggestionPanelContent(
+                    engine: coordinator.suggestionEngine,
+                    knowledgePackStore: knowledgePackStore
+                )
+            )
         case .sidecast:
             overlayManager.showSidecastSidebar(content: sidecastContent())
         }
     }
 
     private func sidecastContent() -> SidecastPanelContent {
-        SidecastPanelContent(settings: settings, engine: coordinator.sidecastEngine)
+        SidecastPanelContent(
+            settings: settings,
+            engine: coordinator.sidecastEngine,
+            knowledgePackStore: knowledgePackStore
+        )
     }
 
     private func copyTranscript() {

@@ -47,7 +47,7 @@ final class OverlayManager: ObservableObject {
     var defaults: UserDefaults = .standard
 
     // Classic suggestions panel dimensions
-    private static let classicWidth: CGFloat = 250
+    private static let classicWidth: CGFloat = 320
     private static let classicMinHeight: CGFloat = 100
     private static let classicMaxHeight: CGFloat = 400
 
@@ -74,7 +74,7 @@ final class OverlayManager: ObservableObject {
                 : defaults.bool(forKey: "suggestionsAlwaysOnTop")
             let newPanel = OverlayPanel(contentRect: rect, defaults: defaults, alwaysOnTop: alwaysOnTop)
             newPanel.minSize = NSSize(width: Self.classicWidth, height: Self.classicMinHeight)
-            newPanel.maxSize = NSSize(width: Self.classicWidth + 100, height: Self.classicMaxHeight)
+            newPanel.maxSize = NSSize(width: Self.classicWidth + 120, height: Self.classicMaxHeight)
             newPanel.setFrameAutosaveName("SuggestionSidePanel")
             panel = newPanel
         }

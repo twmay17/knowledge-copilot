@@ -4,6 +4,7 @@ import SwiftUI
 /// Shows the current suggestion (raw or streaming) with fading previous suggestions.
 struct SuggestionPanelContent: View {
     let engine: SuggestionEngine?
+    @Bindable var knowledgePackStore: KnowledgePackStore
 
     private var suggestions: [RealtimeSuggestion] {
         engine?.activeSuggestions ?? []
@@ -31,11 +32,16 @@ struct SuggestionPanelContent: View {
 
             Divider()
 
-            if suggestions.isEmpty {
+            if suggestions.isEmpty && knowledgePackStore.activeAnswerCards.isEmpty {
                 idleView
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 8) {
+                        KnowledgeAnswerCardList(
+                            store: knowledgePackStore,
+                            appearance: .standard
+                        )
+
                         ForEach(Array(suggestions.enumerated()), id: \.element.id) { index, suggestion in
                             SuggestionPanelCard(
                                 suggestion: suggestion,

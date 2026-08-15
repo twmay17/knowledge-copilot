@@ -30,11 +30,19 @@ enum KnowledgePackLoadState: Equatable, Sendable {
 @Observable
 final class KnowledgePackStore {
   private let loader: KnowledgePackLoader
+  private let profileRegistry: KnowledgeDomainProfileRegistry
   private(set) var selectedPack: KnowledgePack?
   private(set) var state: KnowledgePackLoadState = .idle
+  private(set) var activeQuestionCandidates: [String: QuestionCandidate] = [:]
+  private(set) var activeAnswerCards: [String: KnowledgeAnswerCard] = [:]
+  private(set) var latestQuestionCandidateEvents: [QuestionCandidateEvent] = []
   private var requestedPath = ""
+  private var questionCandidateDetector: QuestionCandidateDetector?
+  private var answerCardResolver: KnowledgeAnswerCardResolver?
+  private var liveRevisionSequenceByStream: [String: Int] = [:]
 
   init(profileRegistry: KnowledgeDomainProfileRegistry) {
+    self.profileRegistry = profileRegistry
     loader = KnowledgePackLoader(profileRegistry: profileRegistry)
   }
 
@@ -64,10 +72,12 @@ final class KnowledgePackStore {
       }.value
       guard requestedPath == normalizedPath, !Task.isCancelled else { return }
       selectedPack = pack
+      configureLiveKnowledgePath(for: pack, rootDirectory: directory)
       state = .loaded(path: normalizedPath, summary: KnowledgePackSummary(pack: pack))
     } catch {
       guard requestedPath == normalizedPath, !Task.isCancelled else { return }
       selectedPack = nil
+      clearQuestionCandidateDetector()
       state = .failed(path: normalizedPath, message: String(describing: error))
     }
   }
@@ -81,6 +91,94 @@ final class KnowledgePackStore {
   func clear() {
     requestedPath = ""
     selectedPack = nil
+    clearQuestionCandidateDetector()
     state = .idle
+  }
+
+  @discardableResult
+  func processTranscriptRevision(_ revision: TranscriptRevision) -> [QuestionCandidateEvent] {
+    guard var detector = questionCandidateDetector else { return [] }
+    liveRevisionSequenceByStream[revision.streamID] = max(
+      liveRevisionSequenceByStream[revision.streamID] ?? Int.min,
+      revision.sequence
+    )
+    let events = detector.process(revision)
+    questionCandidateDetector = detector
+    apply(events)
+    return events
+  }
+
+  @discardableResult
+  func processTranscriptText(
+    streamID: String,
+    text: String,
+    stability: TranscriptRevision.Stability
+  ) -> [QuestionCandidateEvent] {
+    let sequence = (liveRevisionSequenceByStream[streamID] ?? 0) + 1
+    return processTranscriptRevision(
+      TranscriptRevision(
+        streamID: streamID,
+        sequence: sequence,
+        text: text,
+        stability: stability
+      ))
+  }
+
+  @discardableResult
+  func cancelTranscriptStream(_ streamID: String) -> [QuestionCandidateEvent] {
+    processTranscriptText(streamID: streamID, text: "", stability: .partial)
+  }
+
+  func activeQuestionCandidate(forStreamID streamID: String) -> QuestionCandidate? {
+    activeQuestionCandidates[streamID]
+  }
+
+  func activeAnswerCard(forStreamID streamID: String) -> KnowledgeAnswerCard? {
+    activeAnswerCards[streamID]
+  }
+
+  private func configureLiveKnowledgePath(for pack: KnowledgePack, rootDirectory: URL) {
+    clearQuestionCandidateDetector()
+    questionCandidateDetector = QuestionCandidateDetector(
+      questionFamilies: pack.questionFamilies,
+      termAliases: profileRegistry.termAliases(for: pack.manifest)
+    )
+    answerCardResolver = KnowledgeAnswerCardResolver(pack: pack, rootDirectory: rootDirectory)
+  }
+
+  private func clearQuestionCandidateDetector() {
+    guard var detector = questionCandidateDetector else {
+      activeQuestionCandidates.removeAll()
+      activeAnswerCards.removeAll()
+      latestQuestionCandidateEvents = []
+      answerCardResolver = nil
+      return
+    }
+    let sequence = activeQuestionCandidates.values.map(\.revisionSequence).max() ?? 0
+    let events = detector.cancelAll(sequence: sequence + 1)
+    questionCandidateDetector = nil
+    apply(events)
+    answerCardResolver = nil
+  }
+
+  private func apply(_ events: [QuestionCandidateEvent]) {
+    latestQuestionCandidateEvents = events
+    for event in events {
+      switch event {
+      case .upsert(let candidate):
+        activeQuestionCandidates[candidate.streamID] = candidate
+        if let answerCard = answerCardResolver?.resolve(candidate) {
+          activeAnswerCards[candidate.streamID] = answerCard
+        } else {
+          activeAnswerCards.removeValue(forKey: candidate.streamID)
+        }
+      case .cancel(let cancellation):
+        guard activeQuestionCandidates[cancellation.streamID]?.id == cancellation.candidateID else {
+          continue
+        }
+        activeQuestionCandidates.removeValue(forKey: cancellation.streamID)
+        activeAnswerCards.removeValue(forKey: cancellation.streamID)
+      }
+    }
   }
 }

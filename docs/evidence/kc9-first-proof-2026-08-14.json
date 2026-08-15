@@ -1,0 +1,126 @@
+{
+  "answerAppearedAtMilliseconds" : 420.775834,
+  "answerLeadBeforeFinalMilliseconds" : 479.224166,
+  "answerTriggeredAtMilliseconds" : 420,
+  "checks" : [
+    {
+      "detail" : "Expected question-revpar-period; observed question-revpar-period.",
+      "name" : "question_family",
+      "passed" : true
+    },
+    {
+      "detail" : "Expected card-revpar-2020; observed card-revpar-2020.",
+      "name" : "reviewed_response_card",
+      "passed" : true
+    },
+    {
+      "detail" : "Expected calculated; observed calculated.",
+      "name" : "evidence_state",
+      "passed" : true
+    },
+    {
+      "detail" : "All expected answer fragments were present.",
+      "name" : "answer_content",
+      "passed" : true
+    },
+    {
+      "detail" : "All expected citations exist inside the selected KnowledgePack.",
+      "name" : "citations",
+      "passed" : true
+    },
+    {
+      "detail" : "Answer appeared at 420.776 ms; deadline is 1000 ms.",
+      "name" : "response_deadline",
+      "passed" : true
+    },
+    {
+      "detail" : "Answer appeared at 420.776 ms; final speech arrived at 900 ms.",
+      "name" : "before_final_speech",
+      "passed" : true
+    },
+    {
+      "detail" : "Maximum processing latency was 0.776 ms; budget is 50.000 ms.",
+      "name" : "processing_latency",
+      "passed" : true
+    }
+  ],
+  "citations" : [
+    {
+      "exists" : true,
+      "insidePack" : true,
+      "locatorLabel" : "Room Inventory · A3:H3 · 2020 actual",
+      "passageID" : "passage-inventory-2020-actual",
+      "relativePath" : "sources/demo-room-inventory.csv",
+      "sourceID" : "source-room-inventory",
+      "sourceTitle" : "Synthetic Hotel Room Inventory"
+    },
+    {
+      "exists" : true,
+      "insidePack" : true,
+      "locatorLabel" : "Operating Statement · A3:J3 · 2020 actual",
+      "passageID" : "passage-operating-2020-actual",
+      "relativePath" : "sources/demo-operating-statement.csv",
+      "sourceID" : "source-operating-statement",
+      "sourceTitle" : "Synthetic Hotel Operating Statement"
+    }
+  ],
+  "deadlineHeadroomMilliseconds" : 579.224166,
+  "finalSpeechAtMilliseconds" : 900,
+  "latency" : {
+    "maximumMilliseconds" : 0.775834,
+    "medianMilliseconds" : 0.605083,
+    "p95Milliseconds" : 0.775834,
+    "sampleCount" : 3
+  },
+  "packID" : "synthetic-hotel-2020-v1",
+  "packTitle" : "Synthetic Hotel 2020 Reference Pack",
+  "replayName" : "Synthetic 2020 RevPAR partial-speech proof",
+  "responseDeadlineMilliseconds" : 1000,
+  "revisions" : [
+    {
+      "activeCandidateID" : "remote#1",
+      "activeCandidateStatus" : "provisional",
+      "activeQuestionFamilyID" : "question-revpar-period",
+      "atMilliseconds" : 0,
+      "emittedEvents" : [
+        "upsert:provisional"
+      ],
+      "processingLatencyMilliseconds" : 0.605083,
+      "sequence" : 1,
+      "stability" : "partial",
+      "text" : "What was the rev par"
+    },
+    {
+      "activeCandidateID" : "remote#1",
+      "activeCandidateStatus" : "stable",
+      "activeEvidenceState" : "calculated",
+      "activeQuestionFamilyID" : "question-revpar-period",
+      "activeResponseCardID" : "card-revpar-2020",
+      "atMilliseconds" : 420,
+      "emittedEvents" : [
+        "upsert:stable"
+      ],
+      "processingLatencyMilliseconds" : 0.775834,
+      "sequence" : 2,
+      "stability" : "partial",
+      "text" : "What was the rev par for this asset in 2020"
+    },
+    {
+      "activeCandidateID" : "remote#1",
+      "activeCandidateStatus" : "stable",
+      "activeEvidenceState" : "calculated",
+      "activeQuestionFamilyID" : "question-revpar-period",
+      "activeResponseCardID" : "card-revpar-2020",
+      "atMilliseconds" : 900,
+      "emittedEvents" : [
+
+      ],
+      "processingLatencyMilliseconds" : 0.540833,
+      "sequence" : 3,
+      "stability" : "final",
+      "text" : "What was the RevPAR for this asset in 2020?"
+    }
+  ],
+  "schemaVersion" : 1,
+  "verdict" : "PASS"
+}

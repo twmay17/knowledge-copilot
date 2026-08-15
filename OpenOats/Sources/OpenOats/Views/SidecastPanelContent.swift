@@ -5,6 +5,7 @@ import SwiftUI
 struct SidecastPanelContent: View {
     @Bindable var settings: AppSettings
     let engine: SidecastEngine?
+    @Bindable var knowledgePackStore: KnowledgePackStore
 
     var body: some View {
         VStack(spacing: 0) {
@@ -12,6 +13,17 @@ struct SidecastPanelContent: View {
             SidecastHeader(isGenerating: engine?.isGenerating ?? false)
 
             Divider().opacity(0.3)
+
+            if !knowledgePackStore.activeAnswerCards.isEmpty {
+                KnowledgeAnswerCardList(
+                    store: knowledgePackStore,
+                    appearance: .dark
+                )
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+
+                Divider().opacity(0.3)
+            }
 
             // Persona cards — use a task-driven timer instead of TimelineView so
             // we don't keep a CADisplayLink running at 60 Hz when the panel is hidden.

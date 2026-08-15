@@ -168,3 +168,145 @@ A broader package rerun was stopped after an inherited integration path blocked 
 The process stack showed a Core Audio permission/device wait rather than an assertion failure. The
 previous 703-test non-detector pass remains the broad baseline; the changed KC-5 code is covered by
 the focused passing suite above.
+
+## KC-7 partial-speech question detection
+
+The live path now converts ordered, revisable transcript text into domain-neutral
+`QuestionCandidateEvent` values:
+
+- a matching partial emits a provisional candidate before the complete question arrives;
+- a compatible follow-up promotes the same candidate ID to stable;
+- an equivalent final revision emits no duplicate, including when ASR changes `rev par` to
+  `RevPAR`;
+- a question-family correction cancels the stale candidate before creating its replacement;
+- a material period correction cancels and restarts the candidate even within the same family;
+- clearing a partial cancels speculative work, and out-of-order revisions are ignored; and
+- profile vocabulary resolves aliases to opaque term IDs without adding hospitality types to the
+  core event model.
+
+`KnowledgePackStore` configures the detector from the selected pack and registered profiles,
+retains active candidates per stream, and exposes the event boundary that the retrieval/card
+milestone will consume. Detection itself is deterministic and makes no model or network call.
+
+Passing local checks from `OpenOats/`:
+
+```bash
+swift test --filter QuestionCandidateDetectorTests
+swift test --filter 'QuestionCandidateDetectorTests|KnowledgePackLoaderTests'
+swift build -c release --product knowledge-pack
+xcrun swift-format lint --strict \
+  Sources/OpenOats/KnowledgePack/QuestionCandidateDetector.swift \
+  Sources/OpenOats/KnowledgePack/KnowledgeDomainProfile.swift \
+  Sources/OpenOats/App/KnowledgePackStore.swift \
+  Tests/OpenOatsTests/QuestionCandidateDetectorTests.swift
+git diff --check
+```
+
+Results:
+
+- 9 of 9 detector tests passed;
+- the combined detector and loader run passed 17 of 17 tests;
+- the release `knowledge-pack` product built successfully;
+- all four changed Swift files passed strict format lint; and
+- `git diff --check` passed.
+
+The release compiler continues to report pre-existing warnings in audio capture, batch cleanup,
+suggestion, and streaming-transcriber files; KC-7 adds no new compiler warning.
+
+## KC-8 first sourced presenter card
+
+Stable question candidates now resolve directly to a reviewed KnowledgePack response card without
+using a model or network call. The first proof maps the stable 2020 RevPAR candidate to
+`card-revpar-2020` and displays the $89.50 calculated answer in the private presenter overlay.
+
+Trust and interaction behavior:
+
+- provisional speech does not surface a factual answer;
+- period and term bindings must agree with the card's assertions;
+- unreviewed, ambiguous, incomplete, or unavailable evidence fails closed;
+- the answer appears before its evidence state and calculation details;
+- workbook evidence shows its exact sheet/cell/section locator;
+- each evidence row is one button that opens the verified local source file; and
+- correction, cancellation, session stop, or KnowledgePack replacement removes the stale card.
+
+The remote transcript bridge consumes both revisable `volatileThemText` and finalized remote
+utterances. The trusted card is available in the default classic overlay and the alternate Sidecast
+panel. Accessibility identifiers cover the card, answer, evidence state, calculation, and each
+evidence button.
+
+Passing local checks from `OpenOats/`:
+
+```bash
+swift test --filter KnowledgeAnswerCardResolverTests
+swift test --filter \
+  'KnowledgeAnswerCardResolverTests|QuestionCandidateDetectorTests|KnowledgePackLoaderTests'
+swift build -c release --product OpenOats
+xcrun swift-format lint --strict \
+  Sources/OpenOats/KnowledgePack/QuestionCandidateDetector.swift \
+  Sources/OpenOats/KnowledgePack/KnowledgeAnswerCardResolver.swift \
+  Sources/OpenOats/KnowledgePack/KnowledgeDomainProfile.swift \
+  Sources/OpenOats/App/KnowledgePackStore.swift \
+  Sources/OpenOats/Views/KnowledgeAnswerCardView.swift \
+  Tests/OpenOatsTests/QuestionCandidateDetectorTests.swift \
+  Tests/OpenOatsTests/KnowledgeAnswerCardResolverTests.swift
+git diff --check
+```
+
+Results:
+
+- 7 of 7 resolver/store tests passed;
+- the combined first-proof run passed 24 of 24 tests;
+- the release `OpenOats` app product built successfully;
+- all new and KC-specific core, card-view, and test files passed strict format lint; and
+- `git diff --check` passed.
+
+The release build reports the same inherited warnings listed for KC-7 and no new KC-8 compiler
+warning.
+
+## KC-9 deterministic first working proof
+
+The KnowledgePack CLI now replays timestamped transcript revisions from a clean detector/resolver
+state and writes a machine-readable PASS/FAIL report. The report combines the simulated revision
+timestamp with measured local processing time, rather than reporting the revision timestamp alone.
+
+The checked-in synthetic RevPAR proof passed:
+
+- the provisional candidate appeared on `What was the rev par`;
+- the same candidate became stable on the 420 ms partial;
+- the calculated $89.50 card was ready at 420.776 ms;
+- the response deadline was 1,000 ms, leaving 579.224 ms of headroom;
+- final speech arrived at 900 ms, 479.224 ms after the answer was ready;
+- median processing latency was 0.605 ms;
+- p95 and maximum processing latency were 0.776 ms against a 50 ms budget;
+- all eight proof checks passed; and
+- both expected citations existed inside the selected synthetic KnowledgePack with exact locators.
+
+The public-safe evidence is recorded in
+[the human proof summary](evidence/kc9-first-proof-2026-08-14.md) and
+[machine-readable JSON](evidence/kc9-first-proof-2026-08-14.json). The report contains pack-relative
+paths only; it contains no real audio, real meeting transcript, tenant detail, absolute local path,
+or proprietary figure.
+
+Passing local checks:
+
+```bash
+swift test --filter KnowledgeProofReplayTests
+swift run knowledge-pack replay \
+  ../fixtures/knowledge-packs/minimal-hospitality \
+  ../fixtures/knowledge-packs/minimal-hospitality/evaluation/live-proof-revpar.json \
+  --output ../docs/evidence/kc9-first-proof-2026-08-14.json
+```
+
+Results:
+
+- 4 of 4 replay tests passed, including clean-state repeatability and intentional expected-card
+  mismatch failure;
+- the combined loader, detector, resolver, and replay run passed 28 of 28 tests;
+- the replay command exited successfully with `PASS`; and
+- the output report retained all per-revision timing, event, card, and citation checks;
+- the release `knowledge-pack` product built successfully;
+- all KC-specific Swift files passed strict format lint; and
+- both replay-spec and evidence-report JSON files parsed successfully.
+
+This proof measures the deterministic in-process path after transcript revisions arrive. It does
+not include audio capture or ASR latency; those remain separate verification gates.

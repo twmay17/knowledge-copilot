@@ -154,6 +154,30 @@ public struct KnowledgeDomainProfileRegistry: Sendable {
     return issues
   }
 
+  /// Returns profile-owned vocabulary as opaque term aliases for the domain-neutral live path.
+  public func termAliases(for manifest: KnowledgePackManifest) -> [KnowledgeTermAlias] {
+    let profileGroups = Dictionary(grouping: profiles, by: \KnowledgeDomainProfile.id)
+    var aliases: [KnowledgeTermAlias] = []
+
+    for reference in manifest.domainProfiles {
+      guard profileGroups[reference.id]?.count == 1,
+        let profile = profileGroups[reference.id]?.first,
+        let schema = profile.schema(for: reference.version)
+      else { continue }
+
+      aliases.append(
+        contentsOf: schema.predicates.map { definition in
+          KnowledgeTermAlias(
+            id: definition.predicate,
+            canonicalText: definition.label,
+            aliases: definition.aliases
+          )
+        })
+    }
+
+    return aliases.sorted { $0.id < $1.id }
+  }
+
   private func validate(
     _ pack: KnowledgePack,
     with schema: KnowledgeDomainProfileSchema,

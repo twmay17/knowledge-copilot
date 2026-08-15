@@ -14,6 +14,8 @@ do not describe a real hotel, investor, operator, tenant, meeting, or transactio
 - fuller operating context: actual and budget P&L rows for room, food-and-beverage, other,
   departmental, undistributed, and gross-operating-profit values;
 - reusable golden expectations under `evaluation/golden-cases.jsonl`.
+- a timestamped partial-speech vertical slice under `evaluation/live-proof-revpar.json` that can
+  produce a machine-readable latency and citation-validity report.
 
 ## Public redistribution review
 

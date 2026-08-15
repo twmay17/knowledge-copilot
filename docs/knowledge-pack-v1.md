@@ -56,6 +56,47 @@ Records a deterministic expression, version, input assertion IDs, and output ass
 
 Groups a canonical question with paraphrases, partial prefixes, ASR aliases, and tags. This is the preparation-to-live bridge that lets retrieval begin before a sentence ends.
 
+## Partial-speech question events
+
+The live detector accepts ordered transcript revisions without depending on an ASR vendor or a
+specific business domain. Each revision carries a stream ID, a monotonically increasing sequence,
+text, and either `partial` or `final` stability.
+
+When a partial revision matches a prepared question family, the detector emits a provisional
+`QuestionCandidate`. A second compatible revision, or a final revision, promotes the same
+candidate ID to stable. Repeating the final text does not emit a duplicate event. If the ASR text
+changes the question family or a material binding such as the period, the detector cancels the
+stale candidate before emitting its replacement. Clearing a partial also emits a cancellation so
+speculative retrieval can be discarded.
+
+DomainProfile vocabulary enters this path only as opaque term IDs and aliases. For example, the
+hospitality profile maps both `RevPAR` and spoken `rev par` to `hospitality.revpar`; the generic
+detector does not contain hotel-specific types or formulas. Matching is local and deterministic,
+so question detection does not call a language model or the web.
+
+`KnowledgePackStore.processTranscriptRevision(_:)` is the app integration boundary. It retains the
+active candidate per transcript stream and exposes the latest upsert/cancel events for the next
+retrieval stage.
+
+## Presenter answer resolution
+
+Only a stable candidate may surface a factual presenter card. The resolver selects exactly one
+reviewed response card whose question family and resolved bindings agree with the candidate. A
+requested period must match a cited assertion's period, and a resolved term must match an
+assertion predicate. This prevents a prepared 2020 answer from being reused after ASR corrects the
+question to 2021.
+
+Resolution fails closed when there is no reviewed match, more than one reviewed match, a missing
+calculation, or evidence that cannot be resolved to a safe local file inside the selected pack.
+The resulting fallback says either `not_found_in_corpus` or `needs_clarification`; it never
+synthesizes a factual answer.
+
+Each resolved citation carries the source title, a human-readable locator such as
+`Operating Statement · A3:J3 · 2020 actual`, the source excerpt, and the verified local file URL.
+The presenter overlay shows the read-aloud answer first, followed by its evidence state,
+calculation, and one-action evidence buttons. The same trusted card appears in both the classic
+private overlay and Sidecast mode.
+
 ### Response card
 
 Contains presenter-sized answer text and references to question families, assertions, passages, and calculations. A card also carries review status and exactly one primary evidence state.
@@ -102,6 +143,9 @@ From `OpenOats/`:
 ```bash
 swift run knowledge-pack validate ../fixtures/knowledge-packs/minimal-hospitality
 swift run knowledge-pack inspect ../fixtures/knowledge-packs/minimal-hospitality
+swift run knowledge-pack replay \
+  ../fixtures/knowledge-packs/minimal-hospitality \
+  ../fixtures/knowledge-packs/minimal-hospitality/evaluation/live-proof-revpar.json
 ```
 
 The fixture is synthetic and redistributable. It exercises the generic contract through the
@@ -124,3 +168,8 @@ The loader verifies every source hash. The focused test suite also maps every go
 reviewed response card and checks that its expected evidence state and answer fragments match.
 Hospitality units, aliases, predicates, and formulas remain owned by the separate profile target;
 none are added to the generic KnowledgePack model.
+
+The timestamped replay specification is an executable vertical slice. It verifies the prepared
+partial question, stable reviewed card, response deadline, processing-latency budget, expected
+answer fragments, and exact citation files from a clean in-memory state. See
+[the replay protocol](knowledge-proof-replay.md).

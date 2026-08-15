@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "name": "Synthetic 2020 RevPAR partial-speech proof",
+  "streamID": "remote",
+  "responseDeadlineMilliseconds": 1000,
+  "maximumProcessingLatencyMilliseconds": 50,
+  "requireAnswerBeforeFinal": true,
+  "revisions": [
+    {
+      "atMilliseconds": 0,
+      "text": "What was the rev par",
+      "stability": "partial"
+    },
+    {
+      "atMilliseconds": 420,
+      "text": "What was the rev par for this asset in 2020",
+      "stability": "partial"
+    },
+    {
+      "atMilliseconds": 900,
+      "text": "What was the RevPAR for this asset in 2020?",
+      "stability": "final"
+    }
+  ],
+  "expected": {
+    "questionFamilyID": "question-revpar-period",
+    "responseCardID": "card-revpar-2020",
+    "evidenceState": "calculated",
+    "answerContains": [
+      "$89.50",
+      "$3,266,750",
+      "36,500 available room nights"
+    ],
+    "citationPassageIDs": [
+      "passage-operating-2020-actual",
+      "passage-inventory-2020-actual"
+    ]
+  }
+}
