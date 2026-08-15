@@ -107,26 +107,69 @@ public struct KnowledgeSource: Codable, Equatable, Sendable, Identifiable {
 
 public struct KnowledgeSourceLocator: Codable, Equatable, Sendable {
   public let page: Int?
+  public let table: Int?
+  public let block: Int?
   public let sheet: String?
   public let cellRange: String?
   public let sectionPath: [String]
   public let rowStart: Int?
   public let rowEnd: Int?
+  public let contentSHA256: String?
 
   public init(
     page: Int? = nil,
+    table: Int? = nil,
+    block: Int? = nil,
     sheet: String? = nil,
     cellRange: String? = nil,
     sectionPath: [String] = [],
     rowStart: Int? = nil,
-    rowEnd: Int? = nil
+    rowEnd: Int? = nil,
+    contentSHA256: String? = nil
   ) {
     self.page = page
+    self.table = table
+    self.block = block
     self.sheet = sheet
     self.cellRange = cellRange
     self.sectionPath = sectionPath
     self.rowStart = rowStart
     self.rowEnd = rowEnd
+    self.contentSHA256 = contentSHA256
+  }
+}
+
+public enum KnowledgeExtractionMethod: String, Codable, Equatable, Sendable {
+  case pdfTextLayer = "pdf_text_layer"
+  case docxXML = "docx_xml"
+}
+
+public enum KnowledgeExtractionQuality: String, Codable, Equatable, Sendable {
+  case high
+  case low
+}
+
+public enum KnowledgeExtractionQualityFlag: String, Codable, Equatable, Sendable {
+  case lowQualityOCR = "low_quality_ocr"
+  case noExtractableText = "no_extractable_text"
+}
+
+public struct KnowledgePassageExtraction: Codable, Equatable, Sendable {
+  public let method: KnowledgeExtractionMethod
+  public let quality: KnowledgeExtractionQuality
+  public let confidence: Double?
+  public let flags: [KnowledgeExtractionQualityFlag]
+
+  public init(
+    method: KnowledgeExtractionMethod,
+    quality: KnowledgeExtractionQuality,
+    confidence: Double? = nil,
+    flags: [KnowledgeExtractionQualityFlag] = []
+  ) {
+    self.method = method
+    self.quality = quality
+    self.confidence = confidence
+    self.flags = flags
   }
 }
 
@@ -135,12 +178,20 @@ public struct KnowledgePassage: Codable, Equatable, Sendable, Identifiable {
   public let sourceID: String
   public let text: String
   public let locator: KnowledgeSourceLocator
+  public let extraction: KnowledgePassageExtraction?
 
-  public init(id: String, sourceID: String, text: String, locator: KnowledgeSourceLocator) {
+  public init(
+    id: String,
+    sourceID: String,
+    text: String,
+    locator: KnowledgeSourceLocator,
+    extraction: KnowledgePassageExtraction? = nil
+  ) {
     self.id = id
     self.sourceID = sourceID
     self.text = text
     self.locator = locator
+    self.extraction = extraction
   }
 }
 

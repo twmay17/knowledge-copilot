@@ -189,6 +189,33 @@ public struct KnowledgePackLoader: Sendable {
       if passage.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
         issues.append(error("passage.empty_text", "Passage '\(passage.id)' must not be empty."))
       }
+      if let contentSHA256 = passage.locator.contentSHA256 {
+        if !Self.isSHA256(contentSHA256) {
+          issues.append(
+            error(
+              "passage.invalid_content_sha256",
+              "Passage '\(passage.id)' must use a lowercase 64-character content SHA-256 hash."))
+        } else if contentSHA256 != Self.sha256(Data(passage.text.utf8)) {
+          issues.append(
+            error(
+              "passage.content_hash_mismatch",
+              "Passage '\(passage.id)' content does not match its locator hash."))
+        }
+      }
+      if let extraction = passage.extraction {
+        if let confidence = extraction.confidence, !(0...1).contains(confidence) {
+          issues.append(
+            error(
+              "passage.invalid_extraction_confidence",
+              "Passage '\(passage.id)' extraction confidence must be between 0 and 1."))
+        }
+        if extraction.quality == .low {
+          issues.append(
+            warning(
+              "passage.low_quality_extraction",
+              "Passage '\(passage.id)' is flagged as low-quality extracted text."))
+        }
+      }
     }
 
     for assertion in pack.assertions {
@@ -441,7 +468,7 @@ public struct KnowledgePackLoader: Sendable {
       }
       do {
         let data = try Data(contentsOf: fileURL, options: [.mappedIfSafe])
-        let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        let digest = Self.sha256(data)
         if digest != source.sha256 {
           issues.append(
             error(
@@ -536,6 +563,10 @@ public struct KnowledgePackLoader: Sendable {
 
   private static func isSHA256(_ value: String) -> Bool {
     value.count == 64 && value.allSatisfy { $0.isNumber || ("a"..."f").contains(String($0)) }
+  }
+
+  private static func sha256(_ data: Data) -> String {
+    SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
   }
 
   private func error(_ code: String, _ message: String) -> KnowledgePackValidationIssue {

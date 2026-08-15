@@ -310,3 +310,43 @@ Results:
 
 This proof measures the deterministic in-process path after transcript revisions arrive. It does
 not include audio capture or ASR latency; those remain separate verification gates.
+
+## KC-10 PDF and DOCX evidence ingestion
+
+The next milestone now ingests genuine PDF and DOCX files locally into generic KnowledgePack source
+and passage records:
+
+- PDFs retain one-based page and document-block locators;
+- DOCX narrative retains nearest-heading section paths;
+- native DOCX tables retain one-based table and document-block locators;
+- every passage records an exact content SHA-256 hash used in its stable ID and later validation;
+- every passage can resolve back to the exact, containment-checked, hash-verified source file; and
+- missing or suspicious PDF text layers produce visible review warnings instead of invented text.
+
+The public-safe fixtures were generated reproducibly and visually inspected after rendering. The
+PDF has two clean pages. The DOCX has one clean page, and its table passed exact Word geometry checks
+for `tblW`, `tblInd`, `tblGrid`, and every `tcW`.
+
+Passing local checks so far:
+
+```bash
+swift test --filter 'KnowledgeDocumentIngestorTests|KnowledgePackLoaderTests'
+swift run knowledge-pack ingest-document \
+  ../fixtures/document-ingestion/sample-evidence.pdf \
+  --relative-path sample-evidence.pdf
+swift run knowledge-pack ingest-document \
+  ../fixtures/document-ingestion/sample-evidence.docx \
+  --relative-path sample-evidence.docx
+```
+
+Results:
+
+- 5 of 5 ingestion tests passed;
+- the combined ingestion and loader run passed 13 of 13 tests;
+- the PDF produced two page passages and visibly flagged the deliberately damaged second page;
+- the DOCX produced six passages, including one table passage with the expected RevPAR row; and
+- source containment, file hashes, passage hashes, deterministic IDs, and unsafe-path rejection all
+  passed.
+
+See [the ingestion contract](document-ingestion.md) and
+[the public-safe KC-10 evidence summary](evidence/kc10-document-ingestion-2026-08-14.md).

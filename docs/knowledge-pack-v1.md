@@ -31,7 +31,13 @@ Identifies a document, spreadsheet, presentation, note, transcript, or structure
 
 ### Passage
 
-Stores retrievable source text plus a stable locator. Locators may include page, section path, sheet, cell range, or row range without requiring domain-specific fields.
+Stores retrievable source text plus a stable locator. Locators may include page, table, document
+block, section path, sheet, cell range, row range, and an exact passage-content SHA-256 hash without
+requiring domain-specific fields. Ingested passages may also record their extraction method,
+quality, confidence, and visible quality flags.
+
+The PDF/DOCX ingestion contract, source-resolution rules, OCR-quality behavior, and explicit format
+limits are documented in [PDF and DOCX evidence ingestion](document-ingestion.md).
 
 ### Assertion
 
@@ -124,6 +130,8 @@ The v1 loader fails closed on:
 - empty or duplicate IDs;
 - unsafe source paths;
 - invalid SHA-256 values;
+- ingested passage text that does not match its locator content hash;
+- extraction confidence outside 0 through 1;
 - broken source, passage, assertion, evidence, calculation, question-family, or card references;
 - values whose populated field does not match their declared type;
 - confidence outside 0 through 1;
@@ -135,6 +143,7 @@ unsupported version. Registered profiles validate their predicate namespace, typ
 required qualifiers, allowed units, and deterministic calculation signatures.
 
 Warnings are retained for reviewable conditions that do not make the pack structurally unsafe.
+Low-quality extracted text is one such warning and remains visibly flagged on the passage.
 
 ## Commands
 
@@ -146,6 +155,9 @@ swift run knowledge-pack inspect ../fixtures/knowledge-packs/minimal-hospitality
 swift run knowledge-pack replay \
   ../fixtures/knowledge-packs/minimal-hospitality \
   ../fixtures/knowledge-packs/minimal-hospitality/evaluation/live-proof-revpar.json
+swift run knowledge-pack ingest-document \
+  ../fixtures/document-ingestion/sample-evidence.docx \
+  --relative-path sources/sample-evidence.docx
 ```
 
 The fixture is synthetic and redistributable. It exercises the generic contract through the
