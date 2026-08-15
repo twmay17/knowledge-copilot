@@ -1,0 +1,181 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:knowledge-copilot:schema:study-analysis:v1",
+  "title": "Knowledge Copilot Study Analysis v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "analysisID",
+    "bundleID",
+    "packID",
+    "packContentHash",
+    "generator",
+    "questionFamilyProposals",
+    "responseCardProposals",
+    "contradictions",
+    "corpusGaps"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "analysisID": { "$ref": "#/$defs/id" },
+    "bundleID": { "type": "string", "pattern": "^study-[a-f0-9]{24}$" },
+    "packID": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "packContentHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "generator": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "questionFamilyProposals": {
+      "type": "array",
+      "maxItems": 200,
+      "items": { "$ref": "#/$defs/questionFamily" }
+    },
+    "responseCardProposals": {
+      "type": "array",
+      "maxItems": 200,
+      "items": { "$ref": "#/$defs/responseCard" }
+    },
+    "contradictions": {
+      "type": "array",
+      "maxItems": 200,
+      "items": { "$ref": "#/$defs/contradiction" }
+    },
+    "corpusGaps": {
+      "type": "array",
+      "maxItems": 200,
+      "items": { "$ref": "#/$defs/corpusGap" }
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9._-]*$"
+    },
+    "idArray": {
+      "type": "array",
+      "maxItems": 50,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/id" }
+    },
+    "textArray500": {
+      "type": "array",
+      "maxItems": 50,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1, "maxLength": 500 }
+    },
+    "textArray300": {
+      "type": "array",
+      "maxItems": 50,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1, "maxLength": 300 }
+    },
+    "textArray200": {
+      "type": "array",
+      "maxItems": 50,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1, "maxLength": 200 }
+    },
+    "questionFamily": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "canonicalQuestion",
+        "variants",
+        "partialPrefixes",
+        "aliases",
+        "tags"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "canonicalQuestion": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "variants": { "$ref": "#/$defs/textArray500" },
+        "partialPrefixes": {
+          "allOf": [
+            { "$ref": "#/$defs/textArray300" },
+            { "minItems": 1 }
+          ]
+        },
+        "aliases": { "$ref": "#/$defs/textArray200" },
+        "tags": {
+          "type": "array",
+          "maxItems": 50,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 100 }
+        }
+      }
+    },
+    "responseCard": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "title",
+        "answer",
+        "evidenceState",
+        "questionFamilyIDs",
+        "assertionIDs",
+        "citationPassageIDs",
+        "calculationIDs"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "answer": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "evidenceState": {
+          "enum": [
+            "directly_sourced",
+            "calculated",
+            "supported_by_corpus",
+            "contradicted_by_corpus",
+            "contested",
+            "interpretive",
+            "not_found_in_corpus",
+            "needs_clarification"
+          ]
+        },
+        "questionFamilyIDs": {
+          "allOf": [
+            { "$ref": "#/$defs/idArray" },
+            { "minItems": 1 }
+          ]
+        },
+        "assertionIDs": { "$ref": "#/$defs/idArray" },
+        "citationPassageIDs": { "$ref": "#/$defs/idArray" },
+        "calculationIDs": { "$ref": "#/$defs/idArray" },
+        "caveat": { "type": "string", "minLength": 1, "maxLength": 1000 }
+      }
+    },
+    "contradiction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "summary", "assertionIDs", "citationPassageIDs"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "summary": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "assertionIDs": {
+          "allOf": [
+            { "$ref": "#/$defs/idArray" },
+            { "minItems": 2 }
+          ]
+        },
+        "citationPassageIDs": {
+          "allOf": [
+            { "$ref": "#/$defs/idArray" },
+            { "minItems": 2 }
+          ]
+        }
+      }
+    },
+    "corpusGap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "question", "detail"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "question": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "detail": { "type": "string", "minLength": 1, "maxLength": 2000 }
+      }
+    }
+  }
+}

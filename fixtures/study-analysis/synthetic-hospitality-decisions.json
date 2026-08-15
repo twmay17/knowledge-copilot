@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "queueID": "review-4cb347f76303262773b591af",
+  "analysisID": "analysis-synthetic-hospitality-v1",
+  "bundleID": "study-9df58033540bc64272debe5a",
+  "reviewer": "Synthetic Fixture Reviewer",
+  "reviewedAt": "2026-08-15T16:00:00Z",
+  "decisions": [
+    {
+      "proposalKind": "question_family",
+      "proposalID": "question-revpar-reconciliation-2020",
+      "disposition": "approve",
+      "note": "Useful early prefix and appropriately scoped to the corpus conflict."
+    },
+    {
+      "proposalKind": "response_card",
+      "proposalID": "card-revpar-reconciliation-2020",
+      "disposition": "approve",
+      "note": "Answer accurately preserves both figures and the caveat."
+    }
+  ]
+}

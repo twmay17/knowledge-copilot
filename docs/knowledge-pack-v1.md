@@ -189,7 +189,8 @@ uses `not_found_in_corpus` when evidence is absent.
 The Study Bundle is a preparation artifact, not a trusted model result. It never promotes generated
 content to `reviewed`, and the subscription-assisted path is a manual user workflow rather than an
 attempt to programmatically drive a ChatGPT account. See the
-[Study Bundle preparation boundary](study-bundle.md).
+[Study Bundle preparation boundary](study-bundle.md) and the
+[study-analysis human review gate](study-analysis-review.md).
 
 Warnings are retained for reviewable conditions that do not make the pack structurally unsafe.
 Low-quality extracted text is one such warning and remains visibly flagged on the passage.
@@ -213,6 +214,15 @@ swift run knowledge-pack ingest-spreadsheet \
 swift run knowledge-pack export-study-bundle \
   ../fixtures/knowledge-packs/minimal-hospitality \
   --output ../outputs/study-bundle.json
+swift run knowledge-pack prepare-study-review \
+  ../fixtures/knowledge-packs/minimal-hospitality \
+  ../fixtures/study-analysis/synthetic-hospitality-analysis.json \
+  --output ../outputs/review-queue.json
+swift run knowledge-pack approve-study-review \
+  ../fixtures/knowledge-packs/minimal-hospitality \
+  ../outputs/review-queue.json \
+  ../fixtures/study-analysis/synthetic-hospitality-decisions.json \
+  --output ../outputs/approved-import.json
 ```
 
 The fixture is synthetic and redistributable. It exercises the generic contract through the

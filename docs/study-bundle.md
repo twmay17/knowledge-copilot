@@ -26,8 +26,10 @@ building model calls into applications:
 - [OpenAI API Platform](https://platform.openai.com/overview) is the integration path for an
   application that makes model requests itself.
 
-Model output remains proposed preparation material. A later import-and-review gate must validate
-IDs, citations, evidence states, and calculations before any generated card can become `reviewed`.
+Model output remains proposed preparation material. The
+[study-analysis and human-review gate](study-analysis-review.md) validates IDs, citations, evidence
+states, calculations, and explicit reviewer decisions before any generated card can become
+`reviewed`.
 
 ### Live lane
 
@@ -88,9 +90,9 @@ the underlying deal or research materials. Users should upload it only when thei
 chosen account permit that data handling. Public fixtures and tests must remain synthetic and
 redistributable; private Study Bundles must never be committed to the open-source repository.
 
-## Current and next acceptance slices
+## Current acceptance slices
 
-KC-15 establishes deterministic export and the user-operated preparation workflow. The next slice
-will define a machine-readable analysis-result contract and a human review/import gate. Direct API
-automation, if added later, is a replaceable adapter and is not required to obtain value from the
-first subscription-assisted workflow.
+KC-15 establishes deterministic export and the user-operated preparation workflow. KC-16 defines
+the machine-readable analysis-result contract and a human review/import gate. Direct API
+automation, if added later, remains a replaceable adapter and is not required to obtain value from
+the subscription-assisted workflow.

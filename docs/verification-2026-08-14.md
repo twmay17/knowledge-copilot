@@ -561,3 +561,45 @@ Results:
 See [the Study Bundle boundary](study-bundle.md),
 [the reusable preparation prompt](study-bundle-chatgpt-prompt.md), and
 [the public-safe KC-15 evidence summary](evidence/kc15-study-bundle-2026-08-15.md).
+
+## KC-16 study-analysis and human-review gate
+
+Frontier-model preparation results now return through an explicit untrusted-proposal contract:
+
+- every analysis is bound to one exact Study Bundle, pack, and full-content hash;
+- public JSON Schemas define the model result and human decision files;
+- model output cannot set review status and every queued card remains `generated`;
+- references, evidence-state requirements, calculations, and citation closure fail closed;
+- pending queues expose exact assertions, excerpts, locators, and calculations for review;
+- stale and tampered queues are rejected;
+- a named, timestamped reviewer must approve or reject every question and card proposal;
+- only approved cards become `reviewed` after the complete merged pack validates; and
+- the command emits an auditable import artifact without changing the pack.
+
+Passing local checks:
+
+```bash
+swift test --filter 'KnowledgeStudyReviewTests|KnowledgeStudyBundleTests'
+swift run knowledge-pack prepare-study-review <pack> <analysis> --output <queue>
+swift run knowledge-pack approve-study-review <pack> <queue> <decisions> --output <import>
+swift test --skip MeetingDetectorTests
+swift build -c release --product knowledge-pack
+swift build -c release --product OpenOats
+xcrun swift-format lint --strict <four changed Swift files>
+git diff --check
+```
+
+Results:
+
+- 12 of 12 KC-16 acceptance tests and all 21 preparation-boundary tests passed;
+- both CLI artifacts were deterministic across repeated runs;
+- the pending queue remained generated and the approved import contained only the two explicitly
+  approved additions;
+- all 780 non-environmental tests passed;
+- both release products built successfully; and
+- JSON syntax, strict Swift formatting, and whitespace checks passed.
+
+See [the analysis/review contract](study-analysis-review.md), the
+[public model-output schema](../schemas/study-analysis-v1.schema.json), the
+[public human-decision schema](../schemas/study-review-decisions-v1.schema.json), and the
+[public-safe KC-16 evidence summary](evidence/kc16-study-analysis-review-2026-08-15.md).

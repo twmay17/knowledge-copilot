@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:knowledge-copilot:schema:study-review-decisions:v1",
+  "title": "Knowledge Copilot Study Review Decisions v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "queueID",
+    "analysisID",
+    "bundleID",
+    "reviewer",
+    "reviewedAt",
+    "decisions"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "queueID": { "type": "string", "pattern": "^review-[a-f0-9]{24}$" },
+    "analysisID": { "$ref": "#/$defs/id" },
+    "bundleID": { "type": "string", "pattern": "^study-[a-f0-9]{24}$" },
+    "reviewer": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "reviewedAt": { "type": "string", "format": "date-time" },
+    "decisions": {
+      "type": "array",
+      "maxItems": 400,
+      "items": { "$ref": "#/$defs/decision" }
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9._-]*$"
+    },
+    "decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["proposalKind", "proposalID", "disposition"],
+      "properties": {
+        "proposalKind": { "enum": ["question_family", "response_card"] },
+        "proposalID": { "$ref": "#/$defs/id" },
+        "disposition": { "enum": ["approve", "reject"] },
+        "note": { "type": "string", "minLength": 1, "maxLength": 1000 }
+      }
+    }
+  }
+}

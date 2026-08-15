@@ -30,6 +30,10 @@ struct KnowledgePackTool {
         try importUnderwritingCSV(arguments: arguments)
       case "export-study-bundle":
         try exportStudyBundle(arguments: arguments, profiles: profiles)
+      case "prepare-study-review":
+        try prepareStudyReview(arguments: arguments, profiles: profiles)
+      case "approve-study-review":
+        try approveStudyReview(arguments: arguments, profiles: profiles)
       case "help", "--help", "-h":
         print(usage)
       default:
@@ -254,6 +258,89 @@ struct KnowledgePackTool {
     print("Result: \(outputURL.path)")
   }
 
+  private static func prepareStudyReview(
+    arguments: [String],
+    profiles: KnowledgeDomainProfileRegistry
+  ) throws {
+    guard arguments.count == 5 else { fail(usage) }
+    let directory = URL(fileURLWithPath: arguments[1], isDirectory: true).standardizedFileURL
+    let analysisURL = URL(fileURLWithPath: arguments[2]).standardizedFileURL
+    let options = parseOptions(
+      Array(arguments.dropFirst(3)),
+      supported: ["--output"]
+    )
+    guard let outputPath = options["--output"] else { fail(usage) }
+
+    let pack = try KnowledgePackLoader(profileRegistry: profiles).load(from: directory)
+    let bundle = try KnowledgeStudyBundleBuilder().build(from: pack)
+    let analysis = try decodeJSON(KnowledgeStudyAnalysis.self, from: analysisURL)
+    let queue = try KnowledgeStudyAnalysisValidator().makeReviewQueue(
+      analysis: analysis,
+      bundle: bundle
+    )
+    let outputURL = URL(fileURLWithPath: outputPath).standardizedFileURL
+    try writeJSON(queue, to: outputURL)
+
+    print("Prepared Study Review: \(queue.queueID)")
+    print("Analysis: \(queue.analysis.analysisID); generator: \(queue.analysis.generator)")
+    print(
+      "Pending question families: \(queue.analysis.questionFamilyProposals.count); response cards: \(queue.responseCardItems.count); contradictions: \(queue.analysis.contradictions.count); gaps: \(queue.analysis.corpusGaps.count)"
+    )
+    print("All model proposals remain generated and require an explicit human decision.")
+    print("Result: \(outputURL.path)")
+  }
+
+  private static func approveStudyReview(
+    arguments: [String],
+    profiles: KnowledgeDomainProfileRegistry
+  ) throws {
+    guard arguments.count == 6 else { fail(usage) }
+    let directory = URL(fileURLWithPath: arguments[1], isDirectory: true).standardizedFileURL
+    let queueURL = URL(fileURLWithPath: arguments[2]).standardizedFileURL
+    let decisionsURL = URL(fileURLWithPath: arguments[3]).standardizedFileURL
+    let options = parseOptions(
+      Array(arguments.dropFirst(4)),
+      supported: ["--output"]
+    )
+    guard let outputPath = options["--output"] else { fail(usage) }
+
+    let pack = try KnowledgePackLoader(profileRegistry: profiles).load(from: directory)
+    let queue = try decodeJSON(KnowledgeStudyReviewQueue.self, from: queueURL)
+    let decisions = try decodeJSON(KnowledgeStudyReviewDecisionSet.self, from: decisionsURL)
+    let approvedImport = try KnowledgeStudyReviewGate(profileRegistry: profiles).approve(
+      queue: queue,
+      decisions: decisions,
+      pack: pack
+    )
+    let outputURL = URL(fileURLWithPath: outputPath).standardizedFileURL
+    try writeJSON(approvedImport, to: outputURL)
+
+    print("Approved Study Import: \(approvedImport.importID)")
+    print(
+      "Reviewer: \(approvedImport.reviewer); question families: \(approvedImport.approvedQuestionFamilies.count); response cards: \(approvedImport.approvedResponseCards.count); rejected: \(approvedImport.rejectedDecisions.count)"
+    )
+    print("No KnowledgePack files were modified; the output is a reviewed import artifact.")
+    print("Result: \(outputURL.path)")
+  }
+
+  private static func decodeJSON<T: Decodable>(_ type: T.Type, from url: URL) throws -> T {
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    return try decoder.decode(type, from: Data(contentsOf: url))
+  }
+
+  private static func writeJSON<T: Encodable>(_ value: T, to url: URL) throws {
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+    encoder.dateEncodingStrategy = .iso8601
+    let data = try encoder.encode(value)
+    try FileManager.default.createDirectory(
+      at: url.deletingLastPathComponent(),
+      withIntermediateDirectories: true
+    )
+    try data.write(to: url, options: .atomic)
+  }
+
   private static func parseOptions(
     _ arguments: [String],
     supported: Set<String>
@@ -343,5 +430,7 @@ struct KnowledgePackTool {
       knowledge-pack ingest-spreadsheet <spreadsheet.xlsx|spreadsheet.csv> --relative-path <pack-relative-path> [--title <title>] [--output <result.json>]
       knowledge-pack import-underwriting-csv <pl-or-star.csv> --relative-path <pack-relative-path> --asset-id <stable-asset-id> [--period <YYYY|YYYY-MM|TTM:YYYY-MM|YTD:YYYY-MM>] [--status <actual|budget|forecast>] [--title <title>] [--output <result.json>]
       knowledge-pack export-study-bundle <pack-directory> --output <study-bundle.json>
+      knowledge-pack prepare-study-review <pack-directory> <study-analysis.json> --output <review-queue.json>
+      knowledge-pack approve-study-review <pack-directory> <review-queue.json> <review-decisions.json> --output <approved-import.json>
     """
 }

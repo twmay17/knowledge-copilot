@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "analysisID": "analysis-synthetic-hospitality-v1",
+  "bundleID": "study-9df58033540bc64272debe5a",
+  "packID": "synthetic-hotel-2020-v1",
+  "packContentHash": "9df58033540bc64272debe5abf4dbc02c062176328cdba72e576f63cca229b35",
+  "generator": "ChatGPT preparation session",
+  "questionFamilyProposals": [
+    {
+      "id": "question-revpar-reconciliation-2020",
+      "canonicalQuestion": "How do the 2020 RevPAR sources reconcile?",
+      "variants": [
+        "Why does the memo show different 2020 RevPAR?",
+        "Which 2020 RevPAR figure should I use?"
+      ],
+      "partialPrefixes": [
+        "how do the rev par sources",
+        "why does the memo show"
+      ],
+      "aliases": [
+        "revpar reconciliation",
+        "rev par discrepancy"
+      ],
+      "tags": [
+        "contradiction",
+        "hospitality",
+        "rooms"
+      ]
+    }
+  ],
+  "responseCardProposals": [
+    {
+      "id": "card-revpar-reconciliation-2020",
+      "title": "2020 RevPAR reconciliation",
+      "answer": "The operating statement and registered calculation both show $89.50 of 2020 RevPAR, while the investment memo states $92.00, so the corpus is contested.",
+      "evidenceState": "contested",
+      "questionFamilyIDs": [
+        "question-revpar-reconciliation-2020"
+      ],
+      "assertionIDs": [
+        "assertion-revpar-calculated-2020",
+        "assertion-revpar-memo-2020",
+        "assertion-revpar-reported-2020"
+      ],
+      "citationPassageIDs": [
+        "passage-inventory-2020-actual",
+        "passage-memo-revpar-2020",
+        "passage-operating-2020-actual"
+      ],
+      "calculationIDs": [
+        "calculation-revpar-v1"
+      ],
+      "caveat": "Confirm the memo's methodology before presenting one figure as authoritative."
+    }
+  ],
+  "contradictions": [
+    {
+      "id": "contradiction-revpar-2020",
+      "summary": "The operating statement reports $89.50 of 2020 RevPAR, while the investment memo states $92.00.",
+      "assertionIDs": [
+        "assertion-revpar-memo-2020",
+        "assertion-revpar-reported-2020"
+      ],
+      "citationPassageIDs": [
+        "passage-memo-revpar-2020",
+        "passage-operating-2020-actual"
+      ]
+    }
+  ],
+  "corpusGaps": [
+    {
+      "id": "gap-revpar-memo-methodology",
+      "question": "How did the investment memo calculate its $92.00 RevPAR figure?",
+      "detail": "The corpus contains the memo's stated figure but no supporting room-revenue or available-room-night calculation for it."
+    }
+  ]
+}

@@ -16,6 +16,11 @@ pre-meeting analysis in a user-operated frontier-model session. This keeps subsc
 preparation separate from the fast local meeting path and never treats generated material as
 reviewed. See the [Study Bundle preparation boundary](docs/study-bundle.md).
 
+Frontier-model analysis returns through a bundle-hash-bound proposal schema and remains
+`generated` until a named human explicitly approves or rejects every proposed question family and
+response card. The gate validates the would-be merged pack before emitting an auditable import
+artifact. See [study analysis and human review](docs/study-analysis-review.md).
+
 The no-admin Microsoft Teams capture baseline is documented in the [Teams audio-capture verification runbook](docs/teams-audio-verification.md).
 
 <p align="center">
