@@ -412,7 +412,7 @@ a financial ontology to the core:
 - Domain Profiles can protect additional dimensions, with hospitality protecting `status` and
   requiring room scope for room predicates.
 
-Passing local checks so far:
+Passing local checks:
 
 ```bash
 swift test --filter KnowledgeAssertionEvidenceModelTests
@@ -437,3 +437,44 @@ Results:
 
 See [the assertion/evidence contract](assertion-evidence-model.md) and
 [the public-safe KC-12 evidence summary](evidence/kc12-assertion-evidence-model-2026-08-15.md).
+
+## KC-13 domain-profile and calculation registry
+
+The extension layer now makes domain vocabulary and deterministic arithmetic removable and
+auditable:
+
+- profile schemas register typed qualifiers, vocabulary, aliases, units, and protected context;
+- calculation definitions register ordered inputs, input/output unit policies, executable
+  deterministic operations, and period rules;
+- stored calculated values are checked against scaled source inputs;
+- invalid units, mixed periods, zero denominators, non-finite results, and altered outputs fail
+  closed;
+- ordered-period growth validates current and prior input lineage;
+- answer summaries and the overlay expose resolved operands, results, and source locators; and
+- a generic pack loads with an empty registry and no hospitality package installed.
+
+Passing local checks:
+
+```bash
+swift test --filter KnowledgeDomainProfileRegistryTests
+swift test --filter \
+  'KnowledgeDomainProfileRegistryTests|KnowledgePackLoaderTests|KnowledgeAnswerCardResolverTests|KnowledgeAssertionEvidenceModelTests|QuestionCandidateDetectorTests|KnowledgeProofReplayTests'
+swift run knowledge-pack validate ../fixtures/knowledge-packs/minimal-hospitality
+swift build -c release --product knowledge-pack
+swift build -c release --product OpenOats
+xcrun swift-format lint --strict <seven changed Swift files>
+git diff --check
+```
+
+Results:
+
+- 7 of 7 KC-13 acceptance tests passed;
+- the combined domain registry and live KnowledgePack regression run passed 43 of 43 tests;
+- the synthetic hospitality fixture validated with 3 sources, 3 passages, 18 assertions, and 9
+  answer cards;
+- both release products built successfully; and
+- all seven changed Swift files passed strict Swift-format lint and the diff passed whitespace
+  validation.
+
+See [the profile and calculation registry contract](domain-profile-registry.md) and
+[the public-safe KC-13 evidence summary](evidence/kc13-domain-profile-registry-2026-08-15.md).

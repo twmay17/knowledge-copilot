@@ -167,6 +167,12 @@ unsupported version. Registered profiles validate their predicate namespace, typ
 required qualifiers, allowed units, protected domain context, and deterministic calculation
 signatures.
 
+The registry also validates typed qualifier values, calculation-specific input and output units,
+same-period or ordered-comparison period rules, deterministic arithmetic, and stored results. The
+profile interface, removability boundary, hospitality reference rules, and operand-level answer
+provenance are documented in
+[Domain Profile and calculation registry](domain-profile-registry.md).
+
 Warnings are retained for reviewable conditions that do not make the pack structurally unsafe.
 Low-quality extracted text is one such warning and remains visibly flagged on the passage.
 

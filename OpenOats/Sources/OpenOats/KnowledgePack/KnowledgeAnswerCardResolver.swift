@@ -32,12 +32,47 @@ public struct KnowledgeCalculationSummary: Equatable, Sendable, Identifiable {
   public let name: String
   public let version: String
   public let expression: String
+  public let inputs: [KnowledgeCalculationValueSummary]
+  public let output: KnowledgeCalculationValueSummary?
 
-  public init(id: String, name: String, version: String, expression: String) {
+  public init(
+    id: String,
+    name: String,
+    version: String,
+    expression: String,
+    inputs: [KnowledgeCalculationValueSummary] = [],
+    output: KnowledgeCalculationValueSummary? = nil
+  ) {
     self.id = id
     self.name = name
     self.version = version
     self.expression = expression
+    self.inputs = inputs
+    self.output = output
+  }
+}
+
+public struct KnowledgeCalculationValueSummary: Equatable, Sendable, Identifiable {
+  public let assertionID: String
+  public let predicate: String
+  public let displayValue: String
+  public let qualifiers: [String: String]
+  public let citations: [KnowledgeEvidenceCitation]
+
+  public var id: String { assertionID }
+
+  public init(
+    assertionID: String,
+    predicate: String,
+    displayValue: String,
+    qualifiers: [String: String],
+    citations: [KnowledgeEvidenceCitation]
+  ) {
+    self.assertionID = assertionID
+    self.predicate = predicate
+    self.displayValue = displayValue
+    self.qualifiers = qualifiers
+    self.citations = citations
   }
 }
 
@@ -158,29 +193,7 @@ public struct KnowledgeAnswerCardResolver: Sendable {
   private func resolveCitations(
     for card: KnowledgeResponseCard
   ) -> [KnowledgeEvidenceCitation]? {
-    let citations = card.citationPassageIDs.compactMap { passageID -> KnowledgeEvidenceCitation? in
-      guard let passage = pack.passages.first(where: { $0.id == passageID }),
-        let source = pack.sources.first(where: { $0.id == passage.sourceID })
-      else { return nil }
-
-      let fileURL =
-        rootDirectory
-        .appendingPathComponent(source.relativePath)
-        .standardizedFileURL
-        .resolvingSymlinksInPath()
-      guard Self.isInsideRoot(fileURL, root: rootDirectory),
-        FileManager.default.fileExists(atPath: fileURL.path)
-      else { return nil }
-
-      return KnowledgeEvidenceCitation(
-        passageID: passage.id,
-        sourceID: source.id,
-        sourceTitle: source.title,
-        fileURL: fileURL,
-        locatorLabel: Self.locatorLabel(passage.locator),
-        excerpt: passage.text
-      )
-    }
+    let citations = card.citationPassageIDs.compactMap(resolveCitation)
     guard citations.count == card.citationPassageIDs.count else { return nil }
 
     switch card.evidenceState {
@@ -195,19 +208,83 @@ public struct KnowledgeAnswerCardResolver: Sendable {
   private func resolveCalculations(
     for card: KnowledgeResponseCard
   ) -> [KnowledgeCalculationSummary]? {
-    let calculations = card.calculationIDs.compactMap { calculationID in
-      pack.calculations.first(where: { $0.id == calculationID }).map {
-        KnowledgeCalculationSummary(
-          id: $0.id,
-          name: $0.name,
-          version: $0.version,
-          expression: $0.expression
-        )
+    let calculations = card.calculationIDs.compactMap {
+      calculationID -> KnowledgeCalculationSummary? in
+      guard let calculation = pack.calculations.first(where: { $0.id == calculationID }) else {
+        return nil
       }
+      let inputs = calculation.inputAssertionIDs.compactMap {
+        resolveCalculationValue(assertionID: $0, requiresEvidence: true)
+      }
+      guard inputs.count == calculation.inputAssertionIDs.count,
+        let output = resolveCalculationValue(
+          assertionID: calculation.outputAssertionID,
+          requiresEvidence: false
+        )
+      else { return nil }
+      return KnowledgeCalculationSummary(
+        id: calculation.id,
+        name: calculation.name,
+        version: calculation.version,
+        expression: calculation.expression,
+        inputs: inputs,
+        output: output
+      )
     }
     guard calculations.count == card.calculationIDs.count else { return nil }
     if card.evidenceState == .calculated, calculations.isEmpty { return nil }
     return calculations
+  }
+
+  private func resolveCalculationValue(
+    assertionID: String,
+    requiresEvidence: Bool
+  ) -> KnowledgeCalculationValueSummary? {
+    guard let assertion = pack.assertions.first(where: { $0.id == assertionID }) else { return nil }
+    let citations = assertion.evidenceLinkIDs.compactMap {
+      evidenceLinkID -> KnowledgeEvidenceCitation? in
+      guard
+        let link = pack.evidenceLinks.first(where: {
+          $0.id == evidenceLinkID && $0.assertionID == assertion.id
+        })
+      else { return nil }
+      return resolveCitation(link.passageID)
+    }
+    guard citations.count == assertion.evidenceLinkIDs.count,
+      !requiresEvidence || !citations.isEmpty
+    else { return nil }
+
+    return KnowledgeCalculationValueSummary(
+      assertionID: assertion.id,
+      predicate: assertion.predicate,
+      displayValue: Self.displayValue(assertion.value),
+      qualifiers: assertion.qualifiers,
+      citations: citations
+    )
+  }
+
+  private func resolveCitation(_ passageID: String) -> KnowledgeEvidenceCitation? {
+    guard let passage = pack.passages.first(where: { $0.id == passageID }),
+      let source = pack.sources.first(where: { $0.id == passage.sourceID })
+    else { return nil }
+
+    let fileURL =
+      rootDirectory
+      .appendingPathComponent(source.relativePath)
+      .standardizedFileURL
+      .resolvingSymlinksInPath()
+    guard Self.isInsideRoot(fileURL, root: rootDirectory),
+      FileManager.default.fileExists(atPath: fileURL.path)
+    else { return nil }
+
+    return KnowledgeEvidenceCitation(
+      passageID: passage.id,
+      sourceID: source.id,
+      sourceTitle: source.title,
+      fileURL: fileURL,
+      locatorLabel: Self.locatorLabel(passage.locator),
+      excerpt: passage.text
+    )
   }
 
   private func fallback(
@@ -231,6 +308,23 @@ public struct KnowledgeAnswerCardResolver: Sendable {
   private static func isInsideRoot(_ fileURL: URL, root: URL) -> Bool {
     let rootPath = root.path.hasSuffix("/") ? root.path : root.path + "/"
     return fileURL.path.hasPrefix(rootPath)
+  }
+
+  private static func displayValue(_ value: KnowledgeValue) -> String {
+    switch value.type {
+    case .text:
+      return value.text ?? ""
+    case .number:
+      guard let number = value.number, let scale = value.scale else { return "" }
+      let formatted = String(format: "%.12g", number * scale)
+      return value.unit.map { "\(formatted) \($0)" } ?? formatted
+    case .boolean:
+      return value.boolean.map(String.init) ?? ""
+    case .date:
+      return value.date ?? ""
+    case .reference:
+      return value.referenceID ?? ""
+    }
   }
 
   private static func locatorLabel(_ locator: KnowledgeSourceLocator) -> String {

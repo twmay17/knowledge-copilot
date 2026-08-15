@@ -164,6 +164,10 @@ public struct KnowledgePackLoader: Sendable {
       uniquingKeysWith: { first, _ in first }
     )
     let calculationIDs = Set(pack.calculations.map(\.id))
+    let calculationsByID = Dictionary(
+      pack.calculations.map { ($0.id, $0) },
+      uniquingKeysWith: { first, _ in first }
+    )
     let assertionsByID = Dictionary(
       pack.assertions.map { ($0.id, $0) },
       uniquingKeysWith: { first, _ in first }
@@ -460,6 +464,16 @@ public struct KnowledgePackLoader: Sendable {
           error(
             "card.unknown_calculation",
             "Response card '\(card.id)' references unknown calculation '\(calculationID)'."))
+      }
+      for calculationID in card.calculationIDs {
+        guard let calculation = calculationsByID[calculationID] else { continue }
+        if !card.assertionIDs.contains(calculation.outputAssertionID) {
+          issues.append(
+            error(
+              "card.calculation_output_not_claimed",
+              "Response card '\(card.id)' must claim calculation '\(calculation.id)' output assertion '\(calculation.outputAssertionID)'."
+            ))
+        }
       }
       issues.append(contentsOf: validateEvidenceContract(card))
     }

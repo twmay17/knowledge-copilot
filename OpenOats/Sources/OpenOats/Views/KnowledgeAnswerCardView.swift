@@ -71,6 +71,23 @@ private struct KnowledgeAnswerCardView: View {
               .font(.system(size: 10, weight: .medium))
             Text(calculation.expression)
               .font(.system(size: 10, design: .monospaced))
+            ForEach(calculation.inputs) { input in
+              VStack(alignment: .leading, spacing: 1) {
+                Text(calculationValueLabel(input))
+                  .font(.system(size: 10, design: .monospaced))
+                if !input.citations.isEmpty {
+                  Text(
+                    "Source: "
+                      + input.citations.map(sourceLabel).joined(separator: ", ")
+                  )
+                  .font(.system(size: 9))
+                }
+              }
+            }
+            if let output = calculation.output {
+              Text("Result · \(calculationValueLabel(output))")
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+            }
           }
         }
         .foregroundStyle(secondaryColor)
@@ -169,5 +186,23 @@ private struct KnowledgeAnswerCardView: View {
     case .interpretive: .blue
     case .notFoundInCorpus, .needsClarification: .yellow
     }
+  }
+
+  private func calculationLabel(_ predicate: String) -> String {
+    predicate.split(separator: ".").last.map(String.init)?
+      .replacingOccurrences(of: "_", with: " ") ?? predicate
+  }
+
+  private func calculationValueLabel(_ value: KnowledgeCalculationValueSummary) -> String {
+    let context = value.qualifiers.sorted { $0.key < $1.key }
+      .map { "\($0.key)=\($0.value)" }
+      .joined(separator: ", ")
+    let suffix = context.isEmpty ? "" : " · \(context)"
+    return "\(calculationLabel(value.predicate)): \(value.displayValue)\(suffix)"
+  }
+
+  private func sourceLabel(_ citation: KnowledgeEvidenceCitation) -> String {
+    guard !citation.locatorLabel.isEmpty else { return citation.sourceTitle }
+    return "\(citation.sourceTitle) · \(citation.locatorLabel)"
   }
 }
