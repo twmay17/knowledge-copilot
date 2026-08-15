@@ -32,6 +32,12 @@ reviewer can inspect proposed answers beside their exact assertions, source exce
 calculations; explicitly approve or reject every proposal; preview the validated corpus change; and
 deliberately apply it. See [Knowledge Review workspace](docs/knowledge-review-workspace.md).
 
+Each loaded KnowledgePack now receives its own content-hash-bound hybrid search index. Exact aliases
+and local SQLite full-text search work without a paid service; an optional vector adapter can rerank
+only candidates already admitted by the active pack and its source, record-kind, and qualifier scope.
+Changes trigger explicit dependency invalidation before rebuilding. See
+[KnowledgePack hybrid search](docs/knowledge-pack-search.md).
+
 The no-admin Microsoft Teams capture baseline is documented in the [Teams audio-capture verification runbook](docs/teams-audio-verification.md).
 
 <p align="center">

@@ -74,6 +74,14 @@ The live detector will emit domain-neutral candidates and stable events for ques
 
 Every displayed answer receives one of eight states: directly sourced, calculated, supported by corpus, contradicted by corpus, contested, interpretive, not found in corpus, or needs clarification.
 
+### Pack-bound retrieval
+
+The active KnowledgePack owns a content-hash-bound hybrid index. Exact and local full-text retrieval
+are the dependable baseline. Optional semantic ranking may operate only on candidates already scoped
+to that pack, permitted record kinds, sources, and qualifiers. It may reorder eligible material but
+cannot create evidence or introduce a record from another pack. Typed dependency invalidation makes
+corpus changes explicit before index rebuild.
+
 ## First integration sequence
 
 1. Validate and inspect a KnowledgePack from the command line.

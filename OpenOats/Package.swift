@@ -49,7 +49,10 @@ let package = Package(
                 .product(name: "LaunchAtLogin", package: "LaunchAtLogin-Modern"),
             ],
             path: "Sources/OpenOats",
-            exclude: ["Info.plist", "OpenOats.entitlements", "Assets", "Resources"]
+            exclude: ["Info.plist", "OpenOats.entitlements", "Assets", "Resources"],
+            linkerSettings: [
+                .linkedLibrary("sqlite3"),
+            ]
         ),
         .executableTarget(
             name: "OpenOatsAppExecutable",

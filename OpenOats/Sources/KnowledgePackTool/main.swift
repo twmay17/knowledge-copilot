@@ -20,6 +20,8 @@ struct KnowledgePackTool {
       case "inspect":
         let (pack, _) = try loadPack(arguments: arguments, profiles: profiles)
         inspect(pack)
+      case "search":
+        try search(arguments: arguments, profiles: profiles)
       case "replay":
         try replay(arguments: arguments, profiles: profiles)
       case "ingest-document":
@@ -74,6 +76,51 @@ struct KnowledgePackTool {
     for card in pack.responseCards {
       print("- [\(card.evidenceState.rawValue)] \(card.title): \(card.answer)")
     }
+  }
+
+  private static func search(
+    arguments: [String],
+    profiles: KnowledgeDomainProfileRegistry
+  ) throws {
+    guard arguments.count >= 3 else { fail(usage) }
+    let directory = URL(fileURLWithPath: arguments[1], isDirectory: true).standardizedFileURL
+    let options = parseOptions(
+      Array(arguments.dropFirst(3)),
+      supported: ["--kind", "--source", "--qualifier", "--limit"]
+    )
+    let pack = try KnowledgePackLoader(profileRegistry: profiles).load(from: directory)
+    let kinds: Set<KnowledgePackSearchRecordKind>
+    if let rawKind = options["--kind"] {
+      guard let kind = KnowledgePackSearchRecordKind(rawValue: rawKind) else { fail(usage) }
+      kinds = [kind]
+    } else {
+      kinds = []
+    }
+    let requiredQualifiers: [String: String]
+    if let qualifier = options["--qualifier"] {
+      let parts = qualifier.split(separator: "=", maxSplits: 1).map(String.init)
+      guard parts.count == 2, !parts[0].isEmpty, !parts[1].isEmpty else { fail(usage) }
+      requiredQualifiers = [parts[0]: parts[1]]
+    } else {
+      requiredQualifiers = [:]
+    }
+    let limit = options["--limit"].flatMap(Int.init) ?? 10
+    let results = try KnowledgePackSearchIndex(pack: pack).search(
+      KnowledgePackSearchQuery(
+        text: arguments[2],
+        scope: KnowledgePackSearchScope(
+          packID: pack.manifest.packID,
+          recordKinds: kinds,
+          sourceIDs: options["--source"].map { [$0] } ?? [],
+          requiredQualifiers: requiredQualifiers
+        ),
+        limit: limit
+      )
+    )
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+    FileHandle.standardOutput.write(try encoder.encode(results))
+    FileHandle.standardOutput.write(Data("\n".utf8))
   }
 
   private static func replay(
@@ -509,6 +556,7 @@ struct KnowledgePackTool {
     Usage:
       knowledge-pack validate <pack-directory>
       knowledge-pack inspect <pack-directory>
+      knowledge-pack search <pack-directory> <query> [--kind <record-kind>] [--source <source-id>] [--qualifier <key=value>] [--limit <1-100>]
       knowledge-pack replay <pack-directory> <replay-spec.json> [--output <report.json>]
       knowledge-pack ingest-document <document.pdf|document.docx> --relative-path <pack-relative-path> [--title <title>] [--output <result.json>]
       knowledge-pack ingest-spreadsheet <spreadsheet.xlsx|spreadsheet.csv> --relative-path <pack-relative-path> [--title <title>] [--output <result.json>]

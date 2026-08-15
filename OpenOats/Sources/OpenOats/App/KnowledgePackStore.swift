@@ -33,6 +33,8 @@ final class KnowledgePackStore {
   let profileRegistry: KnowledgeDomainProfileRegistry
   private(set) var selectedPack: KnowledgePack?
   private(set) var selectedPackDirectory: URL?
+  private(set) var searchIndex: KnowledgePackSearchIndex?
+  private(set) var searchRebuildReport: KnowledgePackSearchRebuildReport?
   private(set) var state: KnowledgePackLoadState = .idle
   private(set) var activeQuestionCandidates: [String: QuestionCandidate] = [:]
   private(set) var activeAnswerCards: [String: KnowledgeAnswerCard] = [:]
@@ -65,21 +67,33 @@ final class KnowledgePackStore {
     requestedPath = normalizedPath
     state = .loading(path: normalizedPath)
     let loader = loader
+    let previousPack = selectedPack
+    let previousIndex = searchIndex
     let directory = URL(fileURLWithPath: normalizedPath, isDirectory: true).standardizedFileURL
 
     do {
-      let pack = try await Task.detached(priority: .userInitiated) {
-        try loader.load(from: directory)
+      let result = try await Task.detached(priority: .userInitiated) {
+        let pack = try loader.load(from: directory)
+        let searchBuild = try KnowledgePackSearchIndexer.build(
+          pack: pack,
+          previousPack: previousPack,
+          previousIndex: previousIndex
+        )
+        return (pack, searchBuild)
       }.value
       guard requestedPath == normalizedPath, !Task.isCancelled else { return }
-      selectedPack = pack
+      selectedPack = result.0
       selectedPackDirectory = directory
-      configureLiveKnowledgePath(for: pack, rootDirectory: directory)
-      state = .loaded(path: normalizedPath, summary: KnowledgePackSummary(pack: pack))
+      searchIndex = result.1.index
+      searchRebuildReport = result.1.report
+      configureLiveKnowledgePath(for: result.0, rootDirectory: directory)
+      state = .loaded(path: normalizedPath, summary: KnowledgePackSummary(pack: result.0))
     } catch {
       guard requestedPath == normalizedPath, !Task.isCancelled else { return }
       selectedPack = nil
       selectedPackDirectory = nil
+      searchIndex = nil
+      searchRebuildReport = nil
       clearQuestionCandidateDetector()
       state = .failed(path: normalizedPath, message: String(describing: error))
     }
@@ -102,8 +116,25 @@ final class KnowledgePackStore {
     requestedPath = ""
     selectedPack = nil
     selectedPackDirectory = nil
+    searchIndex = nil
+    searchRebuildReport = nil
     clearQuestionCandidateDetector()
     state = .idle
+  }
+
+  func searchKnowledgePack(
+    _ query: KnowledgePackSearchQuery
+  ) throws -> [KnowledgePackSearchResult] {
+    guard let searchIndex else { throw KnowledgePackSearchError.indexUnavailable }
+    return try searchIndex.search(query)
+  }
+
+  func searchKnowledgePack(
+    _ query: KnowledgePackSearchQuery,
+    vectorAdapter: any KnowledgePackVectorSearchAdapter
+  ) async throws -> [KnowledgePackSearchResult] {
+    guard let searchIndex else { throw KnowledgePackSearchError.indexUnavailable }
+    return try await searchIndex.search(query, vectorAdapter: vectorAdapter)
   }
 
   @discardableResult

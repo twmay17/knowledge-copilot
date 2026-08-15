@@ -709,3 +709,55 @@ Results:
 
 See [the workspace contract](knowledge-review-workspace.md) and the
 [public-safe KC-18 evidence summary](evidence/kc18-knowledge-review-workspace-2026-08-15.md).
+
+## KC-19 hybrid search and corpus invalidation
+
+The validated KnowledgePack path now owns a deterministic hybrid index instead of relying on the
+legacy free-form knowledge-base cache:
+
+- every query names the exact pack ID and may require record kinds, source IDs, and qualifiers;
+- exact normalized aliases and a local in-memory SQLite FTS5 index provide the no-cost baseline;
+- optional vector adapters receive only locally admitted candidates and cannot add unknown records;
+- only reviewed response cards are indexed;
+- every result carries its pack ID, full-content hash, sources, qualifiers, match channels, and score
+  components;
+- typed comparison and transitive dependency traversal invalidate affected artifacts when sources,
+  passages, evidence, assertions, calculations, question families, cards, or the manifest change;
+- identical pack content reuses its index, changed content rebuilds, and another pack always starts
+  fresh; and
+- `KnowledgePackStore` builds the index with the selected pack and clears both on failure.
+
+Passing local checks:
+
+```bash
+swift test --filter KnowledgePackSearchIndexTests
+swift test --filter \
+  'KnowledgePackSearchIndexTests|KnowledgePackLoaderTests|KnowledgeAnswerCardResolverTests|KnowledgeStudyBundleTests|KnowledgeStudyImportApplierTests|KnowledgeStudyReviewTests|KnowledgeStudyReviewWorkspaceModelTests'
+swift test --skip MeetingDetectorTests
+swift build -c release --product knowledge-pack
+swift build -c release --product OpenOats
+swift run knowledge-pack search \
+  ../fixtures/knowledge-packs/minimal-hospitality \
+  'fictional investment memo inconsistent' \
+  --kind passage --source source-investment-memo --limit 3
+swift format lint --strict \
+  Sources/OpenOats/KnowledgePack/KnowledgePackSearchIndex.swift \
+  Sources/OpenOats/App/KnowledgePackStore.swift \
+  Sources/KnowledgePackTool/main.swift \
+  Tests/OpenOatsTests/KnowledgePackSearchIndexTests.swift
+git diff --check
+```
+
+Results:
+
+- 11 of 11 focused search and invalidation tests passed;
+- all 65 related retrieval, loader, evidence, preparation, review, import, and workspace tests passed;
+- all 808 non-environmental package tests passed;
+- both release products built successfully;
+- the scoped CLI proof returned only `passage-memo-revpar-2020` from
+  `source-investment-memo`, labeled with the active pack ID and content hash;
+- strict Swift formatting passed for all new and touched two-space Swift sources; and
+- whitespace checks passed.
+
+See [the search and invalidation contract](knowledge-pack-search.md) and the
+[public-safe KC-19 evidence summary](evidence/kc19-hybrid-search-invalidation-2026-08-15.md).
