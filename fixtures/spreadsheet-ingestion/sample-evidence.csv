@@ -1,0 +1,5 @@
+Metric,Period,Actual,Unit,Note
+Occupancy,2020,0.725,ratio,"Synthetic, quoted note"
+ADR,2020,123.45,USD,"Escaped ""reviewed"" value"
+RevPAR,2020,89.50,USD_per_available_room,"Contains a
+multiline note"

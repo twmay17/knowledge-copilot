@@ -173,25 +173,80 @@ public struct KnowledgePassageExtraction: Codable, Equatable, Sendable {
   }
 }
 
+public enum KnowledgeSpreadsheetCellValueType: String, Codable, Equatable, Sendable {
+  case blank
+  case boolean
+  case error
+  case number
+  case text
+}
+
+public struct KnowledgeSpreadsheetCell: Codable, Equatable, Sendable {
+  public let reference: String
+  public let header: String?
+  public let value: String?
+  public let valueType: KnowledgeSpreadsheetCellValueType
+  public let formula: String?
+  public let numberFormat: String?
+
+  public init(
+    reference: String,
+    header: String? = nil,
+    value: String? = nil,
+    valueType: KnowledgeSpreadsheetCellValueType,
+    formula: String? = nil,
+    numberFormat: String? = nil
+  ) {
+    self.reference = reference
+    self.header = header
+    self.value = value
+    self.valueType = valueType
+    self.formula = formula
+    self.numberFormat = numberFormat
+  }
+}
+
+public struct KnowledgeSpreadsheetPassage: Codable, Equatable, Sendable {
+  public let cells: [KnowledgeSpreadsheetCell]
+  public let period: String?
+  public let unit: String?
+  public let isHeaderRow: Bool
+
+  public init(
+    cells: [KnowledgeSpreadsheetCell],
+    period: String? = nil,
+    unit: String? = nil,
+    isHeaderRow: Bool = false
+  ) {
+    self.cells = cells
+    self.period = period
+    self.unit = unit
+    self.isHeaderRow = isHeaderRow
+  }
+}
+
 public struct KnowledgePassage: Codable, Equatable, Sendable, Identifiable {
   public let id: String
   public let sourceID: String
   public let text: String
   public let locator: KnowledgeSourceLocator
   public let extraction: KnowledgePassageExtraction?
+  public let spreadsheet: KnowledgeSpreadsheetPassage?
 
   public init(
     id: String,
     sourceID: String,
     text: String,
     locator: KnowledgeSourceLocator,
-    extraction: KnowledgePassageExtraction? = nil
+    extraction: KnowledgePassageExtraction? = nil,
+    spreadsheet: KnowledgeSpreadsheetPassage? = nil
   ) {
     self.id = id
     self.sourceID = sourceID
     self.text = text
     self.locator = locator
     self.extraction = extraction
+    self.spreadsheet = spreadsheet
   }
 }
 

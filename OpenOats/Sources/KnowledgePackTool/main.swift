@@ -24,6 +24,8 @@ struct KnowledgePackTool {
         try replay(arguments: arguments, profiles: profiles)
       case "ingest-document":
         try ingestDocument(arguments: arguments)
+      case "ingest-spreadsheet":
+        try ingestSpreadsheet(arguments: arguments)
       case "help", "--help", "-h":
         print(usage)
       default:
@@ -136,6 +138,37 @@ struct KnowledgePackTool {
     }
   }
 
+  private static func ingestSpreadsheet(arguments: [String]) throws {
+    guard arguments.count >= 4 else { fail(usage) }
+    let spreadsheetURL = URL(fileURLWithPath: arguments[1]).standardizedFileURL
+    let options = parseOptions(Array(arguments.dropFirst(2)))
+    guard let relativePath = options["--relative-path"] else { fail(usage) }
+
+    let result = try KnowledgeSpreadsheetIngestor().ingest(
+      fileAt: spreadsheetURL,
+      relativePath: relativePath,
+      title: options["--title"]
+    )
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+    encoder.dateEncodingStrategy = .iso8601
+    let resultData = try encoder.encode(result)
+
+    if let outputPath = options["--output"] {
+      let outputURL = URL(fileURLWithPath: outputPath).standardizedFileURL
+      try FileManager.default.createDirectory(
+        at: outputURL.deletingLastPathComponent(),
+        withIntermediateDirectories: true
+      )
+      try resultData.write(to: outputURL, options: .atomic)
+      printSpreadsheetIngestionSummary(result)
+      print("Result: \(outputURL.path)")
+    } else {
+      FileHandle.standardOutput.write(resultData)
+      FileHandle.standardOutput.write(Data("\n".utf8))
+    }
+  }
+
   private static func parseOptions(_ arguments: [String]) -> [String: String] {
     var options: [String: String] = [:]
     var index = 0
@@ -157,6 +190,22 @@ struct KnowledgePackTool {
     )
     for warning in result.warnings {
       print("Warning [\(warning.flag.rawValue)]: \(warning.message)")
+    }
+  }
+
+  private static func printSpreadsheetIngestionSummary(
+    _ result: KnowledgeSpreadsheetIngestionResult
+  ) {
+    let sheets = Set(result.passages.compactMap(\.locator.sheet)).count
+    let formulaCells = result.passages.reduce(0) { count, passage in
+      count + (passage.spreadsheet?.cells.filter { $0.formula != nil }.count ?? 0)
+    }
+    print("Ingested: \(result.source.title)")
+    print(
+      "Passages: \(result.passages.count); sheets: \(sheets); formula cells: \(formulaCells); warnings: \(result.warnings.count)"
+    )
+    for warning in result.warnings {
+      print("Warning [\(warning.code)]: \(warning.message)")
     }
   }
 
@@ -188,5 +237,6 @@ struct KnowledgePackTool {
       knowledge-pack inspect <pack-directory>
       knowledge-pack replay <pack-directory> <replay-spec.json> [--output <report.json>]
       knowledge-pack ingest-document <document.pdf|document.docx> --relative-path <pack-relative-path> [--title <title>] [--output <result.json>]
+      knowledge-pack ingest-spreadsheet <spreadsheet.xlsx|spreadsheet.csv> --relative-path <pack-relative-path> [--title <title>] [--output <result.json>]
     """
 }

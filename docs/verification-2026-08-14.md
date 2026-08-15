@@ -350,3 +350,49 @@ Results:
 
 See [the ingestion contract](document-ingestion.md) and
 [the public-safe KC-10 evidence summary](evidence/kc10-document-ingestion-2026-08-14.md).
+
+## KC-11 XLSX and CSV evidence ingestion
+
+The next corpus milestone now ingests genuine XLSX and CSV files locally into generic
+KnowledgePack source and passage records:
+
+- XLSX rows retain worksheet, exact A1 cell range, one-based row, first-row headers, cached values,
+  formulas, and number formats;
+- CSV logical records retain stable A1 locators through quoted commas, escaped quotes, CRLF input,
+  and embedded newlines;
+- conventional period and unit columns become generic row context without adding hospitality
+  fields to the core model;
+- source IDs and passage IDs remain stable across import times;
+- every passage records an exact content SHA-256 hash used in validation and source resolution;
+- every passage can resolve back to the exact, containment-checked, hash-verified source file; and
+- formula cells without cached results remain formulas with visible warnings rather than invented
+  values.
+
+The public-safe fixtures were generated with `@oai/artifact-tool`. Both workbook worksheets were
+rendered and visually inspected without clipping. The XLSX Open XML contains a cached `<v>` result
+for every local and cross-sheet formula.
+
+Passing local checks:
+
+```bash
+swift test --filter KnowledgeSpreadsheetIngestorTests
+swift test --filter \
+  'KnowledgeSpreadsheetIngestorTests|KnowledgeDocumentIngestorTests|KnowledgePackLoaderTests'
+swift build -c release --product knowledge-pack
+swift build -c release --product OpenOats
+```
+
+Results:
+
+- 8 of 8 spreadsheet-ingestion tests passed;
+- the combined spreadsheet, document, and loader run passed 21 of 21 tests;
+- the XLSX produced 9 passages across 2 worksheets with formula and cached-value lineage;
+- the CSV produced 4 logical passages with stable locators through all quoted-field edge cases; and
+- source containment, file hashes, passage hashes, deterministic IDs, pack validation, and
+  unsafe-path rejection all passed;
+- both release products built successfully;
+- all five changed Swift files passed strict Swift-format lint; and
+- two consecutive fixture builds produced identical XLSX and CSV SHA-256 hashes.
+
+See [the spreadsheet ingestion contract](spreadsheet-ingestion.md) and
+[the public-safe KC-11 evidence summary](evidence/kc11-spreadsheet-ingestion-2026-08-14.md).

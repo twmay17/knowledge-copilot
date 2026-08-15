@@ -1,3 +1,4 @@
 *.docx binary
 *.pdf binary
 *.xlsx binary
+fixtures/spreadsheet-ingestion/sample-evidence.csv binary

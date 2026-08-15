@@ -152,6 +152,10 @@ public struct KnowledgePackLoader: Sendable {
       contentsOf: emptyIDIssues(pack.questionFamilies.map(\.id), recordType: "question_family"))
 
     let sourceIDs = Set(pack.sources.map(\.id))
+    let sourcesByID = Dictionary(
+      pack.sources.map { ($0.id, $0) },
+      uniquingKeysWith: { first, _ in first }
+    )
     let passageIDs = Set(pack.passages.map(\.id))
     let assertionIDs = Set(pack.assertions.map(\.id))
     let evidenceLinkIDs = Set(pack.evidenceLinks.map(\.id))
@@ -214,6 +218,57 @@ public struct KnowledgePackLoader: Sendable {
             warning(
               "passage.low_quality_extraction",
               "Passage '\(passage.id)' is flagged as low-quality extracted text."))
+        }
+      }
+      if let spreadsheet = passage.spreadsheet {
+        if sourcesByID[passage.sourceID]?.kind != .spreadsheet {
+          issues.append(
+            error(
+              "passage.spreadsheet_source_kind",
+              "Spreadsheet passage '\(passage.id)' must reference a spreadsheet source."))
+        }
+        if passage.locator.contentSHA256 == nil {
+          issues.append(
+            error(
+              "passage.spreadsheet_missing_content_hash",
+              "Spreadsheet passage '\(passage.id)' must record a content SHA-256 locator."))
+        }
+        if spreadsheet.cells.isEmpty {
+          issues.append(
+            error(
+              "passage.spreadsheet_empty_cells",
+              "Spreadsheet passage '\(passage.id)' must retain at least one cell."))
+        }
+        let references = spreadsheet.cells.map(\.reference)
+        if Set(references).count != references.count {
+          issues.append(
+            error(
+              "passage.spreadsheet_duplicate_cell",
+              "Spreadsheet passage '\(passage.id)' contains duplicate cell references."))
+        }
+        for cell in spreadsheet.cells {
+          if !Self.isCellReference(cell.reference) {
+            issues.append(
+              error(
+                "passage.spreadsheet_invalid_cell",
+                "Spreadsheet passage '\(passage.id)' contains invalid cell reference '\(cell.reference)'."
+              ))
+          }
+          if let formula = cell.formula,
+            formula.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+          {
+            issues.append(
+              error(
+                "passage.spreadsheet_empty_formula",
+                "Spreadsheet passage '\(passage.id)' contains an empty formula for '\(cell.reference)'."
+              ))
+          } else if cell.formula != nil, cell.value == nil {
+            issues.append(
+              warning(
+                "passage.spreadsheet_formula_missing_value",
+                "Spreadsheet passage '\(passage.id)' formula cell '\(cell.reference)' has no cached value."
+              ))
+          }
         }
       }
     }
@@ -563,6 +618,22 @@ public struct KnowledgePackLoader: Sendable {
 
   private static func isSHA256(_ value: String) -> Bool {
     value.count == 64 && value.allSatisfy { $0.isNumber || ("a"..."f").contains(String($0)) }
+  }
+
+  private static func isCellReference(_ value: String) -> Bool {
+    guard !value.isEmpty else { return false }
+    let letters = value.prefix { $0.isASCII && $0.isLetter }
+    let digits = value.dropFirst(letters.count)
+    guard !letters.isEmpty, letters.allSatisfy(\.isUppercase), !digits.isEmpty,
+      digits.allSatisfy(\.isNumber), let row = Int(digits), row >= 1, row <= 1_048_576,
+      String(row) == digits
+    else {
+      return false
+    }
+    let column = letters.reduce(0) { partial, character in
+      partial * 26 + Int(character.asciiValue! - Character("A").asciiValue! + 1)
+    }
+    return (1...16_384).contains(column)
   }
 
   private static func sha256(_ data: Data) -> String {

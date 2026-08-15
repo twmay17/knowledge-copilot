@@ -39,6 +39,11 @@ quality, confidence, and visible quality flags.
 The PDF/DOCX ingestion contract, source-resolution rules, OCR-quality behavior, and explicit format
 limits are documented in [PDF and DOCX evidence ingestion](document-ingestion.md).
 
+Spreadsheet passages may retain a generic per-cell payload with A1 reference, first-row header,
+typed cached value, formula, and number format, plus inferred period and unit context. The XLSX/CSV
+contract, formula policy, source-resolution rules, and explicit limits are documented in
+[XLSX and CSV evidence ingestion](spreadsheet-ingestion.md).
+
 ### Assertion
 
 Stores a normalized proposition as subject, predicate, typed value, qualifiers, assertion kind, confidence, and evidence links. Values may be text, number, boolean, date, or a reference. Units and scales are valid only for numbers.
@@ -158,6 +163,9 @@ swift run knowledge-pack replay \
 swift run knowledge-pack ingest-document \
   ../fixtures/document-ingestion/sample-evidence.docx \
   --relative-path sources/sample-evidence.docx
+swift run knowledge-pack ingest-spreadsheet \
+  ../fixtures/spreadsheet-ingestion/sample-evidence.xlsx \
+  --relative-path sources/sample-evidence.xlsx
 ```
 
 The fixture is synthetic and redistributable. It exercises the generic contract through the
