@@ -296,6 +296,44 @@ public enum KnowledgeAssertionKind: String, Codable, Equatable, Sendable {
   case interpretive
 }
 
+public struct KnowledgeAssertionContext: Codable, Equatable, Sendable {
+  public static let reservedQualifierKeys: Set<String> = ["period", "version", "scope"]
+
+  public let period: String?
+  public let version: String?
+  public let scope: String?
+  public let additionalQualifiers: [String: String]
+
+  public init(
+    period: String? = nil,
+    version: String? = nil,
+    scope: String? = nil,
+    additionalQualifiers: [String: String] = [:]
+  ) {
+    self.period = period
+    self.version = version
+    self.scope = scope
+    self.additionalQualifiers = additionalQualifiers
+  }
+
+  public init(qualifiers: [String: String]) {
+    period = qualifiers["period"]
+    version = qualifiers["version"]
+    scope = qualifiers["scope"]
+    additionalQualifiers = qualifiers.filter {
+      !Self.reservedQualifierKeys.contains($0.key)
+    }
+  }
+
+  public var qualifiers: [String: String] {
+    var result = additionalQualifiers
+    if let period { result["period"] = period }
+    if let version { result["version"] = version }
+    if let scope { result["scope"] = scope }
+    return result
+  }
+}
+
 public struct KnowledgeAssertion: Codable, Equatable, Sendable, Identifiable {
   public let id: String
   public let subject: String
@@ -324,6 +362,10 @@ public struct KnowledgeAssertion: Codable, Equatable, Sendable, Identifiable {
     self.kind = kind
     self.confidence = confidence
     self.evidenceLinkIDs = evidenceLinkIDs
+  }
+
+  public var context: KnowledgeAssertionContext {
+    KnowledgeAssertionContext(qualifiers: qualifiers)
   }
 }
 

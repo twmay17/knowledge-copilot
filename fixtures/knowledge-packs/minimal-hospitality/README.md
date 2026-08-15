@@ -8,6 +8,7 @@ do not describe a real hotel, investor, operator, tenant, meeting, or transactio
 
 - a direct fact: 100-room inventory;
 - deterministic calculations: occupancy, ADR, and RevPAR;
+- explicit `period`, room `scope`, and actual/budget `status` context that cannot be silently mixed;
 - a directly reported value: 2020 RevPAR of $89.50;
 - a deliberate contradiction: a fictional memo claims 2020 RevPAR of $92.00;
 - an explicit absence: no 2018 performance data exists in the corpus;

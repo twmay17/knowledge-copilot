@@ -51,15 +51,18 @@ public struct KnowledgeDomainProfileSchema: Equatable, Sendable {
   public let predicateNamespace: String
   public let predicates: [DomainPredicateDefinition]
   public let calculations: [DomainCalculationDefinition]
+  public let contextQualifierKeys: Set<String>
 
   public init(
     predicateNamespace: String,
     predicates: [DomainPredicateDefinition],
-    calculations: [DomainCalculationDefinition] = []
+    calculations: [DomainCalculationDefinition] = [],
+    contextQualifierKeys: Set<String> = []
   ) {
     self.predicateNamespace = predicateNamespace
     self.predicates = predicates
     self.calculations = calculations
+    self.contextQualifierKeys = contextQualifierKeys
   }
 }
 
@@ -176,6 +179,20 @@ public struct KnowledgeDomainProfileRegistry: Sendable {
     }
 
     return aliases.sorted { $0.id < $1.id }
+  }
+
+  /// Returns profile-owned qualifier dimensions that calculations must preserve whenever the
+  /// output assertion declares them. Generic period, version, and scope dimensions are enforced
+  /// by the core loader and do not need to be repeated here.
+  public func contextQualifierKeys(for manifest: KnowledgePackManifest) -> Set<String> {
+    let profileGroups = Dictionary(grouping: profiles, by: \KnowledgeDomainProfile.id)
+    return manifest.domainProfiles.reduce(into: Set<String>()) { keys, reference in
+      guard profileGroups[reference.id]?.count == 1,
+        let profile = profileGroups[reference.id]?.first,
+        let schema = profile.schema(for: reference.version)
+      else { return }
+      keys.formUnion(schema.contextQualifierKeys)
+    }
   }
 
   private func validate(

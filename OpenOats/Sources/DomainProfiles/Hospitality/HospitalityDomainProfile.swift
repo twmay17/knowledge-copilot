@@ -17,7 +17,7 @@ public struct HospitalityDomainProfile: KnowledgeDomainProfile {
           label: "Room count",
           aliases: ["keys", "rooms", "number of rooms"],
           valueType: .number,
-          requiredQualifierKeys: ["period"],
+          requiredQualifierKeys: ["period", "scope"],
           allowedUnits: ["room"]
         ),
         DomainPredicateDefinition(
@@ -25,7 +25,7 @@ public struct HospitalityDomainProfile: KnowledgeDomainProfile {
           label: "Days available",
           aliases: ["operating days", "days open"],
           valueType: .number,
-          requiredQualifierKeys: ["period"],
+          requiredQualifierKeys: ["period", "scope"],
           allowedUnits: ["day"]
         ),
         DomainPredicateDefinition(
@@ -33,7 +33,7 @@ public struct HospitalityDomainProfile: KnowledgeDomainProfile {
           label: "Room revenue",
           aliases: ["rooms revenue", "room sales"],
           valueType: .number,
-          requiredQualifierKeys: ["period"],
+          requiredQualifierKeys: ["period", "scope"],
           allowedUnits: ["USD"]
         ),
         DomainPredicateDefinition(
@@ -41,7 +41,7 @@ public struct HospitalityDomainProfile: KnowledgeDomainProfile {
           label: "Available room nights",
           aliases: ["available rooms", "room nights available"],
           valueType: .number,
-          requiredQualifierKeys: ["period"],
+          requiredQualifierKeys: ["period", "scope"],
           allowedUnits: ["room_night"]
         ),
         DomainPredicateDefinition(
@@ -49,7 +49,7 @@ public struct HospitalityDomainProfile: KnowledgeDomainProfile {
           label: "Rooms sold",
           aliases: ["occupied room nights", "sold room nights"],
           valueType: .number,
-          requiredQualifierKeys: ["period"],
+          requiredQualifierKeys: ["period", "scope"],
           allowedUnits: ["room_night"]
         ),
         DomainPredicateDefinition(
@@ -57,7 +57,7 @@ public struct HospitalityDomainProfile: KnowledgeDomainProfile {
           label: "Occupancy",
           aliases: ["occupancy rate", "occ"],
           valueType: .number,
-          requiredQualifierKeys: ["period"],
+          requiredQualifierKeys: ["period", "scope"],
           allowedUnits: ["ratio"]
         ),
         DomainPredicateDefinition(
@@ -65,7 +65,7 @@ public struct HospitalityDomainProfile: KnowledgeDomainProfile {
           label: "Average daily rate",
           aliases: ["ADR", "average room rate"],
           valueType: .number,
-          requiredQualifierKeys: ["period"],
+          requiredQualifierKeys: ["period", "scope"],
           allowedUnits: ["USD_per_sold_room"]
         ),
         DomainPredicateDefinition(
@@ -73,7 +73,7 @@ public struct HospitalityDomainProfile: KnowledgeDomainProfile {
           label: "Revenue per available room",
           aliases: ["RevPAR", "rev par"],
           valueType: .number,
-          requiredQualifierKeys: ["period"],
+          requiredQualifierKeys: ["period", "scope"],
           allowedUnits: ["USD_per_available_room"]
         ),
         DomainPredicateDefinition(
@@ -188,7 +188,8 @@ public struct HospitalityDomainProfile: KnowledgeDomainProfile {
           ],
           outputPredicate: "hospitality.gross_operating_profit"
         ),
-      ]
+      ],
+      contextQualifierKeys: ["status"]
     )
   }
 }

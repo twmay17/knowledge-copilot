@@ -164,6 +164,16 @@ public struct KnowledgePackLoader: Sendable {
       uniquingKeysWith: { first, _ in first }
     )
     let calculationIDs = Set(pack.calculations.map(\.id))
+    let assertionsByID = Dictionary(
+      pack.assertions.map { ($0.id, $0) },
+      uniquingKeysWith: { first, _ in first }
+    )
+    let calculationsByOutputID = Dictionary(
+      grouping: pack.calculations,
+      by: \.outputAssertionID
+    )
+    let protectedContextKeys = KnowledgeAssertionContext.reservedQualifierKeys.union(
+      profileRegistry.contextQualifierKeys(for: pack.manifest))
     let questionFamilyIDs = Set(pack.questionFamilies.map(\.id))
 
     for source in pack.sources {
@@ -274,6 +284,14 @@ public struct KnowledgePackLoader: Sendable {
     }
 
     for assertion in pack.assertions {
+      if assertion.subject.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        issues.append(
+          error("assertion.empty_subject", "Assertion '\(assertion.id)' must name a subject."))
+      }
+      if assertion.predicate.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        issues.append(
+          error("assertion.empty_predicate", "Assertion '\(assertion.id)' must name a predicate."))
+      }
       if !(0...1).contains(assertion.confidence) {
         issues.append(
           error(
@@ -295,7 +313,14 @@ public struct KnowledgePackLoader: Sendable {
             ))
         }
       }
+      issues.append(contentsOf: validateQualifiers(assertion))
       issues.append(contentsOf: validateValue(assertion.value, assertionID: assertion.id))
+      issues.append(
+        contentsOf: validateProvenance(
+          assertion,
+          evidenceLinksByID: evidenceLinksByID,
+          calculationsByOutputID: calculationsByOutputID
+        ))
     }
 
     for link in pack.evidenceLinks {
@@ -311,9 +336,61 @@ public struct KnowledgePackLoader: Sendable {
             "evidence.unknown_passage",
             "Evidence link '\(link.id)' references unknown passage '\(link.passageID)'."))
       }
+      if let assertion = assertionsByID[link.assertionID] {
+        if !assertion.evidenceLinkIDs.contains(link.id) {
+          issues.append(
+            error(
+              "evidence.unclaimed_by_assertion",
+              "Evidence link '\(link.id)' is not claimed by assertion '\(assertion.id)'."))
+        }
+        if link.relation == .derives, assertion.kind != .calculated {
+          issues.append(
+            error(
+              "evidence.derives_non_calculated",
+              "Evidence link '\(link.id)' may use relation 'derives' only for a calculated assertion."
+            ))
+        }
+      }
+      if let note = link.note,
+        note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      {
+        issues.append(
+          error(
+            "evidence.empty_note",
+            "Evidence link '\(link.id)' must omit an empty note instead of storing one."))
+      }
     }
 
     for calculation in pack.calculations {
+      if calculation.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        issues.append(
+          error(
+            "calculation.empty_name", "Calculation '\(calculation.id)' must have a name."))
+      }
+      if calculation.version.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        issues.append(
+          error(
+            "calculation.empty_version",
+            "Calculation '\(calculation.id)' must record a version."))
+      }
+      if calculation.inputAssertionIDs.isEmpty {
+        issues.append(
+          error(
+            "calculation.empty_inputs",
+            "Calculation '\(calculation.id)' must reference at least one input assertion."))
+      }
+      if Set(calculation.inputAssertionIDs).count != calculation.inputAssertionIDs.count {
+        issues.append(
+          error(
+            "calculation.duplicate_input",
+            "Calculation '\(calculation.id)' must not repeat an input assertion."))
+      }
+      if calculation.inputAssertionIDs.contains(calculation.outputAssertionID) {
+        issues.append(
+          error(
+            "calculation.circular_output",
+            "Calculation '\(calculation.id)' may not use its output assertion as an input."))
+      }
       for assertionID in calculation.inputAssertionIDs where !assertionIDs.contains(assertionID) {
         issues.append(
           error(
@@ -321,7 +398,7 @@ public struct KnowledgePackLoader: Sendable {
             "Calculation '\(calculation.id)' references unknown input assertion '\(assertionID)'."))
       }
       for assertionID in calculation.inputAssertionIDs {
-        if let input = pack.assertions.first(where: { $0.id == assertionID }),
+        if let input = assertionsByID[assertionID],
           input.evidenceLinkIDs.isEmpty
         {
           issues.append(
@@ -337,8 +414,9 @@ public struct KnowledgePackLoader: Sendable {
             "calculation.unknown_output",
             "Calculation '\(calculation.id)' references unknown output assertion '\(calculation.outputAssertionID)'."
           ))
-      } else if let output = pack.assertions.first(where: { $0.id == calculation.outputAssertionID }
-      ), output.kind != .calculated {
+      } else if let output = assertionsByID[calculation.outputAssertionID],
+        output.kind != .calculated
+      {
         issues.append(
           error(
             "calculation.output_not_calculated",
@@ -350,6 +428,12 @@ public struct KnowledgePackLoader: Sendable {
             "calculation.empty_expression",
             "Calculation '\(calculation.id)' must record its deterministic expression."))
       }
+      issues.append(
+        contentsOf: validateCalculationContext(
+          calculation,
+          assertionsByID: assertionsByID,
+          protectedContextKeys: protectedContextKeys
+        ))
     }
 
     for card in pack.responseCards {
@@ -394,6 +478,7 @@ public struct KnowledgePackLoader: Sendable {
   private func validateValue(_ value: KnowledgeValue, assertionID: String)
     -> [KnowledgePackValidationIssue]
   {
+    var issues: [KnowledgePackValidationIssue] = []
     let populated = [
       value.text != nil,
       value.number != nil,
@@ -426,13 +511,172 @@ public struct KnowledgePackLoader: Sendable {
       ]
     }
     if value.type != .number, value.unit != nil || value.scale != nil {
-      return [
+      issues.append(
         error(
           "assertion.non_numeric_unit",
           "Assertion '\(assertionID)' may only set unit or scale on a numeric value.")
-      ]
+      )
+    }
+    switch value.type {
+    case .text:
+      if value.text?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false {
+        issues.append(
+          error(
+            "assertion.empty_text_value",
+            "Assertion '\(assertionID)' must store non-empty text."))
+      }
+    case .number:
+      if value.number?.isFinite != true {
+        issues.append(
+          error(
+            "assertion.non_finite_number",
+            "Assertion '\(assertionID)' must store a finite numeric value."))
+      }
+      let normalizedUnit = value.unit?.trimmingCharacters(in: .whitespacesAndNewlines)
+      if normalizedUnit?.isEmpty != false || normalizedUnit != value.unit {
+        issues.append(
+          error(
+            "assertion.missing_numeric_unit",
+            "Assertion '\(assertionID)' must declare a normalized unit for its numeric value."))
+      }
+      if value.scale?.isFinite != true || (value.scale ?? 0) <= 0 {
+        issues.append(
+          error(
+            "assertion.invalid_numeric_scale",
+            "Assertion '\(assertionID)' must declare a finite scale greater than zero."))
+      }
+    case .boolean:
+      break
+    case .date:
+      let validDate = value.date.map {
+        $0 == $0.trimmingCharacters(in: .whitespacesAndNewlines) && Self.isISO8601Date($0)
+      }
+      if validDate != true {
+        issues.append(
+          error(
+            "assertion.invalid_date_value",
+            "Assertion '\(assertionID)' must store an ISO-8601 date or timestamp."))
+      }
+    case .reference:
+      if value.referenceID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false {
+        issues.append(
+          error(
+            "assertion.empty_reference_value",
+            "Assertion '\(assertionID)' must store a non-empty reference ID."))
+      }
+    }
+    return issues
+  }
+
+  private func validateQualifiers(_ assertion: KnowledgeAssertion)
+    -> [KnowledgePackValidationIssue]
+  {
+    var issues: [KnowledgePackValidationIssue] = []
+    for (key, value) in assertion.qualifiers {
+      let normalizedKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
+      let normalizedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
+      if normalizedKey.range(of: "^[a-z][a-z0-9_.-]*$", options: .regularExpression) == nil
+        || normalizedKey != key
+      {
+        issues.append(
+          error(
+            "assertion.invalid_qualifier_key",
+            "Assertion '\(assertion.id)' qualifier key '\(key)' must be normalized lowercase text."
+          ))
+      }
+      if normalizedValue.isEmpty || normalizedValue != value {
+        issues.append(
+          error(
+            "assertion.invalid_qualifier_value",
+            "Assertion '\(assertion.id)' qualifier '\(key)' must have a normalized non-empty value."
+          ))
+      }
+    }
+    return issues
+  }
+
+  private func validateProvenance(
+    _ assertion: KnowledgeAssertion,
+    evidenceLinksByID: [String: KnowledgeEvidenceLink],
+    calculationsByOutputID: [String: [KnowledgeCalculation]]
+  ) -> [KnowledgePackValidationIssue] {
+    let ownedEvidence = assertion.evidenceLinkIDs.compactMap { evidenceLinksByID[$0] }.filter {
+      $0.assertionID == assertion.id
+    }
+    switch assertion.kind {
+    case .stated:
+      guard ownedEvidence.contains(where: { $0.relation == .supports }) else {
+        return [
+          error(
+            "assertion.missing_supporting_evidence",
+            "Stated assertion '\(assertion.id)' requires a supporting source evidence link.")
+        ]
+      }
+    case .inferred, .interpretive:
+      guard
+        ownedEvidence.contains(where: {
+          $0.relation == .supports || $0.relation == .contextualizes
+        })
+      else {
+        return [
+          error(
+            "assertion.missing_supporting_evidence",
+            "\(assertion.kind.rawValue.capitalized) assertion '\(assertion.id)' requires supporting or contextual source evidence."
+          )
+        ]
+      }
+    case .calculated:
+      let derivations = calculationsByOutputID[assertion.id] ?? []
+      if derivations.isEmpty {
+        return [
+          error(
+            "assertion.missing_derivation",
+            "Calculated assertion '\(assertion.id)' requires a recorded calculation derivation.")
+        ]
+      }
+      if derivations.count > 1 {
+        return [
+          error(
+            "assertion.ambiguous_derivation",
+            "Calculated assertion '\(assertion.id)' is the output of more than one calculation."
+          )
+        ]
+      }
     }
     return []
+  }
+
+  private func validateCalculationContext(
+    _ calculation: KnowledgeCalculation,
+    assertionsByID: [String: KnowledgeAssertion],
+    protectedContextKeys: Set<String>
+  ) -> [KnowledgePackValidationIssue] {
+    guard let output = assertionsByID[calculation.outputAssertionID] else { return [] }
+    let inputs = calculation.inputAssertionIDs.compactMap { assertionsByID[$0] }
+    guard inputs.count == calculation.inputAssertionIDs.count else { return [] }
+
+    var issues: [KnowledgePackValidationIssue] = []
+    for key in protectedContextKeys.sorted() {
+      guard let expected = output.qualifiers[key] else { continue }
+      for input in inputs {
+        guard let actual = input.qualifiers[key] else {
+          issues.append(
+            error(
+              "calculation.context_missing",
+              "Calculation '\(calculation.id)' output declares \(key) '\(expected)', but input assertion '\(input.id)' omits that context."
+            ))
+          continue
+        }
+        if actual != expected {
+          issues.append(
+            error(
+              "calculation.context_mismatch",
+              "Calculation '\(calculation.id)' mixes output \(key) '\(expected)' with input assertion '\(input.id)' \(key) '\(actual)'."
+            ))
+        }
+      }
+    }
+    return issues
   }
 
   private func validateEvidenceContract(_ card: KnowledgeResponseCard)
@@ -618,6 +862,25 @@ public struct KnowledgePackLoader: Sendable {
 
   private static func isSHA256(_ value: String) -> Bool {
     value.count == 64 && value.allSatisfy { $0.isNumber || ("a"..."f").contains(String($0)) }
+  }
+
+  private static func isISO8601Date(_ value: String) -> Bool {
+    if value.range(of: "^\\d{4}-\\d{2}-\\d{2}$", options: .regularExpression) != nil {
+      let formatter = DateFormatter()
+      formatter.calendar = Calendar(identifier: .gregorian)
+      formatter.locale = Locale(identifier: "en_US_POSIX")
+      formatter.timeZone = TimeZone(secondsFromGMT: 0)
+      formatter.dateFormat = "yyyy-MM-dd"
+      formatter.isLenient = false
+      return formatter.date(from: value) != nil
+    }
+
+    let fractional = ISO8601DateFormatter()
+    fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    if fractional.date(from: value) != nil { return true }
+    let standard = ISO8601DateFormatter()
+    standard.formatOptions = [.withInternetDateTime]
+    return standard.date(from: value) != nil
   }
 
   private static func isCellReference(_ value: String) -> Bool {

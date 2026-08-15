@@ -46,7 +46,13 @@ contract, formula policy, source-resolution rules, and explicit limits are docum
 
 ### Assertion
 
-Stores a normalized proposition as subject, predicate, typed value, qualifiers, assertion kind, confidence, and evidence links. Values may be text, number, boolean, date, or a reference. Units and scales are valid only for numbers.
+Stores a normalized proposition as subject, predicate, typed value, qualifiers, assertion kind,
+confidence, and evidence links. Values may be text, number, boolean, an ISO-8601 date or timestamp,
+or a reference. Numeric values require an explicit unit and positive finite scale.
+
+The backward-compatible qualifier object exposes a normalized context view for `period`, `version`,
+and `scope`; Domain Profiles may add protected context dimensions. Calculations cannot silently
+consume a missing or different value for a context dimension declared by their output.
 
 Assertion kinds are:
 
@@ -55,9 +61,16 @@ Assertion kinds are:
 - `inferred`
 - `interpretive`
 
+Stated, inferred, and interpretive assertions require supporting or contextual source evidence.
+Calculated assertions require exactly one recorded derivation. The full generic contract and
+Domain Profile boundary are documented in
+[Generic assertion and evidence model](assertion-evidence-model.md).
+
 ### Evidence link
 
-Connects an assertion to a source passage and records whether that passage supports, contradicts, derives, or contextualizes the assertion.
+Connects an assertion to a source passage and records whether that passage supports, contradicts,
+derives, or contextualizes the assertion. Ownership is bidirectional: the link identifies its
+assertion, and the assertion must claim the link ID.
 
 ### Calculation
 
@@ -139,13 +152,20 @@ The v1 loader fails closed on:
 - extraction confidence outside 0 through 1;
 - broken source, passage, assertion, evidence, calculation, question-family, or card references;
 - values whose populated field does not match their declared type;
+- empty text/reference values, invalid dates, non-finite numbers, or numbers without explicit unit
+  and scale;
+- malformed qualifier keys or values;
 - confidence outside 0 through 1;
+- assertions without supporting evidence or a unique calculation derivation;
+- evidence links not claimed by their assertion, or derivation links on non-calculated assertions;
+- calculations that mix protected period, version, scope, or Domain Profile context;
 - calculated cards without a recorded derivation;
 - supported cards without citation passages.
 
 DomainProfile references also fail closed when the profile is unavailable, duplicated, or at an
 unsupported version. Registered profiles validate their predicate namespace, typed values,
-required qualifiers, allowed units, and deterministic calculation signatures.
+required qualifiers, allowed units, protected domain context, and deterministic calculation
+signatures.
 
 Warnings are retained for reviewable conditions that do not make the pack structurally unsafe.
 Low-quality extracted text is one such warning and remains visibly flagged on the passage.

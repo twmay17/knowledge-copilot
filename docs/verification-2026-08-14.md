@@ -327,7 +327,7 @@ The public-safe fixtures were generated reproducibly and visually inspected afte
 PDF has two clean pages. The DOCX has one clean page, and its table passed exact Word geometry checks
 for `tblW`, `tblInd`, `tblGrid`, and every `tcW`.
 
-Passing local checks so far:
+Passing local checks:
 
 ```bash
 swift test --filter 'KnowledgeDocumentIngestorTests|KnowledgePackLoaderTests'
@@ -396,3 +396,44 @@ Results:
 
 See [the spreadsheet ingestion contract](spreadsheet-ingestion.md) and
 [the public-safe KC-11 evidence summary](evidence/kc11-spreadsheet-ingestion-2026-08-14.md).
+
+## KC-12 generic assertion and evidence model
+
+The proposition layer now fails closed on unsupported or contextually unsafe facts without adding
+a financial ontology to the core:
+
+- all five value types require exactly one valid payload;
+- numeric values require finite numbers, explicit normalized units, and positive finite scales;
+- `period`, `version`, and `scope` are normalized generic context dimensions;
+- calculations preserve every context dimension declared by their output;
+- stated, inferred, and interpretive assertions require source evidence;
+- calculated assertions require exactly one recorded derivation;
+- evidence ownership is checked in both directions; and
+- Domain Profiles can protect additional dimensions, with hospitality protecting `status` and
+  requiring room scope for room predicates.
+
+Passing local checks so far:
+
+```bash
+swift test --filter KnowledgeAssertionEvidenceModelTests
+swift test --filter \
+  'KnowledgeAssertionEvidenceModelTests|KnowledgePackLoaderTests|KnowledgeAnswerCardResolverTests|KnowledgeProofReplayTests|KnowledgeSpreadsheetIngestorTests|KnowledgeDocumentIngestorTests|QuestionCandidateDetectorTests'
+swift run knowledge-pack validate ../fixtures/knowledge-packs/minimal-hospitality
+swift build -c release --product knowledge-pack
+swift build -c release --product OpenOats
+xcrun swift-format lint --strict <six changed Swift files>
+git diff --check
+```
+
+Results:
+
+- 7 of 7 KC-12 acceptance tests passed;
+- the combined KnowledgePack regression run passed 48 of 48 tests;
+- the published synthetic hospitality pack still loads with 18 assertions and 6 calculations; and
+- changing an actual calculation input to budget or removing required room scope fails closed;
+- both release products built successfully; and
+- all six changed Swift files passed strict Swift-format lint, the JSONL fixture parsed, and the
+  diff passed whitespace validation.
+
+See [the assertion/evidence contract](assertion-evidence-model.md) and
+[the public-safe KC-12 evidence summary](evidence/kc12-assertion-evidence-model-2026-08-15.md).

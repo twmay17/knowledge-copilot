@@ -48,7 +48,7 @@ final class KnowledgePackLoaderTests: XCTestCase {
       subject: "synthetic-hotel",
       predicate: "hospitality.occupancy",
       value: KnowledgeValue(type: .number, number: 0.75, unit: "ratio", scale: 1),
-      qualifiers: ["period": "2020"],
+      qualifiers: ["period": "2020", "scope": "rooms"],
       kind: .stated,
       confidence: 1,
       evidenceLinkIDs: ["evidence-revpar"]
@@ -104,7 +104,7 @@ final class KnowledgePackLoaderTests: XCTestCase {
       subject: "synthetic-hotel",
       predicate: "hospitality.unregistered_metric",
       value: KnowledgeValue(type: .number, number: 1, unit: "USD", scale: 1),
-      qualifiers: ["period": "2020"],
+      qualifiers: ["period": "2020", "scope": "rooms"],
       kind: .stated,
       confidence: 1,
       evidenceLinkIDs: []
@@ -133,7 +133,7 @@ final class KnowledgePackLoaderTests: XCTestCase {
       subject: "synthetic-hotel",
       predicate: "hospitality.room_revenue",
       value: KnowledgeValue(type: .number, number: 3_266_750, unit: "EUR", scale: 1),
-      qualifiers: ["period": "2020"],
+      qualifiers: ["period": "2020", "scope": "rooms"],
       kind: .stated,
       confidence: 1,
       evidenceLinkIDs: ["evidence-room-revenue"]
@@ -278,7 +278,7 @@ final class KnowledgePackLoaderTests: XCTestCase {
       subject: "synthetic-hotel",
       predicate: "hospitality.room_revenue",
       value: KnowledgeValue(type: .number, number: 3_266_750, unit: "USD", scale: 1),
-      qualifiers: ["period": "2020"],
+      qualifiers: ["period": "2020", "scope": "rooms"],
       kind: .stated,
       confidence: 1,
       evidenceLinkIDs: [roomRevenueEvidence.id]
@@ -288,7 +288,7 @@ final class KnowledgePackLoaderTests: XCTestCase {
       subject: "synthetic-hotel",
       predicate: "hospitality.available_room_nights",
       value: KnowledgeValue(type: .number, number: 36_500, unit: "room_night", scale: 1),
-      qualifiers: ["period": "2020"],
+      qualifiers: ["period": "2020", "scope": "rooms"],
       kind: .stated,
       confidence: 1,
       evidenceLinkIDs: [availableRoomNightsEvidence.id]
@@ -298,7 +298,7 @@ final class KnowledgePackLoaderTests: XCTestCase {
       subject: "synthetic-hotel",
       predicate: "hospitality.revpar",
       value: KnowledgeValue(type: .number, number: 89.5, unit: "USD_per_available_room", scale: 1),
-      qualifiers: ["period": "2020"],
+      qualifiers: ["period": "2020", "scope": "rooms"],
       kind: .calculated,
       confidence: 1,
       evidenceLinkIDs: [evidence.id]
