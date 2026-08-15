@@ -30,8 +30,9 @@ enum KnowledgePackLoadState: Equatable, Sendable {
 @Observable
 final class KnowledgePackStore {
   private let loader: KnowledgePackLoader
-  private let profileRegistry: KnowledgeDomainProfileRegistry
+  let profileRegistry: KnowledgeDomainProfileRegistry
   private(set) var selectedPack: KnowledgePack?
+  private(set) var selectedPackDirectory: URL?
   private(set) var state: KnowledgePackLoadState = .idle
   private(set) var activeQuestionCandidates: [String: QuestionCandidate] = [:]
   private(set) var activeAnswerCards: [String: KnowledgeAnswerCard] = [:]
@@ -72,11 +73,13 @@ final class KnowledgePackStore {
       }.value
       guard requestedPath == normalizedPath, !Task.isCancelled else { return }
       selectedPack = pack
+      selectedPackDirectory = directory
       configureLiveKnowledgePath(for: pack, rootDirectory: directory)
       state = .loaded(path: normalizedPath, summary: KnowledgePackSummary(pack: pack))
     } catch {
       guard requestedPath == normalizedPath, !Task.isCancelled else { return }
       selectedPack = nil
+      selectedPackDirectory = nil
       clearQuestionCandidateDetector()
       state = .failed(path: normalizedPath, message: String(describing: error))
     }
@@ -88,9 +91,17 @@ final class KnowledgePackStore {
     await load(fromPath: path)
   }
 
+  func reload() async {
+    let path = requestedPath
+    guard !path.isEmpty else { return }
+    requestedPath = ""
+    await load(fromPath: path)
+  }
+
   func clear() {
     requestedPath = ""
     selectedPack = nil
+    selectedPackDirectory = nil
     clearQuestionCandidateDetector()
     state = .idle
   }

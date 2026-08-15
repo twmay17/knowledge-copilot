@@ -81,9 +81,14 @@ The machine-readable outputs follow the public
 Neither command calls ChatGPT, uses an API, searches the web, or requires Microsoft 365 or Teams
 administrator access.
 
-## Remaining UI work
+## Native application path
 
-KC-17 proves and tests the write boundary as reusable Swift code and CLI commands. The next slice is
-an in-app reviewer that renders the pending cards, evidence excerpts, calculations, contradictions,
-and gaps, captures explicit approve/reject decisions, previews this plan, and requires a deliberate
-Apply action.
+KC-18 connects this boundary to the macOS app's
+[Knowledge Review workspace](knowledge-review-workspace.md). The workspace renders pending cards,
+evidence excerpts, calculations, contradictions, and gaps; captures one explicit decision per
+proposal; previews the exact import plan; and requires a separate confirmation before Apply.
+
+The app reloads the active KnowledgePack after a successful application so the reviewed additions
+are immediately available to the existing live question and answer path. The core applier still
+reloads and rechecks the pack under its exclusive lock, so the UI preview does not weaken the final
+write-time validation.

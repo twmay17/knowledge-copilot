@@ -27,6 +27,11 @@ preserves the existing JSONL content, validates the installed pack, rolls back p
 and returns an idempotent JSON receipt. See
 [reviewed import application](docs/study-import-application.md).
 
+The macOS app now includes a native Knowledge Review workspace for the final human gate. A named
+reviewer can inspect proposed answers beside their exact assertions, source excerpts, and registered
+calculations; explicitly approve or reject every proposal; preview the validated corpus change; and
+deliberately apply it. See [Knowledge Review workspace](docs/knowledge-review-workspace.md).
+
 The no-admin Microsoft Teams capture baseline is documented in the [Teams audio-capture verification runbook](docs/teams-audio-verification.md).
 
 <p align="center">

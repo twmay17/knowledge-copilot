@@ -39,6 +39,24 @@ struct ContentView: View {
                 Spacer()
 
                 Button {
+                    openWindow(id: "knowledge-review")
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "checkmark.shield")
+                            .font(.system(size: 11))
+                        Text("Review")
+                            .font(.system(size: 11))
+                    }
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .clipShape(RoundedRectangle(cornerRadius: 5))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help("Open the Knowledge Review workspace")
+                .accessibilityIdentifier("app.knowledgeReviewButton")
+
+                Button {
                     openWindow(id: "notes")
                 } label: {
                     HStack(spacing: 4) {

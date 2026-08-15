@@ -12,6 +12,7 @@ enum OpenOatsWindowSizing {
     static let mainWindowCollapsedMinSize = CGSize(width: 520, height: 560)
     static let mainWindowExpandedMinSize = CGSize(width: 1080, height: 560)
     static let notesWorkspaceMinSize = CGSize(width: 980, height: 560)
+    static let knowledgeReviewMinSize = CGSize(width: 1080, height: 650)
 }
 
 public struct OpenOatsRootApp: App {
@@ -128,6 +129,11 @@ public struct OpenOatsRootApp: App {
                 }
                 .keyboardShortcut("m", modifiers: [.command, .shift])
 
+                Button("Knowledge Review") {
+                    openKnowledgeReviewWindow()
+                }
+                .keyboardShortcut("r", modifiers: [.command, .shift])
+
                 Button("Import Meeting Recording...") {
                     importMeetingRecording()
                 }
@@ -165,6 +171,19 @@ public struct OpenOatsRootApp: App {
         }
         .defaultSize(width: 600, height: 700)
 
+        Window("Knowledge Review", id: "knowledge-review") {
+            KnowledgeStudyReviewWorkspaceView()
+                .environment(container)
+                .environment(coordinator)
+                .environment(knowledgePackStore)
+                .defaultAppStorage(defaults)
+        }
+        .windowResizability(.contentMinSize)
+        .defaultSize(
+            width: OpenOatsWindowSizing.knowledgeReviewMinSize.width,
+            height: OpenOatsWindowSizing.knowledgeReviewMinSize.height
+        )
+
         Settings {
             SettingsView(settings: settings, updater: updaterController.updater)
                 .environment(container)
@@ -181,6 +200,11 @@ extension OpenOatsRootApp {
     private func openNotesWindow() {
         openWindow(id: "notes")
         bringWindowToFront(id: "notes", title: "Notes Workspace")
+    }
+
+    private func openKnowledgeReviewWindow() {
+        openWindow(id: "knowledge-review")
+        bringWindowToFront(id: "knowledge-review", title: "Knowledge Review")
     }
 
     private func bringWindowToFront(id: String, title: String) {

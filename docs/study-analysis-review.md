@@ -98,9 +98,14 @@ after the named reviewer has inspected the pending queue and deliberately author
 file. Neither command calls a model, searches the web, talks to Microsoft 365, or changes pack
 files.
 
-## What remains manual
+## Native reviewer path
 
-The command-line trust boundary is complete, but the final reviewer UI is not. Today, the human
-reviews JSON and writes the small decision file, previews the import plan, then deliberately runs
-the apply command. The next product slice can expose those same gates in an in-app review surface
-without weakening them.
+KC-18 exposes the same gate in the macOS app's
+[Knowledge Review workspace](knowledge-review-workspace.md). The reviewer still has to select a
+queue for the active pack, enter a named reviewer, and explicitly approve or reject every proposed
+question family and response card. Contradictions and corpus gaps remain evidence-bearing findings,
+not importable facts.
+
+The CLI remains available for automation and audit workflows. The native surface is an additional
+operator path over the same validator, review gate, planner, and transactional applier; it is not a
+less strict implementation.

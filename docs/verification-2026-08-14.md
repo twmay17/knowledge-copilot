@@ -658,3 +658,54 @@ Results:
 
 See [the application contract](study-import-application.md) and the
 [public-safe KC-17 evidence summary](evidence/kc17-study-import-application-2026-08-15.md).
+
+## KC-18 native Knowledge Review workspace
+
+The macOS app now exposes the final human gate without weakening the tested CLI contracts:
+
+- **Review** in the main window and **Command-Shift-R** open a dedicated Knowledge Review window;
+- a queue is shown only after the active pack is reloaded, its Study Bundle is rebuilt, and the
+  reconstructed queue exactly equals the selected file;
+- question families and response cards require one explicit approve or reject decision each;
+- proposed answers are rendered beside their assertions, exact cited passages, source locators,
+  caveats, and registered calculations;
+- contradictions and corpus gaps are visible as non-importable reviewer context;
+- a normalized named reviewer is mandatory and optional notes are bounded and normalized;
+- editing a reviewer, decision, or note invalidates the prepared artifact and plan;
+- Preview invokes the existing human-review gate and read-only import planner against a fresh pack
+  load;
+- Apply is separately confirmed and invokes the existing locked, recoverable transactional applier;
+  and
+- a successful application reloads the active KnowledgePack for live use and displays the receipt
+  result and hash.
+
+Passing local checks:
+
+```bash
+swift test --filter KnowledgeStudyReviewWorkspaceModelTests
+swift test --filter \
+  'KnowledgeStudyReviewWorkspaceModelTests|KnowledgeStudyImportApplierTests|KnowledgeStudyReviewTests|KnowledgeStudyBundleTests'
+swift test --skip MeetingDetectorTests
+swift build -c release --product OpenOats
+xcrun swift-format lint --strict \
+  Sources/OpenOats/App/KnowledgeStudyReviewWorkspaceModel.swift \
+  Sources/OpenOats/App/KnowledgePackStore.swift \
+  Sources/OpenOats/Views/KnowledgeStudyReviewWorkspaceView.swift \
+  Tests/OpenOatsTests/KnowledgeStudyReviewWorkspaceModelTests.swift
+git diff --check
+```
+
+Results:
+
+- 7 of 7 focused workspace-model tests passed;
+- all 38 KC-15 through KC-18 preparation, review, application, and workspace tests passed;
+- all 797 non-environmental package tests passed;
+- the production OpenOats product and a local unsigned `.app` QA bundle built successfully;
+- strict Swift formatting passed for the new workspace sources, its test, and the touched
+  two-space store source;
+- the built app's main-window Review control and native no-active-pack workspace were inspected
+  through macOS accessibility state and a rendered screenshot; and
+- whitespace checks passed.
+
+See [the workspace contract](knowledge-review-workspace.md) and the
+[public-safe KC-18 evidence summary](evidence/kc18-knowledge-review-workspace-2026-08-15.md).
