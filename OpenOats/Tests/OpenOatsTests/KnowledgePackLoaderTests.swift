@@ -126,17 +126,77 @@ final class KnowledgePackLoaderTests: XCTestCase {
     XCTAssertTrue(report.errors.contains { $0.code == "profile.unknown_predicate" })
   }
 
+  func testHospitalityProfileRejectsUnitMismatch() {
+    let valid = makeValidPack()
+    let roomRevenue = KnowledgeAssertion(
+      id: "assertion-room-revenue",
+      subject: "synthetic-hotel",
+      predicate: "hospitality.room_revenue",
+      value: KnowledgeValue(type: .number, number: 3_266_750, unit: "EUR", scale: 1),
+      qualifiers: ["period": "2020"],
+      kind: .stated,
+      confidence: 1,
+      evidenceLinkIDs: ["evidence-room-revenue"]
+    )
+    let invalid = KnowledgePack(
+      manifest: valid.manifest,
+      sources: valid.sources,
+      passages: valid.passages,
+      assertions: valid.assertions.map {
+        $0.id == roomRevenue.id ? roomRevenue : $0
+      },
+      evidenceLinks: valid.evidenceLinks,
+      calculations: valid.calculations,
+      responseCards: valid.responseCards,
+      questionFamilies: valid.questionFamilies
+    )
+
+    let report = makeLoader().validate(invalid)
+
+    XCTAssertFalse(report.isValid)
+    XCTAssertTrue(report.errors.contains { $0.code == "profile.invalid_unit" })
+  }
+
+  func testExpandedHospitalityFixtureAndGoldenCasesLoad() throws {
+    let fixture = fixtureURL()
+    let pack = try makeLoader().load(from: fixture)
+
+    XCTAssertEqual(pack.sources.count, 3)
+    XCTAssertEqual(pack.passages.count, 3)
+    XCTAssertEqual(pack.assertions.count, 18)
+    XCTAssertEqual(pack.calculations.count, 6)
+    XCTAssertEqual(pack.responseCards.count, 9)
+    XCTAssertEqual(pack.questionFamilies.count, 9)
+
+    let goldenURL = fixture.appendingPathComponent("evaluation/golden-cases.jsonl")
+    let contents = try String(contentsOf: goldenURL, encoding: .utf8)
+    let cases = try contents.split(whereSeparator: \.isNewline).map {
+      try JSONDecoder().decode(GoldenCase.self, from: Data($0.utf8))
+    }
+    let cards = Dictionary(uniqueKeysWithValues: pack.responseCards.map { ($0.id, $0) })
+
+    XCTAssertEqual(cases.count, 7)
+    XCTAssertEqual(
+      Set(cases.map(\.expectedEvidenceState)),
+      [
+        .calculated,
+        .contested,
+        .directlySourced,
+        .notFoundInCorpus,
+      ])
+    for golden in cases {
+      let card = try XCTUnwrap(cards[golden.expectedCardID], golden.id)
+      XCTAssertEqual(card.evidenceState, golden.expectedEvidenceState, golden.id)
+      XCTAssertEqual(card.reviewStatus, .reviewed, golden.id)
+      for fragment in golden.expectedAnswerContains {
+        XCTAssertTrue(card.answer.contains(fragment), "\(golden.id) missing '\(fragment)'")
+      }
+    }
+  }
+
   @MainActor
   func testAppStoreLoadsAndSummarizesFixture() async {
-    let repositoryRoot = URL(fileURLWithPath: #filePath)
-      .deletingLastPathComponent()
-      .deletingLastPathComponent()
-      .deletingLastPathComponent()
-      .deletingLastPathComponent()
-    let fixture = repositoryRoot.appendingPathComponent(
-      "fixtures/knowledge-packs/minimal-hospitality",
-      isDirectory: true
-    )
+    let fixture = fixtureURL()
     let store = KnowledgePackStore(
       profileRegistry: KnowledgeDomainProfileRegistry(profiles: [HospitalityDomainProfile()]))
 
@@ -146,14 +206,30 @@ final class KnowledgePackLoaderTests: XCTestCase {
       return XCTFail("Expected the app KnowledgePack store to load the fixture; got \(store.state)")
     }
     XCTAssertEqual(summary.title, "Synthetic Hotel 2020 Reference Pack")
-    XCTAssertEqual(summary.sourceCount, 1)
-    XCTAssertEqual(summary.assertionCount, 3)
-    XCTAssertEqual(summary.responseCardCount, 1)
+    XCTAssertEqual(summary.sourceCount, 3)
+    XCTAssertEqual(summary.assertionCount, 18)
+    XCTAssertEqual(summary.responseCardCount, 9)
   }
 
   private func makeLoader() -> KnowledgePackLoader {
     KnowledgePackLoader(
       profileRegistry: KnowledgeDomainProfileRegistry(profiles: [HospitalityDomainProfile()]))
+  }
+
+  private func fixtureURL() -> URL {
+    URL(fileURLWithPath: #filePath)
+      .deletingLastPathComponent()
+      .deletingLastPathComponent()
+      .deletingLastPathComponent()
+      .deletingLastPathComponent()
+      .appendingPathComponent("fixtures/knowledge-packs/minimal-hospitality", isDirectory: true)
+  }
+
+  private struct GoldenCase: Decodable {
+    let id: String
+    let expectedCardID: String
+    let expectedEvidenceState: KnowledgeEvidenceState
+    let expectedAnswerContains: [String]
   }
 
   private func makeValidPack() -> KnowledgePack {

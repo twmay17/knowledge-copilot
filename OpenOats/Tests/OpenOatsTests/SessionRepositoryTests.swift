@@ -279,6 +279,41 @@ final class SessionRepositoryTests: XCTestCase {
         await repo.deleteSession(sessionID: sessionID)
     }
 
+    func testFinalizeSessionPreservesExistingStartTimeWhenSpeechBeginsLater() async {
+        let handle = await repo.startSession()
+        let sessionID = handle.sessionID
+        let originalStartedAt = Date(timeIntervalSince1970: 1_700_123_456)
+        let firstSpeechAt = originalStartedAt.addingTimeInterval(45)
+
+        await repo.seedSession(
+            id: sessionID,
+            records: [],
+            startedAt: originalStartedAt
+        )
+
+        await repo.finalizeSession(
+            sessionID: sessionID,
+            metadata: SessionFinalizeMetadata(
+                endedAt: originalStartedAt.addingTimeInterval(600),
+                utteranceCount: 1,
+                title: "Meeting With Quiet Opening",
+                language: nil,
+                meetingApp: "Microsoft Teams",
+                engine: "parakeetV2",
+                templateSnapshot: nil,
+                utterances: [
+                    Utterance(text: "First spoken words", speaker: .you, timestamp: firstSpeechAt)
+                ]
+            )
+        )
+
+        let session = await repo.loadSession(id: sessionID)
+        XCTAssertEqual(session.index.startedAt, originalStartedAt)
+        XCTAssertEqual(session.index.endedAt, originalStartedAt.addingTimeInterval(600))
+
+        await repo.deleteSession(sessionID: sessionID)
+    }
+
     func testSaveFinalTranscriptMarksRecoveredAfterBatchWhenIssueWasPresent() async {
         let sessionID = "session_recovered_after_batch"
         await repo.seedSession(
@@ -937,6 +972,36 @@ final class SessionRepositoryTests: XCTestCase {
         XCTAssertEqual(saved?.utteranceCount, finalRecords.count)
         XCTAssertEqual(saved?.startedAt, finalStart)
         XCTAssertEqual(saved?.endedAt, finalStart.addingTimeInterval(12))
+
+        await repo.deleteSession(sessionID: sessionID)
+    }
+
+    func testSaveFinalTranscriptCanPreserveSessionTimingForBatchOverwrite() async {
+        let sessionID = "session_final_preserves_capture_timing"
+        let captureStart = Date(timeIntervalSince1970: 100)
+        let captureEnd = captureStart.addingTimeInterval(600)
+        await repo.seedSession(
+            id: sessionID,
+            records: [SessionRecord(speaker: .you, text: "Live", timestamp: captureStart)],
+            startedAt: captureStart,
+            endedAt: captureEnd
+        )
+
+        let finalStart = captureStart.addingTimeInterval(45)
+        let finalRecords = [
+            SessionRecord(speaker: .you, text: "Final A", timestamp: finalStart),
+            SessionRecord(speaker: .them, text: "Final B", timestamp: finalStart.addingTimeInterval(12)),
+        ]
+        await repo.saveFinalTranscript(
+            sessionID: sessionID,
+            records: finalRecords,
+            preserveSessionTiming: true
+        )
+
+        let saved = await repo.loadSession(id: sessionID)
+        XCTAssertEqual(saved.index.startedAt, captureStart)
+        XCTAssertEqual(saved.index.endedAt, captureEnd)
+        XCTAssertEqual(saved.index.utteranceCount, finalRecords.count)
 
         await repo.deleteSession(sessionID: sessionID)
     }

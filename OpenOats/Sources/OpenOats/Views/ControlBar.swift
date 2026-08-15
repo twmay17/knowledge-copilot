@@ -115,7 +115,12 @@ struct ControlBar: View {
                     .clipShape(Capsule())
                     .fixedSize(horizontal: true, vertical: false)
                     .layoutPriority(2)
-                    .accessibilityIdentifier("app.controlBar.status")
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(
+                        "\(isRecordingPaused ? "Paused" : (isMicMuted ? "Muted" : "Live")) "
+                            + ElapsedTimeFormatter.compactMinutesSeconds(recordingElapsedSeconds)
+                    )
+                    .accessibilityIdentifier("app.controlBar.liveStatus")
 
                     Button(action: onToggle) {
                         Label("Stop", systemImage: "stop.fill")

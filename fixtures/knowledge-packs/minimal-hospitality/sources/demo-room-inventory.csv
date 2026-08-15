@@ -1,0 +1,5 @@
+period,status,room_count,days_available,available_room_nights,rooms_sold,occupancy,adr
+2019,actual,100,365,36500,29930,0.8200,146.34
+2020,actual,100,365,36500,26280,0.7200,124.31
+2020,budget,100,365,36500,29200,0.8000,137.50
+2021,actual,100,365,36500,27740,0.7600,138.16

@@ -760,6 +760,7 @@ final class TranscriptionEngine {
         pendingSystemAudioRestart = false
         micKeepAliveTask?.cancel()
 
+        audioRecorder?.markCaptureStopRequested()
         micCapture.finishStream()
         systemCapture.finishStream()
 

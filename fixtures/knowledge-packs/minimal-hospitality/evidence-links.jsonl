@@ -1,3 +1,18 @@
-{"id":"evidence-room-revenue-2020","assertionID":"assertion-room-revenue-2020","passageID":"passage-revpar-2020","relation":"supports","note":"Direct source input to the RevPAR calculation."}
-{"id":"evidence-available-room-nights-2020","assertionID":"assertion-available-room-nights-2020","passageID":"passage-revpar-2020","relation":"supports","note":"Direct source input to the RevPAR calculation."}
-{"id":"evidence-revpar-2020","assertionID":"assertion-revpar-2020","passageID":"passage-revpar-2020","relation":"derives","note":"Room revenue divided by available room nights."}
+{"id":"evidence-room-count-2020","assertionID":"assertion-room-count-2020","passageID":"passage-inventory-2020-actual","relation":"supports","note":"Direct room inventory source."}
+{"id":"evidence-days-available-2020","assertionID":"assertion-days-available-2020","passageID":"passage-inventory-2020-actual","relation":"supports","note":"Direct room inventory source."}
+{"id":"evidence-available-room-nights-2020","assertionID":"assertion-available-room-nights-2020","passageID":"passage-inventory-2020-actual","relation":"derives","note":"Room count multiplied by days available."}
+{"id":"evidence-rooms-sold-2020","assertionID":"assertion-rooms-sold-2020","passageID":"passage-inventory-2020-actual","relation":"supports","note":"Direct room inventory source."}
+{"id":"evidence-room-revenue-2020","assertionID":"assertion-room-revenue-2020","passageID":"passage-operating-2020-actual","relation":"supports","note":"Direct operating statement source."}
+{"id":"evidence-food-beverage-revenue-2020","assertionID":"assertion-food-beverage-revenue-2020","passageID":"passage-operating-2020-actual","relation":"supports","note":"Direct operating statement source."}
+{"id":"evidence-other-revenue-2020","assertionID":"assertion-other-revenue-2020","passageID":"passage-operating-2020-actual","relation":"supports","note":"Direct operating statement source."}
+{"id":"evidence-total-revenue-reported-2020","assertionID":"assertion-total-revenue-reported-2020","passageID":"passage-operating-2020-actual","relation":"supports","note":"Direct operating statement source."}
+{"id":"evidence-total-revenue-calculated-2020","assertionID":"assertion-total-revenue-calculated-2020","passageID":"passage-operating-2020-actual","relation":"derives","note":"Room, food and beverage, and other revenue summed deterministically."}
+{"id":"evidence-departmental-expense-2020","assertionID":"assertion-departmental-expense-2020","passageID":"passage-operating-2020-actual","relation":"supports","note":"Direct operating statement source."}
+{"id":"evidence-undistributed-expense-2020","assertionID":"assertion-undistributed-expense-2020","passageID":"passage-operating-2020-actual","relation":"supports","note":"Direct operating statement source."}
+{"id":"evidence-gop-reported-2020","assertionID":"assertion-gop-reported-2020","passageID":"passage-operating-2020-actual","relation":"supports","note":"Direct operating statement source."}
+{"id":"evidence-gop-calculated-2020","assertionID":"assertion-gop-calculated-2020","passageID":"passage-operating-2020-actual","relation":"derives","note":"Total revenue less departmental and undistributed expenses."}
+{"id":"evidence-occupancy-2020","assertionID":"assertion-occupancy-2020","passageID":"passage-inventory-2020-actual","relation":"derives","note":"Rooms sold divided by available room nights."}
+{"id":"evidence-adr-2020","assertionID":"assertion-adr-2020","passageID":"passage-inventory-2020-actual","relation":"derives","note":"Room revenue divided by rooms sold."}
+{"id":"evidence-revpar-calculated-2020","assertionID":"assertion-revpar-calculated-2020","passageID":"passage-operating-2020-actual","relation":"derives","note":"Room revenue divided by available room nights."}
+{"id":"evidence-revpar-reported-2020","assertionID":"assertion-revpar-reported-2020","passageID":"passage-operating-2020-actual","relation":"supports","note":"Operating statement directly reports $89.50."}
+{"id":"evidence-revpar-memo-2020","assertionID":"assertion-revpar-memo-2020","passageID":"passage-memo-revpar-2020","relation":"supports","note":"Fictional memo directly claims $92.00 and intentionally conflicts with the operating statement."}

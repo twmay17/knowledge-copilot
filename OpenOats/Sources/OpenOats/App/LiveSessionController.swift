@@ -829,7 +829,7 @@ final class LiveSessionController {
         // 5. Build index for UI state
         let index = SessionIndex(
             id: sessionID,
-            startedAt: utterancesSnapshot.first?.timestamp ?? endingMetadata?.startedAt ?? Date(),
+            startedAt: endingMetadata?.startedAt ?? utterancesSnapshot.first?.timestamp ?? Date(),
             endedAt: Date(),
             templateSnapshot: coordinator.sessionTemplateSnapshot,
             title: title,

@@ -1,0 +1,7 @@
+{"id":"golden-revpar-calculated","utterance":"What was RevPAR for this asset in 2020?","expectedCardID":"card-revpar-2020","expectedEvidenceState":"calculated","expectedAnswerContains":["$89.50","$3,266,750","36,500"]}
+{"id":"golden-revpar-direct","utterance":"What does the operating statement report for 2020 RevPAR?","expectedCardID":"card-revpar-2020-direct","expectedEvidenceState":"directly_sourced","expectedAnswerContains":["$89.50","operating statement"]}
+{"id":"golden-room-count-direct","utterance":"How many rooms does this hotel have?","expectedCardID":"card-room-count-2020","expectedEvidenceState":"directly_sourced","expectedAnswerContains":["100 rooms"]}
+{"id":"golden-revpar-conflict","utterance":"Do all sources agree on 2020 RevPAR?","expectedCardID":"card-revpar-2020-conflict","expectedEvidenceState":"contested","expectedAnswerContains":["$89.50","$92.00","conflicts"]}
+{"id":"golden-revpar-missing","utterance":"What was RevPAR in 2018?","expectedCardID":"card-revpar-2018-missing","expectedEvidenceState":"not_found_in_corpus","expectedAnswerContains":["does not contain","2018"]}
+{"id":"golden-occupancy-calculated","utterance":"What was 2020 occupancy?","expectedCardID":"card-occupancy-2020","expectedEvidenceState":"calculated","expectedAnswerContains":["72.0%","26,280","36,500"]}
+{"id":"golden-adr-calculated","utterance":"What was 2020 ADR?","expectedCardID":"card-adr-2020","expectedEvidenceState":"calculated","expectedAnswerContains":["$124.31","$3,266,750","26,280"]}

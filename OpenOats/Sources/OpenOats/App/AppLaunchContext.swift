@@ -5,6 +5,7 @@ enum UITestScenario: String {
     case sessionSmoke
     case notesSmoke
     case wizardSmoke
+    case consentSmoke
 }
 
 enum AppRuntimeMode {

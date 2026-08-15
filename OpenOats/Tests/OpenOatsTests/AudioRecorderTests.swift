@@ -210,8 +210,9 @@ final class AudioRecorderTests: XCTestCase {
 
         let anchors = recorder.timingAnchors()
         XCTAssertNotNil(anchors.sysStartDate, "sysStartDate should be set after writes")
-        XCTAssertEqual(anchors.sysAnchors.count, 1, "Should have exactly one start anchor")
+        XCTAssertEqual(anchors.sysAnchors.count, 2, "Should have start and final snapshot anchors")
         XCTAssertEqual(anchors.sysAnchors.first?.frame, 0, "Start anchor should be at frame 0")
+        XCTAssertEqual(anchors.sysAnchors.last?.frame, 48_000, "Final anchor should include every frame")
     }
 
     // MARK: - Multi-channel mic downmix (regression for ~25 dB attenuation bug)

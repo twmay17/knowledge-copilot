@@ -38,6 +38,29 @@ final class SmokeTests: XCTestCase {
         XCTAssertTrue(element(in: app, identifier: "wizard.root").waitForExistence(timeout: 5))
     }
 
+    func testRecordingConsentPrecedesVisibleLiveIndicator() {
+        let app = launchApp(scenario: "consentSmoke")
+
+        let start = element(in: app, identifier: "app.controlBar.toggle")
+        XCTAssertTrue(start.waitForExistence(timeout: 5))
+        start.click()
+
+        XCTAssertTrue(element(in: app, identifier: "recordingConsent.title").waitForExistence(timeout: 5))
+        let acknowledgement = element(in: app, identifier: "recordingConsent.acknowledgement")
+        let agree = element(in: app, identifier: "recordingConsent.agree")
+        XCTAssertTrue(acknowledgement.waitForExistence(timeout: 2))
+        XCTAssertTrue(agree.waitForExistence(timeout: 2))
+        XCTAssertFalse(agree.isEnabled)
+
+        acknowledgement.click()
+        XCTAssertTrue(waitForCondition(timeout: 2) { agree.isEnabled })
+        agree.click()
+
+        let liveStatus = element(in: app, identifier: "app.controlBar.liveStatus")
+        XCTAssertTrue(liveStatus.waitForExistence(timeout: 5))
+        XCTAssertTrue(liveStatus.label.contains("Live"))
+    }
+
     func testSessionSmokeShowsEndedBanner() {
         let app = launchApp(scenario: "sessionSmoke")
 

@@ -171,7 +171,13 @@ else
     echo "Code signing complete"
     codesign -vvv "$APP_DIR"
   else
-    echo "Warning: No signing identity found. App will be unsigned."
+    ENTITLEMENTS="$SWIFT_DIR/Sources/OpenOats/OpenOats.entitlements"
+    echo "No signing identity found. Applying an ad-hoc signature for local testing."
+    echo "Warning: rebuilding an ad-hoc-signed app changes its code identity; macOS may ask you to grant audio permissions again."
+    codesign --force --deep --sign - \
+      --entitlements "$ENTITLEMENTS" \
+      "$APP_DIR"
+    codesign -vvv "$APP_DIR"
   fi
 fi
 

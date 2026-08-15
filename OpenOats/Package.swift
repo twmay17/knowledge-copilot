@@ -26,6 +26,10 @@ let package = Package(
             name: "knowledge-pack",
             targets: ["KnowledgePackTool"]
         ),
+        .executable(
+            name: "audio-capture-verify",
+            targets: ["AudioCaptureVerificationTool"]
+        ),
     ],
     dependencies: [
         // FluidAudio has made source-breaking API changes in patch releases.
@@ -63,6 +67,11 @@ let package = Package(
             name: "KnowledgePackTool",
             dependencies: ["OpenOatsKit", "HospitalityDomainProfile"],
             path: "Sources/KnowledgePackTool"
+        ),
+        .executableTarget(
+            name: "AudioCaptureVerificationTool",
+            dependencies: ["OpenOatsKit"],
+            path: "Sources/AudioCaptureVerificationTool"
         ),
         .target(
             name: "HospitalityDomainProfile",

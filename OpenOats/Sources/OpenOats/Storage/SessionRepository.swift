@@ -437,8 +437,8 @@ actor SessionRepository {
         backfillCleanedText(sessionID: sessionID, from: metadata.utterances)
 
         let existingMetadata = loadSessionMetadataFile(sessionID: sessionID)
-        let startedAt = metadata.utterances.first?.timestamp
-            ?? existingMetadata?.startedAt
+        let startedAt = existingMetadata?.startedAt
+            ?? metadata.utterances.first?.timestamp
             ?? Date()
 
         // Write session.json with final metadata
@@ -566,7 +566,8 @@ actor SessionRepository {
         sessionID: String,
         records: [SessionRecord],
         backupCurrentTranscript: Bool = false,
-        markAsRecoveredIfIssuePresent: Bool = false
+        markAsRecoveredIfIssuePresent: Bool = false,
+        preserveSessionTiming: Bool = false
     ) {
         let dir = sessionDirectory(for: sessionID)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -606,8 +607,12 @@ actor SessionRepository {
             }
             let refreshedMeta = SessionMetadata(
                 id: meta.id,
-                startedAt: records.first?.timestamp ?? meta.startedAt,
-                endedAt: records.last?.timestamp ?? meta.endedAt,
+                startedAt: preserveSessionTiming
+                    ? meta.startedAt
+                    : records.first?.timestamp ?? meta.startedAt,
+                endedAt: preserveSessionTiming
+                    ? meta.endedAt ?? records.last?.timestamp
+                    : records.last?.timestamp ?? meta.endedAt,
                 templateSnapshot: meta.templateSnapshot,
                 title: meta.title,
                 utteranceCount: records.count,

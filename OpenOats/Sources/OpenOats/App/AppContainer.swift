@@ -82,7 +82,7 @@ final class AppContainer {
             let defaults = UserDefaults(suiteName: suiteName) ?? .standard
             defaults.removePersistentDomain(forName: suiteName)
             defaults.set(scenario != .wizardSmoke, forKey: "hasCompletedOnboarding")
-            defaults.set(true, forKey: "hasAcknowledgedRecordingConsent")
+            defaults.set(scenario != .consentSmoke, forKey: "hasAcknowledgedRecordingConsent")
             defaults.set(false, forKey: "meetingAutoDetectEnabled")
             defaults.set(false, forKey: "hasShownAutoDetectExplanation")
             defaults.set(false, forKey: "calendarIntegrationEnabled")

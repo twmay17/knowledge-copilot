@@ -107,3 +107,20 @@ swift run knowledge-pack inspect ../fixtures/knowledge-packs/minimal-hospitality
 The fixture is synthetic and redistributable. It exercises the generic contract through the
 separate `HospitalityDomainProfile` Swift target. The core loader depends only on the public
 `KnowledgeDomainProfile` interface; applications and tools choose which profiles to register.
+
+## Synthetic hospitality reference fixture
+
+`fixtures/knowledge-packs/minimal-hospitality` is the public first-proof corpus. It contains:
+
+- a fictional multi-period operating statement with actual and budget P&L rows;
+- a fictional room-inventory schedule;
+- a deliberately inconsistent investment memo used to test contradiction handling;
+- direct, calculated, contested, and corpus-missing response cards;
+- deterministic room-night, occupancy, ADR, RevPAR, total-revenue, and GOP calculations;
+- machine-readable expected responses in `evaluation/golden-cases.jsonl`;
+- a provenance and redistribution checklist in the fixture README.
+
+The loader verifies every source hash. The focused test suite also maps every golden case to a
+reviewed response card and checks that its expected evidence state and answer fragments match.
+Hospitality units, aliases, predicates, and formulas remain owned by the separate profile target;
+none are added to the generic KnowledgePack model.

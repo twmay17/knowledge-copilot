@@ -4,7 +4,10 @@ import os
 /// Records mic and system audio to temporary CAF files during a session,
 /// then merges and encodes them into a single M4A (AAC) file on finalization.
 final class AudioRecorder: @unchecked Sendable {
+    private static let timingAnchorInterval: TimeInterval = 5
+
     private let lock = NSLock()
+    private let now: @Sendable () -> Date
     private var micFile: AVAudioFile?
     private var sysFile: AVAudioFile?
     private var micTempURL: URL?
@@ -18,6 +21,7 @@ final class AudioRecorder: @unchecked Sendable {
     /// Wall-clock timestamp of the first buffer write for each stream.
     private var micStartDate: Date?
     private var sysStartDate: Date?
+    private var captureStopRequestedAt: Date?
 
     /// Wall-clock timestamp and frame position of the most recent buffer write.
     private var sysEndDate: Date?
@@ -27,8 +31,12 @@ final class AudioRecorder: @unchecked Sendable {
     private(set) var micAnchors: [(frame: Int64, date: Date)] = []
     private(set) var sysAnchors: [(frame: Int64, date: Date)] = []
 
-    init(outputDirectory: URL) {
+    init(
+        outputDirectory: URL,
+        now: @escaping @Sendable () -> Date = Date.init
+    ) {
         self.outputDirectory = outputDirectory
+        self.now = now
     }
 
     func updateDirectory(_ url: URL, securityScoped: Bool = false) {
@@ -46,6 +54,7 @@ final class AudioRecorder: @unchecked Sendable {
             sysWriteCount = 0
             micStartDate = nil
             sysStartDate = nil
+            captureStopRequestedAt = nil
             sysEndDate = nil
             sysEndFrame = 0
             micAnchors = []
@@ -53,7 +62,7 @@ final class AudioRecorder: @unchecked Sendable {
 
             let fmt = DateFormatter()
             fmt.dateFormat = "yyyy-MM-dd_HH-mm"
-            sessionTimestamp = fmt.string(from: Date())
+            sessionTimestamp = fmt.string(from: now())
 
             let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
             micTempURL = tmp.appendingPathComponent("openoats_mic_\(sessionTimestamp).caf")
@@ -84,11 +93,16 @@ final class AudioRecorder: @unchecked Sendable {
                 }
             }
 
-            // Record timing anchor on first write
+            // Record periodic wall-clock anchors so a post-session verifier can
+            // distinguish continuous silence from an unrecovered callback dropout.
+            let currentFrame = micFile?.length ?? 0
+            let writeDate = now()
             if micStartDate == nil {
-                let now = Date()
-                micStartDate = now
-                micAnchors.append((frame: micFile?.length ?? 0, date: now))
+                micStartDate = writeDate
+                micAnchors.append((frame: currentFrame, date: writeDate))
+            } else if let lastAnchor = micAnchors.last,
+                      writeDate.timeIntervalSince(lastAnchor.date) >= Self.timingAnchorInterval {
+                micAnchors.append((frame: currentFrame, date: writeDate))
             }
 
             // Downmix to mono inline — handle float32, int16, and int32 formats
@@ -179,15 +193,19 @@ final class AudioRecorder: @unchecked Sendable {
             }
 
             // Record timing anchor on first write
-            let now = Date()
+            let writeDate = now()
+            let currentFrame = sysFile?.length ?? 0
             if sysStartDate == nil {
-                sysStartDate = now
-                sysAnchors.append((frame: sysFile?.length ?? 0, date: now))
+                sysStartDate = writeDate
+                sysAnchors.append((frame: currentFrame, date: writeDate))
+            } else if let lastAnchor = sysAnchors.last,
+                      writeDate.timeIntervalSince(lastAnchor.date) >= Self.timingAnchorInterval {
+                sysAnchors.append((frame: currentFrame, date: writeDate))
             }
 
             // Track latest write position for effective sample rate computation
-            sysEndDate = now
-            sysEndFrame = (sysFile?.length ?? 0) + Int64(buffer.frameLength)
+            sysEndDate = writeDate
+            sysEndFrame = currentFrame + Int64(buffer.frameLength)
 
             do {
                 try sysFile?.write(from: buffer)
@@ -202,6 +220,13 @@ final class AudioRecorder: @unchecked Sendable {
         lock.withLock { (micTempURL, sysTempURL) }
     }
 
+    /// Freeze the expected end of capture before transcription finalization waits begin.
+    func markCaptureStopRequested() {
+        lock.withLock {
+            captureStopRequestedAt = now()
+        }
+    }
+
     /// Read-only access to timing anchor data.
     func timingAnchors() -> (
         micStartDate: Date?, sysStartDate: Date?,
@@ -210,11 +235,20 @@ final class AudioRecorder: @unchecked Sendable {
         sysEffectiveSampleRate: Double?
     ) {
         lock.withLock {
-            (
+            let snapshotDate = captureStopRequestedAt ?? now()
+            return (
                 micStartDate,
                 sysStartDate,
-                micAnchors,
-                sysAnchors,
+                Self.appendingFinalAnchor(
+                    to: micAnchors,
+                    frame: micFile?.length ?? micAnchors.last?.frame ?? 0,
+                    date: snapshotDate
+                ),
+                Self.appendingFinalAnchor(
+                    to: sysAnchors,
+                    frame: sysFile?.length ?? sysAnchors.last?.frame ?? 0,
+                    date: snapshotDate
+                ),
                 Self.effectiveSystemSampleRate(
                     startDate: sysStartDate,
                     endDate: sysEndDate,
@@ -234,13 +268,24 @@ final class AudioRecorder: @unchecked Sendable {
         sysEffectiveSampleRate: Double?
     ) {
         lock.withLock {
+            let snapshotDate = captureStopRequestedAt ?? now()
+            let finalMicAnchors = Self.appendingFinalAnchor(
+                to: micAnchors,
+                frame: micFile?.length ?? micAnchors.last?.frame ?? 0,
+                date: snapshotDate
+            )
+            let finalSysAnchors = Self.appendingFinalAnchor(
+                to: sysAnchors,
+                frame: sysFile?.length ?? sysAnchors.last?.frame ?? 0,
+                date: snapshotDate
+            )
             micFile = nil
             sysFile = nil
             let result = (
                 mic: micTempURL, sys: sysTempURL,
                 micStartDate: self.micStartDate, sysStartDate: self.sysStartDate,
-                micAnchors: self.micAnchors,
-                sysAnchors: self.sysAnchors,
+                micAnchors: finalMicAnchors,
+                sysAnchors: finalSysAnchors,
                 sysEffectiveSampleRate: Self.effectiveSystemSampleRate(
                     startDate: self.sysStartDate,
                     endDate: self.sysEndDate,
@@ -251,6 +296,19 @@ final class AudioRecorder: @unchecked Sendable {
             sysTempURL = nil
             return result
         }
+    }
+
+    private static func appendingFinalAnchor(
+        to anchors: [(frame: Int64, date: Date)],
+        frame: Int64,
+        date: Date
+    ) -> [(frame: Int64, date: Date)] {
+        guard !anchors.isEmpty else { return anchors }
+        guard let last = anchors.last,
+              last.frame != frame || abs(date.timeIntervalSince(last.date)) > 0.001 else {
+            return anchors
+        }
+        return anchors + [(frame: frame, date: date)]
     }
 
     /// Discard the current recording without merging or encoding.

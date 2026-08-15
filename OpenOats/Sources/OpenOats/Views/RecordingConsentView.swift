@@ -21,6 +21,7 @@ struct RecordingConsentView: View {
             Text("Recording Consent Notice")
                 .font(.system(size: 16, weight: .semibold))
                 .multilineTextAlignment(.center)
+                .accessibilityIdentifier("recordingConsent.title")
 
             Spacer().frame(height: 10)
 
@@ -53,6 +54,7 @@ struct RecordingConsentView: View {
                     .font(.system(size: 12, weight: .medium))
             }
             .toggleStyle(.checkbox)
+            .accessibilityIdentifier("recordingConsent.acknowledgement")
 
             Spacer()
 
@@ -65,6 +67,7 @@ struct RecordingConsentView: View {
                 .buttonStyle(.plain)
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
+                .accessibilityIdentifier("recordingConsent.cancel")
 
                 Spacer()
 
@@ -86,11 +89,13 @@ struct RecordingConsentView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(!acknowledged)
+                .accessibilityIdentifier("recordingConsent.agree")
             }
         }
         .padding(28)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.ultraThinMaterial)
+        .accessibilityElement(children: .contain)
     }
 
     private func consentBullet(_ text: String) -> some View {

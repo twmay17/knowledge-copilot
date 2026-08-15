@@ -653,7 +653,8 @@ actor BatchAudioTranscriber {
             sessionID: sessionID,
             records: allRecords,
             backupCurrentTranscript: true,
-            markAsRecoveredIfIssuePresent: true
+            markAsRecoveredIfIssuePresent: true,
+            preserveSessionTiming: true
         )
         // Retain batch stems/metadata for a bounded rerun/debug window.
         // SessionRepository purges expired retained assets on startup.
