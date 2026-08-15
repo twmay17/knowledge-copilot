@@ -26,6 +26,8 @@ struct KnowledgePackTool {
         try ingestDocument(arguments: arguments)
       case "ingest-spreadsheet":
         try ingestSpreadsheet(arguments: arguments)
+      case "import-underwriting-csv":
+        try importUnderwritingCSV(arguments: arguments)
       case "help", "--help", "-h":
         print(usage)
       default:
@@ -110,7 +112,10 @@ struct KnowledgePackTool {
   private static func ingestDocument(arguments: [String]) throws {
     guard arguments.count >= 4 else { fail(usage) }
     let documentURL = URL(fileURLWithPath: arguments[1]).standardizedFileURL
-    let options = parseOptions(Array(arguments.dropFirst(2)))
+    let options = parseOptions(
+      Array(arguments.dropFirst(2)),
+      supported: ["--relative-path", "--title", "--output"]
+    )
     guard let relativePath = options["--relative-path"] else { fail(usage) }
 
     let result = try KnowledgeDocumentIngestor().ingest(
@@ -141,7 +146,10 @@ struct KnowledgePackTool {
   private static func ingestSpreadsheet(arguments: [String]) throws {
     guard arguments.count >= 4 else { fail(usage) }
     let spreadsheetURL = URL(fileURLWithPath: arguments[1]).standardizedFileURL
-    let options = parseOptions(Array(arguments.dropFirst(2)))
+    let options = parseOptions(
+      Array(arguments.dropFirst(2)),
+      supported: ["--relative-path", "--title", "--output"]
+    )
     guard let relativePath = options["--relative-path"] else { fail(usage) }
 
     let result = try KnowledgeSpreadsheetIngestor().ingest(
@@ -169,10 +177,53 @@ struct KnowledgePackTool {
     }
   }
 
-  private static func parseOptions(_ arguments: [String]) -> [String: String] {
+  private static func importUnderwritingCSV(arguments: [String]) throws {
+    guard arguments.count >= 6 else { fail(usage) }
+    let csvURL = URL(fileURLWithPath: arguments[1]).standardizedFileURL
+    let options = parseOptions(
+      Array(arguments.dropFirst(2)),
+      supported: [
+        "--relative-path", "--asset-id", "--period", "--status", "--title", "--output",
+      ]
+    )
+    guard let relativePath = options["--relative-path"],
+      let assetID = options["--asset-id"]
+    else { fail(usage) }
+
+    let result = try HospitalityUnderwritingCSVImporter().ingest(
+      fileAt: csvURL,
+      relativePath: relativePath,
+      assetID: assetID,
+      period: options["--period"],
+      status: options["--status"],
+      title: options["--title"]
+    )
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+    encoder.dateEncodingStrategy = .iso8601
+    let resultData = try encoder.encode(result)
+
+    if let outputPath = options["--output"] {
+      let outputURL = URL(fileURLWithPath: outputPath).standardizedFileURL
+      try FileManager.default.createDirectory(
+        at: outputURL.deletingLastPathComponent(),
+        withIntermediateDirectories: true
+      )
+      try resultData.write(to: outputURL, options: .atomic)
+      printUnderwritingImportSummary(result)
+      print("Result: \(outputURL.path)")
+    } else {
+      FileHandle.standardOutput.write(resultData)
+      FileHandle.standardOutput.write(Data("\n".utf8))
+    }
+  }
+
+  private static func parseOptions(
+    _ arguments: [String],
+    supported: Set<String>
+  ) -> [String: String] {
     var options: [String: String] = [:]
     var index = 0
-    let supported = Set(["--relative-path", "--title", "--output"])
     while index < arguments.count {
       let key = arguments[index]
       guard supported.contains(key), index + 1 < arguments.count else { fail(usage) }
@@ -190,6 +241,22 @@ struct KnowledgePackTool {
     )
     for warning in result.warnings {
       print("Warning [\(warning.flag.rawValue)]: \(warning.message)")
+    }
+  }
+
+  private static func printUnderwritingImportSummary(
+    _ result: HospitalityUnderwritingImportResult
+  ) {
+    print("Imported: \(result.source.title)")
+    print(
+      "Profile: \(result.profileID)@\(result.profileVersion); role: \(result.labels.role.rawValue); type: \(result.labels.documentType.rawValue)"
+    )
+    print(
+      "Passages: \(result.passages.count); assertions: \(result.assertions.count); warnings: \(result.warnings.count)"
+    )
+    for warning in result.warnings {
+      let row = warning.row.map { " row \($0)" } ?? ""
+      print("Warning [\(warning.code)]\(row): \(warning.message)")
     }
   }
 
@@ -238,5 +305,6 @@ struct KnowledgePackTool {
       knowledge-pack replay <pack-directory> <replay-spec.json> [--output <report.json>]
       knowledge-pack ingest-document <document.pdf|document.docx> --relative-path <pack-relative-path> [--title <title>] [--output <result.json>]
       knowledge-pack ingest-spreadsheet <spreadsheet.xlsx|spreadsheet.csv> --relative-path <pack-relative-path> [--title <title>] [--output <result.json>]
+      knowledge-pack import-underwriting-csv <pl-or-star.csv> --relative-path <pack-relative-path> --asset-id <stable-asset-id> [--period <YYYY|YYYY-MM|TTM:YYYY-MM|YTD:YYYY-MM>] [--status <actual|budget|forecast>] [--title <title>] [--output <result.json>]
     """
 }

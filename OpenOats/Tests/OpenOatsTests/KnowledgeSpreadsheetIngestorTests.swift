@@ -101,6 +101,36 @@ final class KnowledgeSpreadsheetIngestorTests: XCTestCase {
     XCTAssertEqual(first.passages[3].spreadsheet?.unit, "USD_per_available_room")
   }
 
+  func testCSVPreservesLeadingProvenanceCommentsAndFindsTheActualHeader() throws {
+    let root = fixtureDirectory()
+    let result = try KnowledgeSpreadsheetIngestor().ingest(
+      fileAt: root.appendingPathComponent("commented-evidence.csv"),
+      relativePath: "commented-evidence.csv",
+      importedAt: importedAt
+    )
+
+    XCTAssertEqual(result.passages.count, 6)
+    XCTAssertEqual(result.passages[0].locator.rowStart, 1)
+    XCTAssertEqual(
+      result.passages[0].spreadsheet?.cells.first?.value,
+      "# source filename: Synthetic Hotel 2020 P&L.pdf"
+    )
+    XCTAssertEqual(result.passages[4].locator.rowStart, 5)
+    XCTAssertTrue(result.passages[4].spreadsheet?.isHeaderRow == true)
+
+    let dataRow = result.passages[5]
+    XCTAssertEqual(dataRow.locator.cellRange, "A6:E6")
+    XCTAssertEqual(
+      dataRow.spreadsheet?.cells.first { $0.reference == "B6" }?.header,
+      "metric"
+    )
+    XCTAssertEqual(
+      dataRow.spreadsheet?.cells.first { $0.reference == "D6" }?.header,
+      "FY"
+    )
+    XCTAssertTrue(result.allPassagesResolveToSource)
+  }
+
   func testSpreadsheetPassagesPassPackValidation() throws {
     let root = fixtureDirectory()
     let result = try KnowledgeSpreadsheetIngestor().ingest(

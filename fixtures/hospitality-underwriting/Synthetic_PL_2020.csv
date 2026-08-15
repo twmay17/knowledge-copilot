@@ -1,0 +1,22 @@
+# source filename: Synthetic Hotel 2020 Operating Statement.pdf
+# page/tab: page 4
+# extractor: deterministic-fixture
+# date: 2026-08-15
+section,metric,unit,FY,note
+stats,rooms_available,rooms,36500,Available room nights
+stats,rooms_sold,rooms,25000,Sold room nights
+stats,occupancy,occ,68.49,Reported as percentage points
+stats,adr,adr,130.67,Reported ADR
+stats,revpar,revpar,89.50,Reported RevPAR
+revenue,rooms,usd,3266750,Rooms revenue
+revenue,food,usd,250000,Food revenue
+revenue,beverage,usd,100000,Beverage revenue
+revenue,other_operated,usd,100000,Other operated revenue
+revenue,total_revenue,usd,3716750,Reported total revenue
+departmental_expense,total_dept_expense,usd,1000000,Reported departmental expense
+undistributed_expense,a&g,usd,250000,Detailed line retained but not promoted yet
+undistributed_expense,total_undistributed,usd,1000000,Reported undistributed expense
+ebitda,gop,usd,1716750,Reported GOP
+fixed_charges,total_fixed,usd,500000,Reported fixed charges
+ebitda,ebitda,usd,1216750,Reported EBITDA
+ebitda,noi,usd,1216750,Reported NOI

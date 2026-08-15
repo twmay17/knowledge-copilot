@@ -167,6 +167,11 @@ unsupported version. Registered profiles validate their predicate namespace, typ
 required qualifiers, allowed units, protected domain context, and deterministic calculation
 signatures.
 
+The hospitality reference profile's deterministic mapping from underwriting extraction CSVs,
+including source-role labels, canonical periods, value stages, STAR comparison bases, and the
+fail-closed controlled-metric crosswalk, is documented in
+[Hospitality underwriting import profile](hospitality-underwriting-import-profile.md).
+
 The registry also validates typed qualifier values, calculation-specific input and output units,
 same-period or ordered-comparison period rules, deterministic arithmetic, and stored results. The
 profile interface, removability boundary, hospitality reference rules, and operand-level answer

@@ -191,9 +191,14 @@ public struct KnowledgeSpreadsheetIngestor: Sendable {
       text.removeFirst()
     }
     let records = try CSVRecordParser.parse(text)
-    guard let headerRecord = records.first, !headerRecord.allSatisfy({ $0.isEmpty }) else {
+    guard
+      let headerOffset = records.firstIndex(where: {
+        !$0.allSatisfy({ $0.isEmpty }) && !Self.isCSVCommentRecord($0)
+      })
+    else {
       throw KnowledgeSpreadsheetIngestionError.invalidCSV("header row is missing")
     }
+    let headerRecord = records[headerOffset]
 
     let headers = headerRecord.enumerated().reduce(into: [Int: String]()) { result, item in
       let header = item.element.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -205,7 +210,8 @@ public struct KnowledgeSpreadsheetIngestor: Sendable {
 
     for (offset, record) in records.enumerated() where !record.allSatisfy({ $0.isEmpty }) {
       let rowNumber = offset + 1
-      if record.count != expectedColumnCount {
+      let isComment = Self.isCSVCommentRecord(record)
+      if !isComment, record.count != expectedColumnCount {
         let locator = KnowledgeSourceLocator(rowStart: rowNumber, rowEnd: rowNumber)
         warnings.append(
           KnowledgeSpreadsheetIngestionWarning(
@@ -221,7 +227,7 @@ public struct KnowledgeSpreadsheetIngestor: Sendable {
         let reference = Self.columnName(columnOffset + 1) + String(rowNumber)
         return KnowledgeSpreadsheetCell(
           reference: reference,
-          header: rowNumber == 1 ? nil : headers[columnOffset + 1],
+          header: offset == headerOffset || isComment ? nil : headers[columnOffset + 1],
           value: value.isEmpty ? nil : value,
           valueType: Self.csvValueType(value)
         )
@@ -231,8 +237,8 @@ public struct KnowledgeSpreadsheetIngestor: Sendable {
           sheet: nil,
           rowNumber: rowNumber,
           cells: cells,
-          headers: headers,
-          isHeaderRow: rowNumber == 1
+          headers: isComment ? [:] : headers,
+          isHeaderRow: offset == headerOffset
         ))
     }
     return ExtractedSpreadsheet(rows: rows, warnings: warnings)
@@ -413,6 +419,18 @@ public struct KnowledgeSpreadsheetIngestor: Sendable {
     }
     if Double(value) != nil { return .number }
     return .text
+  }
+
+  private static func isCSVCommentRecord(_ record: [String]) -> Bool {
+    guard
+      let first = record.first?.trimmingCharacters(in: .whitespacesAndNewlines),
+      first.hasPrefix("#")
+    else {
+      return false
+    }
+    return record.dropFirst().allSatisfy {
+      $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
   }
 
   private static func extractArchive(_ archiveURL: URL, to destinationURL: URL) throws {

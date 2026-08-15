@@ -478,3 +478,40 @@ Results:
 
 See [the profile and calculation registry contract](domain-profile-registry.md) and
 [the public-safe KC-13 evidence summary](evidence/kc13-domain-profile-registry-2026-08-15.md).
+
+## KC-14 hospitality underwriting import profile
+
+The preparation boundary now understands the verified extraction conventions used by the
+hospitality underwriting workflow without adding them to the generic core:
+
+- `hospitality@0.2.0` supports calendar, monthly, TTM, and YTD reporting-period labels;
+- status, value stage, subject/comp/market benchmark, and comparison basis remain typed and
+  calculation-protected;
+- source paths receive explicit broker, extraction, model, verification, or narrative roles;
+- JMI-style P&L and STAR CSV rows become stated assertions with exact row evidence;
+- leading provenance comments survive generic CSV ingestion and remain content-hashed passages;
+- unmapped line items stay retrievable and generate warnings rather than guessed assertions; and
+- `hospitality@0.1.0` remains available for the published synthetic reference pack.
+
+Initial focused check:
+
+```bash
+swift test --filter \
+  'HospitalityUnderwritingImporterTests|KnowledgeSpreadsheetIngestorTests'
+```
+
+Results:
+
+- 5 of 5 underwriting-import acceptance tests passed;
+- 9 of 9 generic spreadsheet-ingestion tests passed; and
+- 759 non-environmental tests passed with zero failures;
+- the full unfiltered run executed 770 tests and reproduced only the 3 inherited
+  environment-sensitive meeting-detector failures while Microsoft Teams was open;
+- the existing `hospitality@0.1.0` pack still validated;
+- both release products built successfully;
+- all six changed Swift files passed strict Swift-format lint and the diff passed whitespace
+  validation; and
+- both synthetic underwriting fixtures contain no licensed or confidential deal data.
+
+See [the import contract](hospitality-underwriting-import-profile.md) and
+[the public-safe KC-14 evidence summary](evidence/kc14-hospitality-underwriting-import-2026-08-15.md).

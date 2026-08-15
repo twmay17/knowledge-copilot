@@ -7,7 +7,7 @@ does not call a model, upload a workbook, recalculate formulas, or search the we
 
 - XLSX workbooks, expanded locally with the macOS `ditto` tool and read from their Open XML parts.
 - UTF-8 CSV files, including byte-order marks, CRLF or LF line endings, quoted commas, escaped
-  quotes, and embedded newlines.
+  quotes, embedded newlines, and leading single-field `#` provenance comments.
 
 Each non-empty worksheet or CSV record becomes one generic `KnowledgePassage`. The passage keeps a
 `KnowledgeSpreadsheetPassage` payload containing its cells, inferred period and unit, and whether
@@ -28,7 +28,9 @@ XLSX passages retain:
 CSV passages use stable A1 references over each logical record. Quoted physical newlines remain
 part of the field, but do not create a new record or change later row locators. A header named
 `Period`, `Year`, `Date`, `As Of`, or `as_of` supplies generic period context. A header named
-`Unit`, `Units`, or `Currency` supplies generic unit context.
+`Unit`, `Units`, or `Currency` supplies generic unit context. Leading single-field records whose
+trimmed value begins with `#` remain passages, do not become the header, and retain their physical
+row numbers so a domain adapter can parse provenance without weakening generic CSV ingestion.
 
 The source record stores the exact workbook or CSV SHA-256 hash. Passage text is a deterministic
 tab-delimited rendering of the row, including both cached values and formulas. Its exact SHA-256
@@ -83,8 +85,8 @@ exact source file to the recorded relative path.
 - Formulas are preserved with their stored values but are not recalculated.
 - Charts, pivot tables, comments, threaded notes, named ranges, hidden-state semantics, external
   links, Power Query, and embedded files are not extracted.
-- The first non-empty worksheet row is treated as the header row; merged or multi-row headers need
-  a later normalization step.
+- The first non-empty worksheet row, or first non-comment CSV row, is treated as the header row;
+  merged or multi-row headers need a later normalization step.
 - Blank cells omitted by XLSX are not expanded into synthetic cells.
 - CSV values are typed conservatively from their text and CSV has no native formula or style
   metadata.

@@ -1,0 +1,9 @@
+# source filename: Synthetic Hotel STAR Report.xlsx
+# page/tab: Comp
+# extractor: deterministic-fixture
+# date: 2026-08-15
+period,metric,subject,comp_set,index,basis,note
+2020,occ,68.49,70.00,97.84,star_compset,Calendar-year STAR comp set
+2020,adr,130.67,125.00,104.54,star_compset,Calendar-year STAR comp set
+2020,revpar,89.50,87.50,102.29,star_compset,Calendar-year STAR comp set
+TTM:2025-11,revpar,142.00,151.00,94.04,market_proxy,Market proxy explicitly labeled

@@ -6,6 +6,11 @@ A meeting note-taker that talks back.
 
 > **Knowledge Copilot development branch:** this fork is extending OpenOats with a domain-neutral, corpus-grounded question and claim engine. The first new foundation is a versioned `KnowledgePack` contract that keeps sources, assertions, calculations, response cards, and citations portable across hospitality, product pitches, and other evidence-heavy conversations. See [the architecture boundary](docs/architecture-boundaries.md), [KnowledgePack v1 contract](docs/knowledge-pack-v1.md), and [current verification record](docs/verification-2026-08-14.md).
 
+The hospitality reference profile can also convert house-standard P&L and STAR extraction CSVs
+into typed, cited KnowledgePack assertions while keeping broker evidence, analyst work product,
+comparison basis, and modeled values distinct. See the
+[hospitality underwriting import profile](docs/hospitality-underwriting-import-profile.md).
+
 The no-admin Microsoft Teams capture baseline is documented in the [Teams audio-capture verification runbook](docs/teams-audio-verification.md).
 
 <p align="center">
