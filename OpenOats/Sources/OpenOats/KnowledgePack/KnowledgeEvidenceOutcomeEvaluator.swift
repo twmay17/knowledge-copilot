@@ -193,6 +193,9 @@ public enum KnowledgeEvidenceOutcomeError: Error, Equatable, CustomStringConvert
 /// source attribution before returning a factual, contested, interpretive, clarification, or
 /// corpus-missing outcome.
 public struct KnowledgeEvidenceOutcomeEvaluator: Sendable {
+  public let packID: String
+  public let packContentHash: String
+
   private struct AttributionResolution {
     let attributions: [KnowledgeEvidenceAttribution]
     let isComplete: Bool
@@ -220,6 +223,8 @@ public struct KnowledgeEvidenceOutcomeEvaluator: Sendable {
     self.pack = pack
     self.searchIndex = searchIndex
     self.rootDirectory = rootDirectory.standardizedFileURL.resolvingSymlinksInPath()
+    packID = pack.manifest.packID
+    packContentHash = contentHash
     assertionsByID = Dictionary(uniqueKeysWithValues: pack.assertions.map { ($0.id, $0) })
     evidenceLinksByID = Dictionary(uniqueKeysWithValues: pack.evidenceLinks.map { ($0.id, $0) })
     passagesByID = Dictionary(uniqueKeysWithValues: pack.passages.map { ($0.id, $0) })

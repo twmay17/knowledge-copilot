@@ -36,6 +36,7 @@ final class KnowledgePackStore {
   private(set) var searchIndex: KnowledgePackSearchIndex?
   private(set) var searchRebuildReport: KnowledgePackSearchRebuildReport?
   private(set) var evidenceOutcomeEvaluator: KnowledgeEvidenceOutcomeEvaluator?
+  private(set) var tieredAnswerResolver: KnowledgeTieredAnswerResolver?
   private(set) var state: KnowledgePackLoadState = .idle
   private(set) var activeQuestionCandidates: [String: QuestionCandidate] = [:]
   private(set) var activeAnswerCards: [String: KnowledgeAnswerCard] = [:]
@@ -86,7 +87,13 @@ final class KnowledgePackStore {
           searchIndex: searchBuild.index,
           rootDirectory: directory
         )
-        return (pack, searchBuild, evidenceOutcomeEvaluator)
+        let tieredAnswerResolver = try KnowledgeTieredAnswerResolver(
+          pack: pack,
+          searchIndex: searchBuild.index,
+          evidenceEvaluator: evidenceOutcomeEvaluator,
+          rootDirectory: directory
+        )
+        return (pack, searchBuild, evidenceOutcomeEvaluator, tieredAnswerResolver)
       }.value
       guard requestedPath == normalizedPath, !Task.isCancelled else { return }
       selectedPack = result.0
@@ -94,6 +101,7 @@ final class KnowledgePackStore {
       searchIndex = result.1.index
       searchRebuildReport = result.1.report
       evidenceOutcomeEvaluator = result.2
+      tieredAnswerResolver = result.3
       configureLiveKnowledgePath(for: result.0, rootDirectory: directory)
       state = .loaded(path: normalizedPath, summary: KnowledgePackSummary(pack: result.0))
     } catch {
@@ -103,6 +111,7 @@ final class KnowledgePackStore {
       searchIndex = nil
       searchRebuildReport = nil
       evidenceOutcomeEvaluator = nil
+      tieredAnswerResolver = nil
       clearQuestionCandidateDetector()
       state = .failed(path: normalizedPath, message: String(describing: error))
     }
@@ -128,6 +137,7 @@ final class KnowledgePackStore {
     searchIndex = nil
     searchRebuildReport = nil
     evidenceOutcomeEvaluator = nil
+    tieredAnswerResolver = nil
     clearQuestionCandidateDetector()
     state = .idle
   }
@@ -152,6 +162,21 @@ final class KnowledgePackStore {
   ) throws -> KnowledgeEvidenceOutcome {
     guard let evidenceOutcomeEvaluator else { throw KnowledgePackSearchError.indexUnavailable }
     return try evidenceOutcomeEvaluator.evaluate(query)
+  }
+
+  func answerUpdates(
+    for event: KnowledgeLiveEvent,
+    vectorAdapter: (any KnowledgePackVectorSearchAdapter)? = nil,
+    synthesizer: (any KnowledgeConstrainedAnswerSynthesizer)? = nil
+  ) -> AsyncStream<KnowledgeTieredAnswerUpdate> {
+    guard let tieredAnswerResolver else {
+      return AsyncStream { $0.finish() }
+    }
+    return tieredAnswerResolver.updates(
+      for: event,
+      vectorAdapter: vectorAdapter,
+      synthesizer: synthesizer
+    )
   }
 
   @discardableResult

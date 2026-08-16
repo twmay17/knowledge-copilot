@@ -90,6 +90,6 @@ remain separate evaluation gates.
 ## Trust boundary
 
 The detector may decide that retrieval or fact-check preparation should begin. It may not create an
-assertion, select a source as true, generate answer prose, or bypass review. Stable questions still
-flow to reviewed response-card resolution, while stable claims will flow to the separate evidence
-outcome and hot/warm/cold resolver stage.
+assertion, select a source as true, generate answer prose, or bypass review. Question and claim
+events can now flow into the separate [tiered answer resolver](tiered-answer-resolver.md), which
+preserves the corpus-only evidence boundary while streaming hot, warm, and cold updates.
