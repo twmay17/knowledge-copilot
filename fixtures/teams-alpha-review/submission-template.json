@@ -1,0 +1,27 @@
+{
+  "schemaVersion": "1.0",
+  "testRunID": "teams-alpha-YYYY-MM-DD-01",
+  "testedCommit": "0000000000000000000000000000000000000000",
+  "knowledgePackID": "synthetic-hotel-2020-v1",
+  "audioSessionID": "replace-with-audio-session-id",
+  "startedAt": "2026-01-01T00:00:00Z",
+  "endedAt": "2026-01-01T00:31:00Z",
+  "attestations": {
+    "participantConsentConfirmed": false,
+    "recordingIndicatorConfirmed": false,
+    "nonConfidentialScenarioConfirmed": false,
+    "shareSafePresentationConfirmed": false,
+    "adminFreePathConfirmed": false
+  },
+  "checks": {
+    "remoteSpeechTranscribed": false,
+    "preparedQuestionDetectedAutomatically": false,
+    "groundedAnswerDisplayed": false,
+    "sourceOpened": false,
+    "correctedQuestionReplacedOldCard": false,
+    "sessionNotesSaved": false,
+    "sessionFinalizedCleanly": false
+  },
+  "issues": [],
+  "operatorNotes": "Private operator notes; remove participant and tenant identifiers before sharing."
+}

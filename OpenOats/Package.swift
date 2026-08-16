@@ -30,6 +30,10 @@ let package = Package(
             name: "audio-capture-verify",
             targets: ["AudioCaptureVerificationTool"]
         ),
+        .executable(
+            name: "teams-alpha-review",
+            targets: ["TeamsAlphaReviewTool"]
+        ),
     ],
     dependencies: [
         // FluidAudio has made source-breaking API changes in patch releases.
@@ -75,6 +79,11 @@ let package = Package(
             name: "AudioCaptureVerificationTool",
             dependencies: ["OpenOatsKit"],
             path: "Sources/AudioCaptureVerificationTool"
+        ),
+        .executableTarget(
+            name: "TeamsAlphaReviewTool",
+            dependencies: ["OpenOatsKit"],
+            path: "Sources/TeamsAlphaReviewTool"
         ),
         .target(
             name: "HospitalityDomainProfile",
