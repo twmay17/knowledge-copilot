@@ -32,7 +32,7 @@ struct SuggestionPanelContent: View {
 
             Divider()
 
-            if suggestions.isEmpty && knowledgePackStore.activeAnswerCards.isEmpty {
+            if suggestions.isEmpty && knowledgePackStore.visibleOverlayCards.isEmpty {
                 idleView
             } else {
                 ScrollView {

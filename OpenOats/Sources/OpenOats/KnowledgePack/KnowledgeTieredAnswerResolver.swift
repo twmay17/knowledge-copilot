@@ -159,7 +159,7 @@ public enum KnowledgeTieredAnswerPayload: Equatable, Sendable {
   case retrievedEvidence([KnowledgePackSearchResult])
   case constrainedSynthesis(
     output: KnowledgeConstrainedSynthesisOutput,
-    evidenceState: KnowledgeEvidenceState
+    evidence: KnowledgeEvidenceOutcome
   )
 }
 
@@ -395,7 +395,7 @@ public struct KnowledgeTieredAnswerResolver: Sendable {
       evidenceFingerprint: Self.evidenceFingerprint(admittedEvidence),
       isProvisional: input.isProvisional,
       timing: cold.timing,
-      payload: .constrainedSynthesis(output: output, evidenceState: admittedEvidence.state)
+      payload: .constrainedSynthesis(output: output, evidence: admittedEvidence)
     )
     if let update = await state.publish(proposal) { continuation.yield(update) }
   }

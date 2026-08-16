@@ -40,12 +40,21 @@ final class KnowledgePackStore {
   private(set) var state: KnowledgePackLoadState = .idle
   private(set) var activeQuestionCandidates: [String: QuestionCandidate] = [:]
   private(set) var activeAnswerCards: [String: KnowledgeAnswerCard] = [:]
+  private(set) var overlayPresentation = KnowledgeOverlayPresentationState()
   private(set) var latestQuestionCandidateEvents: [QuestionCandidateEvent] = []
   private(set) var latestLiveKnowledgeEvents: [KnowledgeLiveEvent] = []
   private var requestedPath = ""
   private var liveEventDetector: KnowledgeLiveEventDetector?
   private var answerCardResolver: KnowledgeAnswerCardResolver?
+  private var overlaySourceCatalog: KnowledgeOverlaySourceCatalog?
+  private var tieredAnswerTasks: [String: Task<Void, Never>] = [:]
+  private var tieredAnswerTaskTokens: [String: UUID] = [:]
   private var liveRevisionSequenceByStream: [String: Int] = [:]
+
+  var visibleOverlayCards: [KnowledgeOverlayCard] { overlayPresentation.visibleCards }
+  var pendingOverlayCorrections: [KnowledgeOverlayCorrectionRequest] {
+    overlayPresentation.correctionRequests
+  }
 
   init(profileRegistry: KnowledgeDomainProfileRegistry) {
     self.profileRegistry = profileRegistry
@@ -96,12 +105,17 @@ final class KnowledgePackStore {
         return (pack, searchBuild, evidenceOutcomeEvaluator, tieredAnswerResolver)
       }.value
       guard requestedPath == normalizedPath, !Task.isCancelled else { return }
+      resetOverlayPresentation()
       selectedPack = result.0
       selectedPackDirectory = directory
       searchIndex = result.1.index
       searchRebuildReport = result.1.report
       evidenceOutcomeEvaluator = result.2
       tieredAnswerResolver = result.3
+      overlaySourceCatalog = KnowledgeOverlaySourceCatalog(
+        pack: result.0,
+        rootDirectory: directory
+      )
       configureLiveKnowledgePath(for: result.0, rootDirectory: directory)
       state = .loaded(path: normalizedPath, summary: KnowledgePackSummary(pack: result.0))
     } catch {
@@ -112,6 +126,7 @@ final class KnowledgePackStore {
       searchRebuildReport = nil
       evidenceOutcomeEvaluator = nil
       tieredAnswerResolver = nil
+      resetOverlayPresentation()
       clearQuestionCandidateDetector()
       state = .failed(path: normalizedPath, message: String(describing: error))
     }
@@ -138,6 +153,7 @@ final class KnowledgePackStore {
     searchRebuildReport = nil
     evidenceOutcomeEvaluator = nil
     tieredAnswerResolver = nil
+    resetOverlayPresentation()
     clearQuestionCandidateDetector()
     state = .idle
   }
@@ -195,6 +211,7 @@ final class KnowledgePackStore {
     let events = detector.process(revision)
     liveEventDetector = detector
     apply(events)
+    resolveTieredAnswers(for: events)
     return events
   }
 
@@ -225,6 +242,24 @@ final class KnowledgePackStore {
 
   func activeAnswerCard(forStreamID streamID: String) -> KnowledgeAnswerCard? {
     activeAnswerCards[streamID]
+  }
+
+  func toggleOverlayPin(eventID: String) {
+    var presentation = overlayPresentation
+    presentation.togglePin(eventID: eventID)
+    overlayPresentation = presentation
+  }
+
+  func dismissOverlayCard(eventID: String) {
+    var presentation = overlayPresentation
+    presentation.dismiss(eventID: eventID)
+    overlayPresentation = presentation
+  }
+
+  func requestOverlayCorrection(eventID: String) {
+    var presentation = overlayPresentation
+    presentation.requestCorrection(eventID: eventID)
+    overlayPresentation = presentation
   }
 
   private func configureLiveKnowledgePath(for pack: KnowledgePack, rootDirectory: URL) {
@@ -284,6 +319,53 @@ final class KnowledgePackStore {
       }
     }
     latestQuestionCandidateEvents = questionEvents
+  }
+
+  private func resolveTieredAnswers(for events: [KnowledgeLiveEvent]) {
+    guard let resolver = tieredAnswerResolver else { return }
+    for event in events {
+      guard let taskKey = tieredTaskKey(for: event) else { continue }
+      if case .answerSuperseded(let supersession) = event {
+        tieredAnswerTasks[supersession.previousEventID]?.cancel()
+      } else {
+        tieredAnswerTasks[taskKey]?.cancel()
+      }
+
+      let token = UUID()
+      tieredAnswerTaskTokens[taskKey] = token
+      tieredAnswerTasks[taskKey] = Task { @MainActor [weak self] in
+        for await update in resolver.updates(for: event) {
+          guard !Task.isCancelled, let self else { break }
+          var presentation = self.overlayPresentation
+          presentation.apply(update, sourceCatalog: self.overlaySourceCatalog)
+          self.overlayPresentation = presentation
+        }
+        guard let self, self.tieredAnswerTaskTokens[taskKey] == token else { return }
+        self.tieredAnswerTasks.removeValue(forKey: taskKey)
+        self.tieredAnswerTaskTokens.removeValue(forKey: taskKey)
+      }
+    }
+  }
+
+  private func tieredTaskKey(for event: KnowledgeLiveEvent) -> String? {
+    switch event {
+    case .questionCandidate(let candidate), .questionStable(let candidate):
+      candidate.id
+    case .claimCandidate(let candidate), .claimStable(let candidate):
+      candidate.id
+    case .answerSuperseded(let supersession):
+      "\(supersession.previousEventID)#retract#\(supersession.revisionSequence)"
+    case .topicShift, .noAction:
+      nil
+    }
+  }
+
+  private func resetOverlayPresentation() {
+    for task in tieredAnswerTasks.values { task.cancel() }
+    tieredAnswerTasks.removeAll()
+    tieredAnswerTaskTokens.removeAll()
+    overlaySourceCatalog = nil
+    overlayPresentation.reset()
   }
 
   private static func cancellationReason(

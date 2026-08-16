@@ -14,7 +14,7 @@ struct SidecastPanelContent: View {
 
             Divider().opacity(0.3)
 
-            if !knowledgePackStore.activeAnswerCards.isEmpty {
+            if !knowledgePackStore.visibleOverlayCards.isEmpty {
                 KnowledgeAnswerCardList(
                     store: knowledgePackStore,
                     appearance: .dark

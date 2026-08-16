@@ -1,0 +1,398 @@
+import HospitalityDomainProfile
+import XCTest
+
+@testable import OpenOatsKit
+
+final class KnowledgeOverlayPresentationTests: XCTestCase {
+  func testEveryEvidenceStateHasExplicitLanguageIndependentOfColor() {
+    XCTAssertEqual(
+      KnowledgeEvidenceState.allCases.map(\.overlayLabel),
+      [
+        "Directly Sourced",
+        "Calculated",
+        "Supported by Corpus",
+        "Contradicted by Corpus",
+        "Contested",
+        "Interpretive",
+        "Not Found in Corpus",
+        "Needs Clarification",
+      ]
+    )
+    XCTAssertTrue(KnowledgeEvidenceState.allCases.allSatisfy { !$0.overlayExplanation.isEmpty })
+  }
+
+  func testContestedEvidencePreservesEveryClaimAndAttribution() throws {
+    let first = attribution(assertionID: "a-1", sourceID: "source-1", title: "Plan A")
+    let second = attribution(assertionID: "a-2", sourceID: "source-2", title: "Plan B")
+    let evidence = outcome(
+      state: .contested,
+      reason: .contestedEvidence,
+      claims: [
+        claim(id: "a-1", value: "100 room", attribution: first),
+        claim(id: "a-2", value: "120 room", attribution: second),
+      ],
+      sources: [first, second]
+    )
+
+    let card = try XCTUnwrap(
+      KnowledgeOverlayCard.make(from: update(payload: .exactEvidence(evidence))))
+
+    XCTAssertEqual(card.evidenceState, .contested)
+    XCTAssertEqual(card.claims.map(\.value), ["100 room", "120 room"])
+    XCTAssertTrue(card.claims[0].attribution.contains("Plan A"))
+    XCTAssertTrue(card.claims[1].attribution.contains("Plan B"))
+    XCTAssertEqual(card.sources.map(\.title), ["Plan A", "Plan B"])
+    XCTAssertTrue(card.answer.contains("2 attributed claims"))
+  }
+
+  func testConstrainedSynthesisKeepsCitedClaimAndOpenableSource() throws {
+    let first = attribution(assertionID: "a-1", sourceID: "source-1", title: "Plan A")
+    let second = attribution(assertionID: "a-2", sourceID: "source-2", title: "Plan B")
+    let evidence = outcome(
+      state: .supportedByCorpus,
+      reason: .supportedClaims,
+      claims: [
+        claim(id: "a-1", value: "100 room", attribution: first),
+        claim(id: "a-2", value: "100 room", attribution: second),
+      ],
+      sources: [first, second]
+    )
+    let output = KnowledgeConstrainedSynthesisOutput(
+      title: "Room count",
+      answer: "The property has 100 rooms.",
+      citedEvidenceRecordIDs: ["assertion:a-2"]
+    )
+
+    let card = try XCTUnwrap(
+      KnowledgeOverlayCard.make(
+        from: update(payload: .constrainedSynthesis(output: output, evidence: evidence))))
+
+    XCTAssertEqual(card.answer, output.answer)
+    XCTAssertEqual(card.claims.map(\.id), ["a-2"])
+    XCTAssertEqual(card.sources.map(\.title), ["Plan B"])
+    XCTAssertNotNil(card.sources.first?.fileURL)
+    XCTAssertTrue(card.why.contains("only from the cited corpus evidence"))
+  }
+
+  func testRefinementReplacesVisibleContentForTheSameEvent() throws {
+    var state = KnowledgeOverlayPresentationState()
+    state.apply(update(id: "u-1", payload: .reviewedCard(reviewedCard(answer: "Draft"))))
+    state.apply(
+      update(
+        id: "u-2",
+        action: .refine,
+        supersedesUpdateID: "u-1",
+        payload: .reviewedCard(reviewedCard(answer: "Final"))
+      ))
+
+    let card = try XCTUnwrap(state.visibleCards.first)
+    XCTAssertEqual(state.visibleCards.count, 1)
+    XCTAssertEqual(card.updateID, "u-2")
+    XCTAssertEqual(card.answer, "Final")
+  }
+
+  func testLateSameRevisionUpdateCannotRollBackARefinement() throws {
+    var state = KnowledgeOverlayPresentationState()
+    state.apply(update(id: "u-1", payload: .reviewedCard(reviewedCard(answer: "Draft"))))
+    state.apply(
+      update(
+        id: "u-2",
+        action: .refine,
+        supersedesUpdateID: "u-1",
+        payload: .reviewedCard(reviewedCard(answer: "Final"))
+      ))
+    state.apply(update(id: "u-1", payload: .reviewedCard(reviewedCard(answer: "Draft"))))
+
+    let card = try XCTUnwrap(state.visibleCards.first)
+    XCTAssertEqual(card.updateID, "u-2")
+    XCTAssertEqual(card.answer, "Final")
+  }
+
+  func testPinnedCardSurvivesRetractionAsAnExplicitSnapshot() throws {
+    var state = KnowledgeOverlayPresentationState()
+    state.apply(update(id: "u-1", payload: .reviewedCard(reviewedCard())))
+    XCTAssertTrue(state.togglePin(eventID: "event-1"))
+    state.apply(
+      update(
+        id: "u-retract",
+        action: .retract,
+        supersedesUpdateID: "u-1",
+        payload: nil
+      ))
+
+    let card = try XCTUnwrap(state.visibleCards.first)
+    XCTAssertTrue(card.isPinned)
+    XCTAssertTrue(card.isSuperseded)
+  }
+
+  func testPinnedAnswerRemainsVisibleWhenTheStreamReceivesANewEvent() {
+    var state = KnowledgeOverlayPresentationState()
+    state.apply(update(id: "u-1", payload: .reviewedCard(reviewedCard())))
+    state.togglePin(eventID: "event-1")
+    state.apply(
+      update(
+        id: "u-2",
+        eventID: "event-2",
+        revisionSequence: 2,
+        payload: .reviewedCard(reviewedCard(id: "event-2", answer: "New answer"))
+      ))
+
+    XCTAssertEqual(state.visibleCards.map(\.eventID), ["event-1", "event-2"])
+    XCTAssertTrue(state.visibleCards[0].isPinned)
+    XCTAssertFalse(state.visibleCards[1].isPinned)
+  }
+
+  func testLateUpdateCannotRollBackPinnedRefinement() throws {
+    var state = KnowledgeOverlayPresentationState()
+    state.apply(update(id: "u-1", payload: .reviewedCard(reviewedCard(answer: "Draft"))))
+    state.togglePin(eventID: "event-1")
+    state.apply(
+      update(
+        id: "u-2",
+        action: .refine,
+        supersedesUpdateID: "u-1",
+        payload: .reviewedCard(reviewedCard(answer: "Final"))
+      ))
+    state.apply(update(id: "u-1", payload: .reviewedCard(reviewedCard(answer: "Draft"))))
+
+    let card = try XCTUnwrap(state.visibleCards.first)
+    XCTAssertEqual(card.updateID, "u-2")
+    XCTAssertEqual(card.answer, "Final")
+    XCTAssertTrue(card.isPinned)
+  }
+
+  func testDismissTombstonePreventsLateLaneFromResurrectingAnswer() {
+    var state = KnowledgeOverlayPresentationState()
+    state.apply(update(id: "u-1", payload: .reviewedCard(reviewedCard())))
+    state.dismiss(eventID: "event-1")
+    state.apply(
+      update(
+        id: "u-2",
+        action: .refine,
+        supersedesUpdateID: "u-1",
+        payload: .reviewedCard(reviewedCard(answer: "Late answer"))
+      ))
+
+    XCTAssertTrue(state.visibleCards.isEmpty)
+    XCTAssertTrue(state.dismissedEventIDs.contains("event-1"))
+  }
+
+  func testCorrectionCreatesReviewRequestAndSurvivesRefinement() throws {
+    var state = KnowledgeOverlayPresentationState()
+    state.apply(update(id: "u-1", payload: .reviewedCard(reviewedCard(answer: "Draft"))))
+
+    let request = try XCTUnwrap(state.requestCorrection(eventID: "event-1"))
+    XCTAssertEqual(request.answer, "Draft")
+    XCTAssertTrue(state.visibleCards[0].isCorrectionRequested)
+
+    state.apply(
+      update(
+        id: "u-2",
+        action: .refine,
+        supersedesUpdateID: "u-1",
+        payload: .reviewedCard(reviewedCard(answer: "Refined"))
+      ))
+
+    XCTAssertEqual(state.correctionRequests.count, 1)
+    XCTAssertTrue(state.visibleCards[0].isCorrectionRequested)
+    XCTAssertEqual(state.visibleCards[0].answer, "Refined")
+  }
+
+  func testRetrievedMaterialIsNotMisrepresentedAsVerifiedSupport() throws {
+    let result = KnowledgePackSearchResult(
+      packID: "pack",
+      packContentHash: "hash",
+      kind: .passage,
+      recordID: "passage-1",
+      title: "Business plan",
+      excerpt: "The proposed launch is in June.",
+      qualifiers: [:],
+      sourceIDs: [],
+      score: KnowledgePackSearchScore(exact: 0.4, fullText: 0.3, qualifier: 0, vector: 0),
+      channels: [.fullText]
+    )
+
+    let card = try XCTUnwrap(
+      KnowledgeOverlayCard.make(from: update(payload: .retrievedEvidence([result]))))
+
+    XCTAssertEqual(card.evidenceState, .needsClarification)
+    XCTAssertTrue(card.answer.contains("not been verified"))
+    XCTAssertTrue(card.why.contains("Verify the source"))
+  }
+
+  func testSourceCatalogDoesNotOpenPathsOutsideTheSelectedPack() throws {
+    let root = URL(fileURLWithPath: "/tmp/selected-pack", isDirectory: true)
+    let pack = KnowledgePack(
+      manifest: KnowledgePackManifest(
+        schemaVersion: 1,
+        packID: "pack",
+        title: "Pack",
+        createdAt: Date(timeIntervalSince1970: 0),
+        defaultLocale: "en",
+        domainProfiles: []
+      ),
+      sources: [
+        KnowledgeSource(
+          id: "inside",
+          kind: .document,
+          title: "Inside",
+          relativePath: "sources/inside.pdf",
+          sha256: String(repeating: "a", count: 64),
+          importedAt: Date(timeIntervalSince1970: 0)
+        ),
+        KnowledgeSource(
+          id: "outside",
+          kind: .document,
+          title: "Outside",
+          relativePath: "../outside.pdf",
+          sha256: String(repeating: "b", count: 64),
+          importedAt: Date(timeIntervalSince1970: 0)
+        ),
+      ],
+      passages: [],
+      assertions: [],
+      evidenceLinks: [],
+      calculations: [],
+      responseCards: [],
+      questionFamilies: []
+    )
+
+    let catalog = KnowledgeOverlaySourceCatalog(pack: pack, rootDirectory: root)
+
+    XCTAssertNotNil(try XCTUnwrap(catalog.source(for: "inside")).fileURL)
+    XCTAssertNil(try XCTUnwrap(catalog.source(for: "outside")).fileURL)
+  }
+
+  @MainActor
+  func testKnowledgePackStoreFeedsTieredUpdatesIntoOverlayAndClearsThem() async throws {
+    let store = KnowledgePackStore(
+      profileRegistry: KnowledgeDomainProfileRegistry(profiles: [HospitalityDomainProfile()]))
+    await store.load(fromPath: fixtureURL().path)
+
+    _ = store.processTranscriptText(
+      streamID: "remote",
+      text: "What was the rev par for this asset in 2020",
+      stability: .partial
+    )
+    _ = store.processTranscriptText(
+      streamID: "remote",
+      text: "What was the rev par for this asset in 2020",
+      stability: .final
+    )
+
+    for _ in 0..<100
+    where store.visibleOverlayCards.first?.presentationQuality != .reviewedCard {
+      try await Task.sleep(for: .milliseconds(5))
+    }
+    let card = try XCTUnwrap(store.visibleOverlayCards.first)
+    XCTAssertEqual(card.evidenceState, .calculated)
+    XCTAssertFalse(card.sources.isEmpty)
+
+    store.clear()
+    XCTAssertTrue(store.visibleOverlayCards.isEmpty)
+    XCTAssertTrue(store.pendingOverlayCorrections.isEmpty)
+  }
+
+  private func update(
+    id: String = "u-1",
+    eventID: String = "event-1",
+    revisionSequence: Int = 1,
+    action: KnowledgeTieredAnswerUpdateAction = .show,
+    supersedesUpdateID: String? = nil,
+    payload: KnowledgeTieredAnswerPayload?
+  ) -> KnowledgeTieredAnswerUpdate {
+    KnowledgeTieredAnswerUpdate(
+      id: id,
+      eventID: eventID,
+      streamID: "remote",
+      revisionSequence: revisionSequence,
+      lane: action == .retract ? nil : .hot,
+      action: action,
+      supersedesUpdateID: supersedesUpdateID,
+      supportLevel: action == .retract ? .abstention : .reviewed,
+      presentationQuality: action == .retract ? .fallback : .reviewedCard,
+      isProvisional: false,
+      timing: nil,
+      payload: payload
+    )
+  }
+
+  private func reviewedCard(
+    id: String = "event-1",
+    answer: String = "100 rooms"
+  ) -> KnowledgeAnswerCard {
+    KnowledgeAnswerCard(
+      id: id,
+      candidateID: id,
+      responseCardID: "card-1",
+      title: "Room count",
+      answer: answer,
+      evidenceState: .directlySourced,
+      citations: [],
+      calculations: [],
+      isFallback: false
+    )
+  }
+
+  private func outcome(
+    state: KnowledgeEvidenceState,
+    reason: KnowledgeEvidenceOutcomeReason,
+    claims: [KnowledgeEvidenceClaim],
+    sources: [KnowledgeEvidenceAttribution]
+  ) -> KnowledgeEvidenceOutcome {
+    KnowledgeEvidenceOutcome(
+      packID: "pack",
+      packContentHash: "hash",
+      state: state,
+      reason: reason,
+      claims: claims,
+      contributingSources: sources.map(KnowledgeEvidenceSourceReference.init)
+    )
+  }
+
+  private func claim(
+    id: String,
+    value: String,
+    attribution: KnowledgeEvidenceAttribution
+  ) -> KnowledgeEvidenceClaim {
+    KnowledgeEvidenceClaim(
+      assertionID: id,
+      subject: "asset",
+      predicate: "asset.room_count",
+      value: KnowledgeValue(type: .number, number: 100, unit: "room", scale: 1),
+      displayValue: value,
+      qualifiers: ["period": "2020"],
+      kind: .stated,
+      confidence: 1,
+      attributions: [attribution]
+    )
+  }
+
+  private func attribution(
+    assertionID: String,
+    sourceID: String,
+    title: String
+  ) -> KnowledgeEvidenceAttribution {
+    KnowledgeEvidenceAttribution(
+      assertionID: assertionID,
+      evidenceLinkID: "link-\(assertionID)",
+      relation: .supports,
+      note: nil,
+      passageID: "passage-\(assertionID)",
+      sourceID: sourceID,
+      sourceTitle: title,
+      fileURL: URL(fileURLWithPath: "/tmp/\(sourceID).pdf"),
+      locatorLabel: "Page 1",
+      excerpt: "Source excerpt for \(assertionID)."
+    )
+  }
+
+  private func fixtureURL() -> URL {
+    URL(fileURLWithPath: #filePath)
+      .deletingLastPathComponent()
+      .deletingLastPathComponent()
+      .deletingLastPathComponent()
+      .deletingLastPathComponent()
+      .appendingPathComponent("fixtures/knowledge-packs/minimal-hospitality", isDirectory: true)
+  }
+}

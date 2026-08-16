@@ -10,26 +10,30 @@ struct KnowledgeAnswerCardList: View {
   @Bindable var store: KnowledgePackStore
   let appearance: Appearance
 
-  private var cards: [KnowledgeAnswerCard] {
-    store.activeAnswerCards.sorted { lhs, rhs in
-      if lhs.key == "remote" { return true }
-      if rhs.key == "remote" { return false }
-      return lhs.key < rhs.key
-    }.map(\.value)
-  }
-
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
-      ForEach(cards) { card in
-        KnowledgeAnswerCardView(card: card, appearance: appearance)
+      ForEach(store.visibleOverlayCards) { card in
+        KnowledgeAnswerCardView(
+          card: card,
+          appearance: appearance,
+          onTogglePin: { store.toggleOverlayPin(eventID: card.eventID) },
+          onDismiss: { store.dismissOverlayCard(eventID: card.eventID) },
+          onRequestCorrection: { store.requestOverlayCorrection(eventID: card.eventID) }
+        )
       }
     }
   }
 }
 
 private struct KnowledgeAnswerCardView: View {
-  let card: KnowledgeAnswerCard
+  let card: KnowledgeOverlayCard
   let appearance: KnowledgeAnswerCardList.Appearance
+  let onTogglePin: () -> Void
+  let onDismiss: () -> Void
+  let onRequestCorrection: () -> Void
+
+  @State private var isEvidenceExpanded = false
+  @State private var isCalculationExpanded = false
 
   private var primaryColor: Color {
     appearance == .dark ? .white : .primary
@@ -50,6 +54,8 @@ private struct KnowledgeAnswerCardView: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
+      cardHeader
+
       Text(card.title)
         .font(.system(size: 13, weight: .semibold))
         .foregroundStyle(primaryColor)
@@ -62,11 +68,118 @@ private struct KnowledgeAnswerCardView: View {
         .fixedSize(horizontal: false, vertical: true)
         .accessibilityIdentifier("knowledge.answer.text")
 
-      evidenceBadge
+      trustReason
+
+      if !card.claims.isEmpty {
+        claimList
+      }
 
       if !card.calculations.isEmpty {
-        VStack(alignment: .leading, spacing: 3) {
-          ForEach(card.calculations) { calculation in
+        calculationDisclosure
+      }
+
+      if !card.sources.isEmpty {
+        evidenceDisclosure
+      }
+
+      if card.isCorrectionRequested {
+        Label("Marked for correction review", systemImage: "checkmark.circle")
+          .font(.system(size: 9, weight: .medium))
+          .foregroundStyle(secondaryColor)
+          .accessibilityIdentifier("knowledge.answer.correctionRequested")
+      }
+    }
+    .padding(12)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(cardBackground)
+    .clipShape(RoundedRectangle(cornerRadius: 8))
+    .overlay {
+      RoundedRectangle(cornerRadius: 8)
+        .stroke(evidenceColor.opacity(0.34), lineWidth: 1)
+    }
+    .opacity(card.isSuperseded ? 0.68 : 1)
+    .accessibilityElement(children: .contain)
+    .accessibilityIdentifier("knowledge.answer.card")
+  }
+
+  private var cardHeader: some View {
+    HStack(alignment: .top, spacing: 6) {
+      evidenceBadge
+
+      if card.isProvisional {
+        statusBadge("Checking", icon: "clock")
+      }
+      if card.isPinned {
+        statusBadge(card.isSuperseded ? "Pinned snapshot" : "Pinned", icon: "pin.fill")
+      }
+
+      Spacer(minLength: 4)
+
+      actionButton(
+        icon: card.isPinned ? "pin.slash" : "pin",
+        label: card.isPinned ? "Unpin answer" : "Pin answer",
+        action: onTogglePin
+      )
+      actionButton(
+        icon: "pencil.and.list.clipboard",
+        label: "Mark answer for correction",
+        action: onRequestCorrection
+      )
+      actionButton(icon: "xmark", label: "Dismiss answer", action: onDismiss)
+    }
+  }
+
+  private var trustReason: some View {
+    VStack(alignment: .leading, spacing: 3) {
+      Text("Why")
+        .font(.system(size: 9, weight: .bold))
+        .textCase(.uppercase)
+      Text(card.why)
+        .font(.system(size: 10))
+        .fixedSize(horizontal: false, vertical: true)
+    }
+    .foregroundStyle(secondaryColor)
+    .accessibilityElement(children: .combine)
+    .accessibilityIdentifier("knowledge.answer.why")
+  }
+
+  private var claimList: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      Text(card.evidenceState == .contested ? "Attributed claims" : "Corpus claim")
+        .font(.system(size: 10, weight: .semibold))
+        .foregroundStyle(secondaryColor)
+
+      ForEach(card.claims) { claim in
+        VStack(alignment: .leading, spacing: 2) {
+          Text(claim.value)
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(primaryColor)
+          if !claim.context.isEmpty {
+            Text(claim.context)
+              .font(.system(size: 9, design: .monospaced))
+              .foregroundStyle(secondaryColor)
+          }
+          if !claim.attribution.isEmpty {
+            Text(claim.attribution)
+              .font(.system(size: 9))
+              .foregroundStyle(secondaryColor)
+              .fixedSize(horizontal: false, vertical: true)
+          }
+        }
+        .padding(7)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(evidenceColor.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 5))
+      }
+    }
+    .accessibilityIdentifier("knowledge.answer.claims")
+  }
+
+  private var calculationDisclosure: some View {
+    DisclosureGroup(isExpanded: $isCalculationExpanded) {
+      VStack(alignment: .leading, spacing: 8) {
+        ForEach(card.calculations) { calculation in
+          VStack(alignment: .leading, spacing: 3) {
             Label("\(calculation.name) · v\(calculation.version)", systemImage: "function")
               .font(.system(size: 10, weight: .medium))
             Text(calculation.expression)
@@ -76,11 +189,8 @@ private struct KnowledgeAnswerCardView: View {
                 Text(calculationValueLabel(input))
                   .font(.system(size: 10, design: .monospaced))
                 if !input.citations.isEmpty {
-                  Text(
-                    "Source: "
-                      + input.citations.map(sourceLabel).joined(separator: ", ")
-                  )
-                  .font(.system(size: 9))
+                  Text("Source: " + input.citations.map(sourceLabel).joined(separator: ", "))
+                    .font(.system(size: 9))
                 }
               }
             }
@@ -90,82 +200,112 @@ private struct KnowledgeAnswerCardView: View {
             }
           }
         }
-        .foregroundStyle(secondaryColor)
-        .accessibilityIdentifier("knowledge.answer.calculation")
       }
+      .padding(.top, 5)
+    } label: {
+      Label("Calculation details (\(card.calculations.count))", systemImage: "function")
+        .font(.system(size: 10, weight: .semibold))
+    }
+    .foregroundStyle(secondaryColor)
+    .accessibilityIdentifier("knowledge.answer.calculation")
+  }
 
-      if !card.citations.isEmpty {
-        VStack(alignment: .leading, spacing: 5) {
-          Text("Evidence")
-            .font(.system(size: 10, weight: .semibold))
-            .foregroundStyle(secondaryColor)
-
-          ForEach(card.citations) { citation in
-            Button {
-              NSWorkspace.shared.open(citation.fileURL)
-            } label: {
-              HStack(alignment: .top, spacing: 6) {
-                Image(systemName: "doc.text.magnifyingglass")
-                  .font(.system(size: 10))
-                  .padding(.top, 1)
-                VStack(alignment: .leading, spacing: 1) {
-                  Text(citation.sourceTitle)
-                    .font(.system(size: 10, weight: .medium))
-                    .lineLimit(1)
-                  if !citation.locatorLabel.isEmpty {
-                    Text(citation.locatorLabel)
-                      .font(.system(size: 9))
-                      .lineLimit(2)
-                  }
-                }
-                Spacer(minLength: 2)
-                Image(systemName: "arrow.up.forward.app")
-                  .font(.system(size: 9))
-              }
-              .foregroundStyle(secondaryColor)
-              .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .help(citation.excerpt)
-            .accessibilityLabel("Open evidence: \(citation.sourceTitle), \(citation.locatorLabel)")
-            .accessibilityIdentifier("knowledge.answer.evidence.\(citation.passageID)")
-          }
+  private var evidenceDisclosure: some View {
+    DisclosureGroup(isExpanded: $isEvidenceExpanded) {
+      VStack(alignment: .leading, spacing: 8) {
+        ForEach(card.sources) { source in
+          sourceView(source)
         }
       }
+      .padding(.top, 5)
+    } label: {
+      Label("Evidence (\(card.sources.count))", systemImage: "doc.text.magnifyingglass")
+        .font(.system(size: 10, weight: .semibold))
     }
-    .padding(12)
+    .foregroundStyle(secondaryColor)
+    .accessibilityIdentifier("knowledge.answer.evidence")
+  }
+
+  @ViewBuilder
+  private func sourceView(_ source: KnowledgeOverlaySource) -> some View {
+    let content = VStack(alignment: .leading, spacing: 2) {
+      HStack(spacing: 5) {
+        Text(source.title)
+          .font(.system(size: 10, weight: .medium))
+        if source.fileURL != nil {
+          Image(systemName: "arrow.up.forward.app")
+            .font(.system(size: 8))
+        }
+      }
+      if !source.locator.isEmpty {
+        Text(source.locator)
+          .font(.system(size: 9))
+      }
+      if let attribution = source.attribution, !attribution.isEmpty {
+        Text(attribution)
+          .font(.system(size: 9, weight: .medium))
+      }
+      if !source.excerpt.isEmpty {
+        Text(source.excerpt)
+          .font(.system(size: 9))
+          .lineLimit(6)
+          .textSelection(.enabled)
+      }
+    }
     .frame(maxWidth: .infinity, alignment: .leading)
-    .background(cardBackground)
-    .clipShape(RoundedRectangle(cornerRadius: 8))
-    .overlay {
-      RoundedRectangle(cornerRadius: 8)
-        .stroke(evidenceColor.opacity(0.28), lineWidth: 1)
+    .contentShape(Rectangle())
+
+    if let fileURL = source.fileURL {
+      Button {
+        NSWorkspace.shared.open(fileURL)
+      } label: {
+        content
+      }
+      .buttonStyle(.plain)
+      .accessibilityLabel("Open evidence: \(source.title), \(source.locator)")
+      .accessibilityIdentifier("knowledge.answer.source.\(source.id)")
+    } else {
+      content
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("knowledge.answer.source.\(source.id)")
     }
-    .accessibilityElement(children: .contain)
-    .accessibilityIdentifier("knowledge.answer.card")
   }
 
   private var evidenceBadge: some View {
-    Label(evidenceLabel, systemImage: evidenceIcon)
+    Label(card.evidenceLabel, systemImage: evidenceIcon)
       .font(.system(size: 9, weight: .semibold))
       .foregroundStyle(evidenceColor)
+      .lineLimit(1)
+      .minimumScaleFactor(0.75)
       .padding(.horizontal, 6)
       .padding(.vertical, 3)
       .background(Capsule().fill(evidenceColor.opacity(0.12)))
+      .accessibilityLabel("Evidence state: \(card.evidenceLabel). \(card.evidenceExplanation)")
       .accessibilityIdentifier("knowledge.answer.evidenceState")
   }
 
-  private var evidenceLabel: String {
-    switch card.evidenceState {
-    case .directlySourced: "Direct source"
-    case .calculated: "Calculated"
-    case .supportedByCorpus: "Corpus supported"
-    case .contradictedByCorpus: "Contradicted"
-    case .contested: "Contested"
-    case .interpretive: "Interpretive"
-    case .notFoundInCorpus: "Not found"
-    case .needsClarification: "Clarify"
+  private func statusBadge(_ label: String, icon: String) -> some View {
+    Label(label, systemImage: icon)
+      .font(.system(size: 8, weight: .medium))
+      .foregroundStyle(secondaryColor)
+      .lineLimit(1)
+  }
+
+  private func actionButton(
+    icon: String,
+    label: String,
+    action: @escaping () -> Void
+  ) -> some View {
+    Button(action: action) {
+      Image(systemName: icon)
+        .font(.system(size: 9, weight: .semibold))
+        .frame(width: 18, height: 18)
+        .contentShape(Rectangle())
     }
+    .buttonStyle(.plain)
+    .foregroundStyle(secondaryColor)
+    .help(label)
+    .accessibilityLabel(label)
   }
 
   private var evidenceIcon: String {
