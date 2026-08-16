@@ -38,6 +38,12 @@ only candidates already admitted by the active pack and its source, record-kind,
 Changes trigger explicit dependency invalidation before rebuilding. See
 [KnowledgePack hybrid search](docs/knowledge-pack-search.md).
 
+Retrieved assertions can now be projected through a deterministic evidence-outcome evaluator before
+the live layer treats them as an answer. Conflicting values and incompatible contexts remain
+separate with per-claim source links; interpretations are labeled; incomplete questions request
+clarification; unsupported questions return not found; and a proposed claim can be explicitly
+contradicted by the corpus. See [evidence outcomes and abstention](docs/knowledge-evidence-outcomes.md).
+
 The no-admin Microsoft Teams capture baseline is documented in the [Teams audio-capture verification runbook](docs/teams-audio-verification.md).
 
 <p align="center">

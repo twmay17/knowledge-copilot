@@ -761,3 +761,51 @@ Results:
 
 See [the search and invalidation contract](knowledge-pack-search.md) and the
 [public-safe KC-19 evidence summary](evidence/kc19-hybrid-search-invalidation-2026-08-15.md).
+
+## KC-20 evidence outcomes and abstention
+
+Pack-bound assertion retrieval now feeds a deterministic evidence evaluator before a dynamic result
+can be treated as a corpus conclusion:
+
+- required entity, period, scope, and version fields can force clarification before retrieval;
+- absent matching assertions produce `not_found_in_corpus` without inventing a negative fact;
+- conflicting values, incompatible unbound qualifiers, and explicit counter-evidence remain
+  contested with every typed assertion intact;
+- proposed values are contradicted only when the matching corpus assertions are internally
+  consistent;
+- interpretive assertions remain labeled and attributed;
+- unavailable evidence fails closed and names the unresolved assertion IDs;
+- calculated claims can trace source attribution through their registered input assertions; and
+- Codable QA output carries the exact pack hash, decision reason, typed claims, evidence relations,
+  safe source URLs, locators, and excerpts.
+
+Passing local checks:
+
+```bash
+swift test --filter KnowledgeEvidenceOutcomeEvaluatorTests
+swift test --filter \
+  'KnowledgeEvidenceOutcomeEvaluatorTests|KnowledgePackSearchIndexTests|KnowledgeAssertionEvidenceModelTests|KnowledgePackLoaderTests|KnowledgeAnswerCardResolverTests|KnowledgeStudyBundleTests|KnowledgeStudyReviewTests|KnowledgeStudyImportApplierTests|KnowledgeStudyReviewWorkspaceModelTests'
+swift test --skip MeetingDetectorTests
+swift build -c release --product OpenOats
+swift build -c release --product knowledge-pack
+swift format lint --strict \
+  Sources/OpenOats/KnowledgePack/KnowledgeEvidenceOutcomeEvaluator.swift \
+  Sources/OpenOats/App/KnowledgePackStore.swift \
+  Tests/OpenOatsTests/KnowledgeEvidenceOutcomeEvaluatorTests.swift
+git diff --check
+```
+
+Results:
+
+- 10 of 10 focused evidence-outcome tests passed;
+- all 82 related retrieval, assertion/evidence, loader, resolution, preparation, review, import, and
+  workspace tests passed;
+- all 818 non-environmental package tests passed;
+- both release products built successfully;
+- the release compiler reported only pre-existing warnings in unrelated audio, text-cleaning,
+  suggestion, and transcription sources;
+- strict Swift formatting passed for the new evaluator, its tests, and the touched store source; and
+- whitespace checks passed.
+
+See [the evidence-outcome contract](knowledge-evidence-outcomes.md) and the
+[public-safe KC-20 evidence summary](evidence/kc20-evidence-outcomes-2026-08-15.md).

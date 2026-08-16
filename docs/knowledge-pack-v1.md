@@ -138,6 +138,12 @@ Contains presenter-sized answer text and references to question families, assert
 
 Calculated cards require a calculation, output assertion, and source citation. Other factual or interpretive cards require at least one citation passage. Abstention cards may not imply an unsupported answer.
 
+The evidence label on a reviewed card remains a human-approved presentation contract. For dynamic
+retrieval and fact checking, typed assertions first pass through the
+[deterministic evidence-outcome evaluator](knowledge-evidence-outcomes.md), which preserves competing
+claims and citations and fails closed on incomplete context, absent support, or unavailable
+provenance.
+
 ## Loader validation
 
 The v1 loader fails closed on:

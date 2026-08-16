@@ -35,6 +35,7 @@ final class KnowledgePackStore {
   private(set) var selectedPackDirectory: URL?
   private(set) var searchIndex: KnowledgePackSearchIndex?
   private(set) var searchRebuildReport: KnowledgePackSearchRebuildReport?
+  private(set) var evidenceOutcomeEvaluator: KnowledgeEvidenceOutcomeEvaluator?
   private(set) var state: KnowledgePackLoadState = .idle
   private(set) var activeQuestionCandidates: [String: QuestionCandidate] = [:]
   private(set) var activeAnswerCards: [String: KnowledgeAnswerCard] = [:]
@@ -79,13 +80,19 @@ final class KnowledgePackStore {
           previousPack: previousPack,
           previousIndex: previousIndex
         )
-        return (pack, searchBuild)
+        let evidenceOutcomeEvaluator = try KnowledgeEvidenceOutcomeEvaluator(
+          pack: pack,
+          searchIndex: searchBuild.index,
+          rootDirectory: directory
+        )
+        return (pack, searchBuild, evidenceOutcomeEvaluator)
       }.value
       guard requestedPath == normalizedPath, !Task.isCancelled else { return }
       selectedPack = result.0
       selectedPackDirectory = directory
       searchIndex = result.1.index
       searchRebuildReport = result.1.report
+      evidenceOutcomeEvaluator = result.2
       configureLiveKnowledgePath(for: result.0, rootDirectory: directory)
       state = .loaded(path: normalizedPath, summary: KnowledgePackSummary(pack: result.0))
     } catch {
@@ -94,6 +101,7 @@ final class KnowledgePackStore {
       selectedPackDirectory = nil
       searchIndex = nil
       searchRebuildReport = nil
+      evidenceOutcomeEvaluator = nil
       clearQuestionCandidateDetector()
       state = .failed(path: normalizedPath, message: String(describing: error))
     }
@@ -118,6 +126,7 @@ final class KnowledgePackStore {
     selectedPackDirectory = nil
     searchIndex = nil
     searchRebuildReport = nil
+    evidenceOutcomeEvaluator = nil
     clearQuestionCandidateDetector()
     state = .idle
   }
@@ -135,6 +144,13 @@ final class KnowledgePackStore {
   ) async throws -> [KnowledgePackSearchResult] {
     guard let searchIndex else { throw KnowledgePackSearchError.indexUnavailable }
     return try await searchIndex.search(query, vectorAdapter: vectorAdapter)
+  }
+
+  func evaluateKnowledgeEvidence(
+    _ query: KnowledgeEvidenceQuery
+  ) throws -> KnowledgeEvidenceOutcome {
+    guard let evidenceOutcomeEvaluator else { throw KnowledgePackSearchError.indexUnavailable }
+    return try evidenceOutcomeEvaluator.evaluate(query)
   }
 
   @discardableResult

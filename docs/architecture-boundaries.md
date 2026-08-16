@@ -82,6 +82,15 @@ to that pack, permitted record kinds, sources, and qualifiers. It may reorder el
 cannot create evidence or introduce a record from another pack. Typed dependency invalidation makes
 corpus changes explicit before index rebuild.
 
+### Deterministic evidence outcomes
+
+Typed assertions returned by pack-bound retrieval pass through a local evaluator before they can be
+treated as a corpus conclusion. The evaluator preserves conflicting values and incompatible context,
+labels interpretations, traces each claim to its contributing sources, and emits explicit
+clarification or not-found abstentions. It may classify a proposed claim as contradicted only when the
+matching corpus assertions are internally consistent. It does not generate answer prose or choose
+which contested source is correct.
+
 ## First integration sequence
 
 1. Validate and inspect a KnowledgePack from the command line.
