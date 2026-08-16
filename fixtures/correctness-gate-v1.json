@@ -1,0 +1,174 @@
+{
+  "schemaVersion": 1,
+  "name": "KnowledgePack V1 correctness gate",
+  "benchmarkRelativePath": "replay-benchmark-v1.json",
+  "minimumCrossPackScenarioCount": 2,
+  "packs": [
+    {
+      "packID": "synthetic-hotel-2020-v1",
+      "relativePath": "knowledge-packs/minimal-hospitality",
+      "expectedFingerprints": {
+        "packContentSHA256": "9df58033540bc64272debe5abf4dbc02c062176328cdba72e576f63cca229b35",
+        "sourcesSHA256": "f46ca48216e98726677ce81c1d6a61850e15bfef499d923574451750654dbe5b",
+        "passagesSHA256": "c21ab22c7bf734f3ec80a251fa5819c392b661149485050389e922594105d623",
+        "assertionsSHA256": "d14fe1683838ef84102fc0638a1aec045c081b0d6c94971a3b8e633edf0846c7",
+        "evidenceLinksSHA256": "b5644046b75c3b53365d2fdef17a98523b6d9e649a7f1af11eb415a60c294132",
+        "calculationsSHA256": "44bc0ed7fdc0f43f0abae696efb0a127cace941b996bae3116d66020dd86e808",
+        "responseCardsSHA256": "80483be4c6ba527ad810fa4486b84e251998c3b3cec2a7e343c184c050685248",
+        "questionFamiliesSHA256": "98e1f6f16753c880716a02f2a1af0f78a7cce6e0bc6bec009114568499f52925"
+      }
+    },
+    {
+      "packID": "nestarc-go-product-pitch-v1",
+      "relativePath": "knowledge-packs/nestarc-product-pitch",
+      "expectedFingerprints": {
+        "packContentSHA256": "8b39c60bd10c2883bdc095ceaa307b9342787265ba95bea5c1ec64a9bd385695",
+        "sourcesSHA256": "2dbe9edacf7107570264afe5c8b5cd53be459757a7c94da26bb715eb2424b1a4",
+        "passagesSHA256": "d46c3355c25eb55a27abfb2785b3d7c74fe2a81dab1b1cd7f10afb4f64e5535d",
+        "assertionsSHA256": "2421692cc7d57230457267a754999dabce7512b6c55a4a87d09746efc91250c6",
+        "evidenceLinksSHA256": "04c8f8300236408e9bc6f5a8e4b42cc9fc94a96389eb4fbe544be62b0c9b74f1",
+        "calculationsSHA256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "responseCardsSHA256": "0427b434fbdfd500664bab73d02f9105464990a33207d6e3d84a5d7667ab989d",
+        "questionFamiliesSHA256": "a5b31e01b4f47e8abcb46ca43b94ee08f15f79acbc36844053b6e7712aa72f91"
+      }
+    }
+  ],
+  "outcomeProbes": [
+    {
+      "id": "direct-room-count",
+      "packID": "synthetic-hotel-2020-v1",
+      "query": {
+        "subject": "synthetic-hotel",
+        "predicate": "hospitality.room_count",
+        "qualifiers": {"period": "2020", "scope": "rooms", "status": "actual"},
+        "sourceIDs": [],
+        "requiredFields": ["entity", "period", "scope"]
+      },
+      "expectedState": "directly_sourced",
+      "expectedReason": "directly_sourced_claims",
+      "expectedAssertionIDs": ["assertion-room-count-2020"],
+      "expectedPassageIDs": ["passage-inventory-2020-actual"]
+    },
+    {
+      "id": "calculated-occupancy",
+      "packID": "synthetic-hotel-2020-v1",
+      "query": {
+        "subject": "synthetic-hotel",
+        "predicate": "hospitality.occupancy",
+        "qualifiers": {"period": "2020", "scope": "rooms", "status": "actual"},
+        "sourceIDs": [],
+        "requiredFields": ["entity", "period", "scope"]
+      },
+      "expectedState": "calculated",
+      "expectedReason": "calculated_claims",
+      "expectedAssertionIDs": ["assertion-occupancy-2020"],
+      "expectedPassageIDs": ["passage-inventory-2020-actual"]
+    },
+    {
+      "id": "supported-revpar",
+      "packID": "synthetic-hotel-2020-v1",
+      "query": {
+        "subject": "synthetic-hotel",
+        "predicate": "hospitality.revpar",
+        "qualifiers": {"period": "2020", "scope": "rooms", "status": "actual"},
+        "sourceIDs": ["source-operating-statement"],
+        "requiredFields": ["entity", "period", "scope"]
+      },
+      "expectedState": "supported_by_corpus",
+      "expectedReason": "supported_claims",
+      "expectedAssertionIDs": [
+        "assertion-revpar-calculated-2020",
+        "assertion-revpar-reported-2020"
+      ],
+      "expectedPassageIDs": ["passage-operating-2020-actual"]
+    },
+    {
+      "id": "contested-revpar",
+      "packID": "synthetic-hotel-2020-v1",
+      "query": {
+        "subject": "synthetic-hotel",
+        "predicate": "hospitality.revpar",
+        "qualifiers": {"period": "2020", "scope": "rooms", "status": "actual"},
+        "sourceIDs": [],
+        "requiredFields": ["entity", "period", "scope"]
+      },
+      "expectedState": "contested",
+      "expectedReason": "conflicting_assertions",
+      "expectedAssertionIDs": [
+        "assertion-revpar-calculated-2020",
+        "assertion-revpar-memo-2020",
+        "assertion-revpar-reported-2020"
+      ],
+      "expectedPassageIDs": [
+        "passage-memo-revpar-2020",
+        "passage-operating-2020-actual"
+      ]
+    },
+    {
+      "id": "interpretive-price-objection",
+      "packID": "nestarc-go-product-pitch-v1",
+      "query": {
+        "subject": "nestarc-go",
+        "predicate": "product.price_objection",
+        "qualifiers": {"version": "launch"},
+        "sourceIDs": [],
+        "requiredFields": ["entity", "version"]
+      },
+      "expectedState": "interpretive",
+      "expectedReason": "interpretive_claims",
+      "expectedAssertionIDs": ["assertion-price-objection"],
+      "expectedPassageIDs": ["passage-research-price"]
+    },
+    {
+      "id": "missing-revpar-2018",
+      "packID": "synthetic-hotel-2020-v1",
+      "query": {
+        "subject": "synthetic-hotel",
+        "predicate": "hospitality.revpar",
+        "qualifiers": {"period": "2018", "scope": "rooms", "status": "actual"},
+        "sourceIDs": [],
+        "requiredFields": ["entity", "period", "scope"]
+      },
+      "expectedState": "not_found_in_corpus",
+      "expectedReason": "no_matching_assertions",
+      "expectedAssertionIDs": [],
+      "expectedPassageIDs": []
+    },
+    {
+      "id": "clarify-revpar-period",
+      "packID": "synthetic-hotel-2020-v1",
+      "query": {
+        "subject": "synthetic-hotel",
+        "predicate": "hospitality.revpar",
+        "qualifiers": {"scope": "rooms", "status": "actual"},
+        "sourceIDs": [],
+        "requiredFields": ["entity", "period", "scope"]
+      },
+      "expectedState": "needs_clarification",
+      "expectedReason": "insufficient_context",
+      "expectedAssertionIDs": [],
+      "expectedPassageIDs": []
+    },
+    {
+      "id": "contradicted-room-count",
+      "packID": "synthetic-hotel-2020-v1",
+      "query": {
+        "subject": "synthetic-hotel",
+        "predicate": "hospitality.room_count",
+        "qualifiers": {"period": "2020", "scope": "rooms", "status": "actual"},
+        "sourceIDs": [],
+        "requiredFields": ["entity", "period", "scope"],
+        "proposedValue": {
+          "type": "number",
+          "number": 120,
+          "unit": "room",
+          "scale": 1
+        }
+      },
+      "expectedState": "contradicted_by_corpus",
+      "expectedReason": "claim_contradicted",
+      "expectedAssertionIDs": ["assertion-room-count-2020"],
+      "expectedPassageIDs": ["passage-inventory-2020-actual"]
+    }
+  ]
+}

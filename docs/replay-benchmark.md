@@ -54,3 +54,8 @@ This benchmark measures deterministic transcript-to-card processing. It does not
 audio capture, speech-recognition accuracy, network latency, participant consent, or real meeting
 behavior. The KC-24 consented Teams alpha session remains the source of live findings that must be
 incorporated before KC-25 can be closed.
+
+KC-26 consumes this replay as one input to the separate
+[KnowledgePack correctness gate](correctness-gate.md). The replay measures transcript-to-card
+behavior; the correctness gate additionally pins reviewed pack content, re-evaluates typed evidence
+outcomes, audits claim-to-citation closure, and fails on silent qualifier or calculation drift.

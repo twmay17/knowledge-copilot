@@ -67,6 +67,12 @@ cross-pack, and rapid-follow-up speech. It pins evidence states, response fragme
 false-card rate, and processing latency while keeping every fixture synthetic and redistributable.
 See [the multi-pack replay benchmark](docs/replay-benchmark.md).
 
+The release path now adds a separate closed-corpus correctness gate over those conversations.
+Reviewed category fingerprints detect silent changes to sources, passages, assertion qualifiers,
+evidence links, calculations, response cards, or question families; eight typed outcome probes cover
+every evidence state; and explicit cross-pack scenarios must abstain without leaking a card. See
+[the KnowledgePack correctness gate](docs/correctness-gate.md).
+
 The no-admin Microsoft Teams capture baseline is documented in the
 [Teams audio-capture verification runbook](docs/teams-audio-verification.md), and the consented
 end-to-end private-alpha gate is documented in the

@@ -26,6 +26,10 @@ struct KnowledgePackTool {
         try replay(arguments: arguments, profiles: profiles)
       case "benchmark-replay":
         try benchmarkReplay(arguments: arguments, profiles: profiles)
+      case "audit-correctness":
+        try auditCorrectness(arguments: arguments, profiles: profiles)
+      case "fingerprint-correctness":
+        try fingerprintCorrectness(arguments: arguments, profiles: profiles)
       case "benchmark-latency":
         try await benchmarkLatency(arguments: arguments, profiles: profiles)
       case "ingest-document":
@@ -364,6 +368,96 @@ struct KnowledgePackTool {
     }
 
     if !report.meetsLiveP50Targets { Darwin.exit(EXIT_FAILURE) }
+  }
+
+  private static func fingerprintCorrectness(
+    arguments: [String],
+    profiles: KnowledgeDomainProfileRegistry
+  ) throws {
+    let (pack, _) = try loadPack(arguments: arguments, profiles: profiles)
+    let fingerprints = try KnowledgeCorrectnessFingerprints.make(for: pack)
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+    FileHandle.standardOutput.write(try encoder.encode(fingerprints))
+    FileHandle.standardOutput.write(Data("\n".utf8))
+  }
+
+  private static func auditCorrectness(
+    arguments: [String],
+    profiles: KnowledgeDomainProfileRegistry
+  ) throws {
+    guard arguments.count == 2 || arguments.count == 4 else { fail(usage) }
+    guard arguments.count == 2 || arguments[2] == "--output" else { fail(usage) }
+
+    let specURL = URL(fileURLWithPath: arguments[1]).standardizedFileURL
+    let fixtureRoot = specURL.deletingLastPathComponent().resolvingSymlinksInPath()
+    let spec = try JSONDecoder().decode(
+      KnowledgeCorrectnessGateSpec.self,
+      from: Data(contentsOf: specURL)
+    )
+    guard !spec.benchmarkRelativePath.hasPrefix("/") else {
+      fail("Correctness benchmark path must be relative to the correctness spec.")
+    }
+    let benchmarkURL = fixtureRoot.appendingPathComponent(spec.benchmarkRelativePath)
+      .standardizedFileURL.resolvingSymlinksInPath()
+    guard isInside(benchmarkURL, root: fixtureRoot) else {
+      fail("Correctness benchmark path must stay inside the fixture root.")
+    }
+    let benchmark = try JSONDecoder().decode(
+      KnowledgeReplayBenchmarkSpec.self,
+      from: Data(contentsOf: benchmarkURL)
+    )
+
+    var packs: [String: KnowledgeReplayBenchmarkPack] = [:]
+    for reference in spec.packs {
+      guard !reference.relativePath.hasPrefix("/") else {
+        fail("Correctness KnowledgePack paths must be relative to the correctness spec.")
+      }
+      let directory = fixtureRoot.appendingPathComponent(
+        reference.relativePath,
+        isDirectory: true
+      ).standardizedFileURL.resolvingSymlinksInPath()
+      guard isInside(directory, root: fixtureRoot) else {
+        fail("Correctness KnowledgePack paths must stay inside the fixture root.")
+      }
+      let pack = try KnowledgePackLoader(profileRegistry: profiles).load(from: directory)
+      guard pack.manifest.packID == reference.packID else {
+        fail(
+          "Correctness gate expected pack '\(reference.packID)' at \(reference.relativePath), but loaded '\(pack.manifest.packID)'."
+        )
+      }
+      packs[reference.packID] = KnowledgeReplayBenchmarkPack(
+        pack: pack,
+        rootDirectory: directory,
+        termAliases: profiles.termAliases(for: pack.manifest)
+      )
+    }
+
+    let report = try KnowledgeCorrectnessGateRunner(
+      packs: packs,
+      profileRegistry: profiles
+    ).run(spec, benchmark: benchmark)
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+    let reportData = try encoder.encode(report)
+
+    if arguments.count == 4 {
+      let outputURL = URL(fileURLWithPath: arguments[3]).standardizedFileURL
+      try FileManager.default.createDirectory(
+        at: outputURL.deletingLastPathComponent(),
+        withIntermediateDirectories: true
+      )
+      try reportData.write(to: outputURL, options: .atomic)
+      printCorrectnessSummary(report)
+      print("Report: \(outputURL.path)")
+    } else {
+      FileHandle.standardOutput.write(reportData)
+      FileHandle.standardOutput.write(Data("\n".utf8))
+    }
+
+    if report.verdict == .fail {
+      Darwin.exit(EXIT_FAILURE)
+    }
   }
 
   private static func makeTieredResolver(
@@ -833,6 +927,21 @@ struct KnowledgePackTool {
     }
   }
 
+  private static func printCorrectnessSummary(_ report: KnowledgeCorrectnessGateReport) {
+    print("\(report.verdict.rawValue): \(report.gateName)")
+    print(
+      "Packs: \(report.packAudits.filter { $0.verdict == .pass }.count)/\(report.packAudits.count) passed; outcome probes: \(report.outcomeAudits.filter(\.passed).count)/\(report.outcomeAudits.count) passed"
+    )
+    if let replay = report.replayAudit {
+      print(
+        "Replay: \(replay.passedScenarioCount)/\(replay.scenarioCount) passed; cross-pack: \(replay.passedCrossPackScenarioCount)/\(replay.crossPackScenarioCount) passed"
+      )
+    }
+    for check in report.checks where !check.passed {
+      print("Failed \(check.name): \(check.detail)")
+    }
+  }
+
   private static func printLatencyBenchmarkSummary(_ report: LatencyBenchmarkOutput) {
     print("\(report.verdict.uppercased()): hot/warm latency benchmark")
     for lane in report.lanes {
@@ -869,6 +978,8 @@ struct KnowledgePackTool {
       knowledge-pack search <pack-directory> <query> [--kind <record-kind>] [--source <source-id>] [--qualifier <key=value>] [--limit <1-100>]
       knowledge-pack replay <pack-directory> <replay-spec.json> [--output <report.json>]
       knowledge-pack benchmark-replay <benchmark-spec.json> [--output <report.json>]
+      knowledge-pack audit-correctness <correctness-spec.json> [--output <report.json>]
+      knowledge-pack fingerprint-correctness <pack-directory>
       knowledge-pack benchmark-latency <pack-directory> [--samples <1-10000>] [--output <report.json>]
       knowledge-pack ingest-document <document.pdf|document.docx> --relative-path <pack-relative-path> [--title <title>] [--output <result.json>]
       knowledge-pack ingest-spreadsheet <spreadsheet.xlsx|spreadsheet.csv> --relative-path <pack-relative-path> [--title <title>] [--output <result.json>]

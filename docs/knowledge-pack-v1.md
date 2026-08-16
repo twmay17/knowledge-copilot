@@ -235,6 +235,11 @@ swift run knowledge-pack replay \
 swift run knowledge-pack benchmark-replay \
   ../fixtures/replay-benchmark-v1.json \
   --output /tmp/knowledge-replay-benchmark.json
+swift run knowledge-pack audit-correctness \
+  ../fixtures/correctness-gate-v1.json \
+  --output /tmp/knowledge-correctness-report.json
+swift run knowledge-pack fingerprint-correctness \
+  ../fixtures/knowledge-packs/minimal-hospitality
 swift run knowledge-pack ingest-document \
   ../fixtures/document-ingestion/sample-evidence.docx \
   --relative-path sources/sample-evidence.docx
@@ -301,3 +306,7 @@ answer fragments, and exact citation files from a clean in-memory state. See
 The cross-pack hardening corpus expands that proof to 101 deterministic hospitality and
 product-pitch scenarios, including corrections, ambiguity, explicit abstentions, false-card
 negatives, and rapid follow-ups. See [the multi-pack replay benchmark](replay-benchmark.md).
+
+The separate [correctness gate](correctness-gate.md) pins reviewed content by record category,
+re-evaluates all eight evidence states from typed queries, audits card-to-claim citation closure,
+and requires the replay corpus's cross-pack cases to abstain without leaking an answer.
