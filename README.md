@@ -49,6 +49,12 @@ separate with per-claim source links; interpretations are labeled; incomplete qu
 clarification; unsupported questions return not found; and a proposed claim can be explicitly
 contradicted by the corpus. See [evidence outcomes and abstention](docs/knowledge-evidence-outcomes.md).
 
+Streaming transcript revisions now pass through a domain-neutral live event detector. Prepared
+questions can trigger retrieval before final punctuation; declarative claims, topic changes,
+supersession, duplicates, stale revisions, and explicit no-action outcomes are deterministic and
+replayable. Synthetic fixtures measure actionable false positives rather than hiding them in a demo.
+See [the live event detector contract](docs/live-event-detector.md).
+
 The no-admin Microsoft Teams capture baseline is documented in the [Teams audio-capture verification runbook](docs/teams-audio-verification.md).
 
 <p align="center">

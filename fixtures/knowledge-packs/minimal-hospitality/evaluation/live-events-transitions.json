@@ -1,0 +1,84 @@
+{
+  "schemaVersion": 1,
+  "name": "Question, claim, topic, interruption, and duplicate transitions",
+  "maximumFalsePositiveRate": 0,
+  "revisions": [
+    {
+      "streamID": "question-main",
+      "sequence": 1,
+      "text": "What was the rev par",
+      "stability": "partial",
+      "expectedKinds": ["QuestionCandidate"]
+    },
+    {
+      "streamID": "question-main",
+      "sequence": 2,
+      "text": "What was the rev par for this asset in 2020",
+      "stability": "partial",
+      "expectedKinds": ["QuestionStable"]
+    },
+    {
+      "streamID": "question-main",
+      "sequence": 3,
+      "text": "What was the RevPAR for this asset in 2020?",
+      "stability": "final",
+      "expectedKinds": ["NoAction"]
+    },
+    {
+      "streamID": "small-talk",
+      "sequence": 1,
+      "text": "Thanks, let's keep moving.",
+      "stability": "final",
+      "expectedKinds": ["NoAction"]
+    },
+    {
+      "streamID": "claim-main",
+      "sequence": 1,
+      "text": "RevPAR was $89.50 in 2020",
+      "stability": "partial",
+      "expectedKinds": ["AnswerSuperseded", "ClaimCandidate"]
+    },
+    {
+      "streamID": "claim-main",
+      "sequence": 2,
+      "text": "RevPAR was $89.50 in 2020.",
+      "stability": "final",
+      "expectedKinds": ["ClaimStable"]
+    },
+    {
+      "streamID": "question-follow-up",
+      "sequence": 1,
+      "text": "What was occupancy",
+      "stability": "partial",
+      "expectedKinds": ["AnswerSuperseded", "QuestionCandidate"]
+    },
+    {
+      "streamID": "question-follow-up",
+      "sequence": 2,
+      "text": "What was occupancy in 2020?",
+      "stability": "final",
+      "expectedKinds": ["TopicShift", "QuestionStable"]
+    },
+    {
+      "streamID": "question-duplicate",
+      "sequence": 1,
+      "text": "What was the occupancy rate in 2020?",
+      "stability": "final",
+      "expectedKinds": ["NoAction"]
+    },
+    {
+      "streamID": "question-follow-up",
+      "sequence": 3,
+      "text": "Actually, what was ADR in 2020?",
+      "stability": "final",
+      "expectedKinds": ["AnswerSuperseded", "TopicShift", "QuestionStable"]
+    },
+    {
+      "streamID": "question-follow-up",
+      "sequence": 2,
+      "text": "What was GOP in 2020?",
+      "stability": "final",
+      "expectedKinds": ["NoAction"]
+    }
+  ]
+}

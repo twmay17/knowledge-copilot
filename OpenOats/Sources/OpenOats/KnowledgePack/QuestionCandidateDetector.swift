@@ -328,7 +328,8 @@ public struct QuestionCandidateDetector: Sendable {
         }) == true
       }
       let hasSpecificSignal = familyAliasMatch || prefixMatch || !alignedTerms.isEmpty
-      guard hasSpecificSignal else { return nil }
+      let hasQuestionShape = isQuestionLead || prefixMatch
+      guard hasSpecificSignal, hasQuestionShape else { return nil }
 
       let referenceScore =
         family.references.map { reference -> Double in

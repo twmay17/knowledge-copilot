@@ -856,3 +856,61 @@ Results:
 
 See [the local provider contract](ollama-study-provider.md) and the
 [public-safe KC-21 evidence summary](evidence/kc21-local-ollama-study-provider-2026-08-15.md).
+
+## KC-22 domain-neutral live event detector
+
+The live KnowledgePack path now converts unstable transcript revisions into one reversible event
+contract:
+
+- prepared partial questions emit `QuestionCandidate` before final punctuation and promote to
+  `QuestionStable` without changing identity;
+- conservative declarative matching emits `ClaimCandidate` and `ClaimStable` over opaque aliases;
+- generic packs without a Domain Profile can use question-family aliases as fallback topic IDs;
+- stable opaque topics emit deterministic `TopicShift` events;
+- correction, interruption, clearing, and pack changes emit `AnswerSuperseded` before replacements;
+- equivalent rapid question and claim follow-ups emit explicit no-action events instead of duplicate
+  cards;
+- stale revisions and late finals from superseded streams cannot resurrect old answers;
+- `KnowledgePackStore` exposes the rich event stream while preserving the existing reviewed-card
+  adapter; and
+- exact JSON replays report actionable false positives and false negatives rather than relying on a
+  qualitative demo.
+
+Passing local checks:
+
+```bash
+swift test --filter KnowledgeLiveEventDetectorTests
+swift test --filter \
+  'KnowledgeLiveEventDetectorTests|QuestionCandidateDetectorTests|KnowledgeAnswerCardResolverTests|KnowledgeProofReplayTests'
+swift test --skip MeetingDetectorTests
+swift build -c release --product OpenOats
+swift build -c release --product knowledge-pack
+swift format lint --strict \
+  Sources/OpenOats/KnowledgePack/QuestionCandidateDetector.swift \
+  Sources/OpenOats/KnowledgePack/KnowledgeLiveEventDetector.swift \
+  Sources/OpenOats/KnowledgePack/KnowledgeLiveEventReplay.swift \
+  Sources/OpenOats/App/KnowledgePackStore.swift \
+  Tests/OpenOatsTests/KnowledgeLiveEventDetectorTests.swift
+jq empty \
+  ../fixtures/knowledge-packs/minimal-hospitality/evaluation/live-events-transitions.json \
+  ../fixtures/knowledge-packs/minimal-hospitality/evaluation/live-events-negative.json
+git diff --check
+```
+
+Results:
+
+- 10 of 10 focused live-event tests passed;
+- all 30 detector, answer-resolution, and replay tests passed;
+- all 835 non-environmental package tests passed;
+- both release products built successfully;
+- the 11-revision transition replay matched exactly;
+- the six-revision negative replay measured 0 actionable false positives, a synthetic-fixture rate
+  of 0.0%;
+- strict Swift formatting and JSON parsing passed; and
+- whitespace checks passed.
+
+This false-positive figure covers checked-in synthetic text only; it is not a claim about real
+meetings, ASR error, audio capture, or speaker diarization.
+
+See [the live event contract](live-event-detector.md) and the
+[public-safe KC-22 evidence summary](evidence/kc22-live-event-detector-2026-08-15.md).

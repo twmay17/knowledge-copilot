@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "name": "Non-actionable hospitality meeting speech",
+  "maximumFalsePositiveRate": 0,
+  "revisions": [
+    {
+      "streamID": "negative-1",
+      "sequence": 1,
+      "text": "Thanks, let's keep moving.",
+      "stability": "final",
+      "expectedKinds": ["NoAction"]
+    },
+    {
+      "streamID": "negative-2",
+      "sequence": 1,
+      "text": "I agree with that approach.",
+      "stability": "final",
+      "expectedKinds": ["NoAction"]
+    },
+    {
+      "streamID": "negative-3",
+      "sequence": 1,
+      "text": "2020 was a difficult year.",
+      "stability": "final",
+      "expectedKinds": ["NoAction"]
+    },
+    {
+      "streamID": "negative-4",
+      "sequence": 1,
+      "text": "RevPAR",
+      "stability": "final",
+      "expectedKinds": ["NoAction"]
+    },
+    {
+      "streamID": "negative-5",
+      "sequence": 1,
+      "text": "We should review RevPAR later.",
+      "stability": "final",
+      "expectedKinds": ["NoAction"]
+    },
+    {
+      "streamID": "negative-6",
+      "sequence": 1,
+      "text": "Room count.",
+      "stability": "final",
+      "expectedKinds": ["NoAction"]
+    }
+  ]
+}

@@ -18,6 +18,9 @@ do not describe a real hotel, investor, operator, tenant, meeting, or transactio
 - reusable golden expectations under `evaluation/golden-cases.jsonl`.
 - a timestamped partial-speech vertical slice under `evaluation/live-proof-revpar.json` that can
   produce a machine-readable latency and citation-validity report.
+- deterministic conversation-event transitions under `evaluation/live-events-transitions.json`;
+- six expected no-action utterances under `evaluation/live-events-negative.json` for an explicit
+  actionable false-positive-rate measurement.
 
 ## Public redistribution review
 

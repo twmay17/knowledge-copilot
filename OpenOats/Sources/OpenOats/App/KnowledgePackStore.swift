@@ -40,8 +40,9 @@ final class KnowledgePackStore {
   private(set) var activeQuestionCandidates: [String: QuestionCandidate] = [:]
   private(set) var activeAnswerCards: [String: KnowledgeAnswerCard] = [:]
   private(set) var latestQuestionCandidateEvents: [QuestionCandidateEvent] = []
+  private(set) var latestLiveKnowledgeEvents: [KnowledgeLiveEvent] = []
   private var requestedPath = ""
-  private var questionCandidateDetector: QuestionCandidateDetector?
+  private var liveEventDetector: KnowledgeLiveEventDetector?
   private var answerCardResolver: KnowledgeAnswerCardResolver?
   private var liveRevisionSequenceByStream: [String: Int] = [:]
 
@@ -155,13 +156,19 @@ final class KnowledgePackStore {
 
   @discardableResult
   func processTranscriptRevision(_ revision: TranscriptRevision) -> [QuestionCandidateEvent] {
-    guard var detector = questionCandidateDetector else { return [] }
+    _ = processLiveTranscriptRevision(revision)
+    return latestQuestionCandidateEvents
+  }
+
+  @discardableResult
+  func processLiveTranscriptRevision(_ revision: TranscriptRevision) -> [KnowledgeLiveEvent] {
+    guard var detector = liveEventDetector else { return [] }
     liveRevisionSequenceByStream[revision.streamID] = max(
       liveRevisionSequenceByStream[revision.streamID] ?? Int.min,
       revision.sequence
     )
     let events = detector.process(revision)
-    questionCandidateDetector = detector
+    liveEventDetector = detector
     apply(events)
     return events
   }
@@ -197,7 +204,7 @@ final class KnowledgePackStore {
 
   private func configureLiveKnowledgePath(for pack: KnowledgePack, rootDirectory: URL) {
     clearQuestionCandidateDetector()
-    questionCandidateDetector = QuestionCandidateDetector(
+    liveEventDetector = KnowledgeLiveEventDetector(
       questionFamilies: pack.questionFamilies,
       termAliases: profileRegistry.termAliases(for: pack.manifest)
     )
@@ -205,38 +212,63 @@ final class KnowledgePackStore {
   }
 
   private func clearQuestionCandidateDetector() {
-    guard var detector = questionCandidateDetector else {
+    guard var detector = liveEventDetector else {
       activeQuestionCandidates.removeAll()
       activeAnswerCards.removeAll()
       latestQuestionCandidateEvents = []
+      latestLiveKnowledgeEvents = []
       answerCardResolver = nil
       return
     }
     let sequence = activeQuestionCandidates.values.map(\.revisionSequence).max() ?? 0
     let events = detector.cancelAll(sequence: sequence + 1)
-    questionCandidateDetector = nil
+    liveEventDetector = nil
     apply(events)
     answerCardResolver = nil
   }
 
-  private func apply(_ events: [QuestionCandidateEvent]) {
-    latestQuestionCandidateEvents = events
+  private func apply(_ events: [KnowledgeLiveEvent]) {
+    latestLiveKnowledgeEvents = events
+    var questionEvents: [QuestionCandidateEvent] = []
     for event in events {
       switch event {
-      case .upsert(let candidate):
+      case .questionCandidate(let candidate), .questionStable(let candidate):
+        questionEvents.append(.upsert(candidate))
         activeQuestionCandidates[candidate.streamID] = candidate
         if let answerCard = answerCardResolver?.resolve(candidate) {
           activeAnswerCards[candidate.streamID] = answerCard
         } else {
           activeAnswerCards.removeValue(forKey: candidate.streamID)
         }
-      case .cancel(let cancellation):
-        guard activeQuestionCandidates[cancellation.streamID]?.id == cancellation.candidateID else {
-          continue
-        }
-        activeQuestionCandidates.removeValue(forKey: cancellation.streamID)
-        activeAnswerCards.removeValue(forKey: cancellation.streamID)
+      case .answerSuperseded(let supersession):
+        guard
+          activeQuestionCandidates[supersession.previousStreamID]?.id
+            == supersession.previousEventID
+        else { continue }
+        let cancellation = QuestionCandidateCancellation(
+          candidateID: supersession.previousEventID,
+          streamID: supersession.previousStreamID,
+          revisionSequence: supersession.revisionSequence,
+          reason: Self.cancellationReason(for: supersession.reason)
+        )
+        questionEvents.append(.cancel(cancellation))
+        activeQuestionCandidates.removeValue(forKey: supersession.previousStreamID)
+        activeAnswerCards.removeValue(forKey: supersession.previousStreamID)
+      case .claimCandidate, .claimStable, .topicShift, .noAction:
+        continue
       }
+    }
+    latestQuestionCandidateEvents = questionEvents
+  }
+
+  private static func cancellationReason(
+    for reason: KnowledgeAnswerSupersessionReason
+  ) -> QuestionCandidateCancellationReason {
+    switch reason {
+    case .cleared: .cleared
+    case .corrected: .corrected
+    case .followUp, .interrupted: .superseded
+    case .packChanged: .packChanged
     }
   }
 }

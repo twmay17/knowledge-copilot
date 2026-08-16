@@ -80,27 +80,33 @@ Records a deterministic expression, version, input assertion IDs, and output ass
 
 Groups a canonical question with paraphrases, partial prefixes, ASR aliases, and tags. This is the preparation-to-live bridge that lets retrieval begin before a sentence ends.
 
-## Partial-speech question events
+## Reversible live conversation events
 
-The live detector accepts ordered transcript revisions without depending on an ASR vendor or a
-specific business domain. Each revision carries a stream ID, a monotonically increasing sequence,
-text, and either `partial` or `final` stability.
+The live detector accepts transcript revisions without depending on an ASR vendor or business
+domain. Each revision carries a stream ID, a monotonically increasing sequence, text, and either
+`partial` or `final` stability. It emits typed events for provisional and stable questions,
+provisional and stable claims, stable topic shifts, superseded answers, and explicit no-action
+outcomes.
 
 When a partial revision matches a prepared question family, the detector emits a provisional
 `QuestionCandidate`. A second compatible revision, or a final revision, promotes the same
 candidate ID to stable. Repeating the final text does not emit a duplicate event. If the ASR text
-changes the question family or a material binding such as the period, the detector cancels the
-stale candidate before emitting its replacement. Clearing a partial also emits a cancellation so
-speculative retrieval can be discarded.
+changes the question family or a material binding such as the period, the detector supersedes the
+stale candidate before emitting its replacement. Clearing a partial also supersedes it so
+speculative retrieval can be discarded. Equivalent rapid follow-ups do not create duplicate cards,
+and late finals from interrupted streams cannot resurrect superseded events.
 
 DomainProfile vocabulary enters this path only as opaque term IDs and aliases. For example, the
 hospitality profile maps both `RevPAR` and spoken `rev par` to `hospitality.revpar`; the generic
-detector does not contain hotel-specific types or formulas. Matching is local and deterministic,
-so question detection does not call a language model or the web.
+detector does not contain hotel-specific types or formulas. Question-family aliases provide a
+fallback vocabulary for packs without a Domain Profile. Matching is local and deterministic, so
+event detection does not call a language model or the web.
 
-`KnowledgePackStore.processTranscriptRevision(_:)` is the app integration boundary. It retains the
-active candidate per transcript stream and exposes the latest upsert/cancel events for the next
-retrieval stage.
+`KnowledgePackStore.processLiveTranscriptRevision(_:)` exposes the full event stream. The existing
+`processTranscriptRevision(_:)` interface projects question and supersession events into the prior
+upsert/cancel contract, preserving the current reviewed-card path. Exact JSON replays record every
+transition and measure actionable false positives on expected no-action speech. See
+[the live event detector contract](live-event-detector.md).
 
 ## Presenter answer resolution
 

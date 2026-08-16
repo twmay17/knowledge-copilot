@@ -68,7 +68,11 @@ Meeting-specific context: audience, goals, tone, likely objections, topics, and 
 
 ### Conversation events
 
-The live detector will emit domain-neutral candidates and stable events for questions, claims, topic shifts, and superseded answers.
+The local live detector emits domain-neutral `QuestionCandidate`, `QuestionStable`,
+`ClaimCandidate`, `ClaimStable`, `TopicShift`, `AnswerSuperseded`, and `NoAction` events. It consumes
+only prepared question families and opaque aliases; owns deterministic revision, interruption, and
+duplicate handling; and performs no retrieval or inference. Exact replay fixtures measure its
+actionable false-positive rate. See [the live event detector contract](live-event-detector.md).
 
 ### Evidence gate
 
@@ -105,6 +109,6 @@ future cloud adapter must implement the same contract and may not bypass it.
 1. Validate and inspect a KnowledgePack from the command line.
 2. Load the selected pack in the app without replacing the legacy knowledge base.
 3. Map a prepared response card to the existing suggestion UI.
-4. Replace keyword-only question detection with domain-neutral conversation events.
+4. Extend prepared-question detection with domain-neutral, replayable conversation events. ✓
 5. Add the hospitality profile and deterministic RevPAR calculation.
 6. Prove portability with a non-financial product-pitch pack.
