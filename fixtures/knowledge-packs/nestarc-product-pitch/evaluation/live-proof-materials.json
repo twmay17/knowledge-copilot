@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "name": "NestArc Go materials partial-speech proof",
+  "streamID": "remote-product-pitch",
+  "responseDeadlineMilliseconds": 1000,
+  "maximumProcessingLatencyMilliseconds": 50,
+  "requireAnswerBeforeFinal": true,
+  "revisions": [
+    {
+      "atMilliseconds": 0,
+      "text": "What materials",
+      "stability": "partial"
+    },
+    {
+      "atMilliseconds": 420,
+      "text": "What materials does NestArc Go use",
+      "stability": "partial"
+    },
+    {
+      "atMilliseconds": 900,
+      "text": "What materials does NestArc Go use?",
+      "stability": "final"
+    }
+  ],
+  "expected": {
+    "questionFamilyID": "question-materials",
+    "responseCardID": "card-materials",
+    "evidenceState": "directly_sourced",
+    "answerContains": [
+      "recycled-PET",
+      "thermoplastic-polyurethane",
+      "polypropylene"
+    ],
+    "citationPassageIDs": [
+      "passage-product-overview"
+    ]
+  }
+}

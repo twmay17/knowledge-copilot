@@ -6,6 +6,12 @@ A meeting note-taker that talks back.
 
 > **Knowledge Copilot development branch:** this fork is extending OpenOats with a domain-neutral, corpus-grounded question and claim engine. The first new foundation is a versioned `KnowledgePack` contract that keeps sources, assertions, calculations, response cards, and citations portable across hospitality, product pitches, and other evidence-heavy conversations. See [the architecture boundary](docs/architecture-boundaries.md), [KnowledgePack v1 contract](docs/knowledge-pack-v1.md), and [current verification record](docs/verification-2026-08-14.md).
 
+The portability gate now includes a second, completely generic demonstration pack: a synthetic
+baby-product pitch with 17 anticipated questions, citation-bound product and research facts,
+contested wash and market claims, interpretive objections, and explicit safety abstentions. It
+loads with no Domain Profile or hospitality code. See the
+[NestArc Go fixture](fixtures/knowledge-packs/nestarc-product-pitch/README.md).
+
 The hospitality reference profile can also convert house-standard P&L and STAR extraction CSVs
 into typed, cited KnowledgePack assertions while keeping broker evidence, analyst work product,
 comparison basis, and modeled values distinct. See the
@@ -55,7 +61,10 @@ supersession, duplicates, stale revisions, and explicit no-action outcomes are d
 replayable. Synthetic fixtures measure actionable false positives rather than hiding them in a demo.
 See [the live event detector contract](docs/live-event-detector.md).
 
-The no-admin Microsoft Teams capture baseline is documented in the [Teams audio-capture verification runbook](docs/teams-audio-verification.md).
+The no-admin Microsoft Teams capture baseline is documented in the
+[Teams audio-capture verification runbook](docs/teams-audio-verification.md), and the consented
+end-to-end private-alpha gate is documented in the
+[supervised Teams review runbook](docs/supervised-teams-alpha-review.md).
 
 <p align="center">
   <a href="https://github.com/yazinsai/OpenOats/releases/latest">

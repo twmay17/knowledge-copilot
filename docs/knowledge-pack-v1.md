@@ -224,9 +224,14 @@ From `OpenOats/`:
 ```bash
 swift run knowledge-pack validate ../fixtures/knowledge-packs/minimal-hospitality
 swift run knowledge-pack inspect ../fixtures/knowledge-packs/minimal-hospitality
+swift run knowledge-pack validate ../fixtures/knowledge-packs/nestarc-product-pitch
+swift run knowledge-pack inspect ../fixtures/knowledge-packs/nestarc-product-pitch
 swift run knowledge-pack replay \
   ../fixtures/knowledge-packs/minimal-hospitality \
   ../fixtures/knowledge-packs/minimal-hospitality/evaluation/live-proof-revpar.json
+swift run knowledge-pack replay \
+  ../fixtures/knowledge-packs/nestarc-product-pitch \
+  ../fixtures/knowledge-packs/nestarc-product-pitch/evaluation/live-proof-materials.json
 swift run knowledge-pack ingest-document \
   ../fixtures/document-ingestion/sample-evidence.docx \
   --relative-path sources/sample-evidence.docx

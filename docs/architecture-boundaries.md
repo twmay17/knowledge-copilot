@@ -111,4 +111,11 @@ future cloud adapter must implement the same contract and may not bypass it.
 3. Map a prepared response card to the existing suggestion UI.
 4. Extend prepared-question detection with domain-neutral, replayable conversation events. ✓
 5. Add the hospitality profile and deterministic RevPAR calculation.
-6. Prove portability with a non-financial product-pitch pack.
+6. Prove portability with a non-financial product-pitch pack. ✓
+
+The portability proof is the redistributable
+[`nestarc-product-pitch`](../fixtures/knowledge-packs/nestarc-product-pitch/README.md) fixture. It
+uses the unchanged v1 loader with an empty Domain Profile registry, resolves 17 product questions
+and objections, replays partial speech before final transcription, keeps conflicting wash and
+market claims contested, labels research-based conclusions as interpretive, and abstains on
+unsupported contamination and infant-sleep claims.

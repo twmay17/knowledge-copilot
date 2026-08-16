@@ -1,0 +1,23 @@
+{"id":"evidence-product-category","assertionID":"assertion-product-category","passageID":"passage-product-overview","relation":"supports","note":"Product brief defines the category and adult-carried use."}
+{"id":"evidence-outer-material","assertionID":"assertion-outer-material","passageID":"passage-product-overview","relation":"supports","note":"Launch outer material is directly stated."}
+{"id":"evidence-lining-material","assertionID":"assertion-lining-material","passageID":"passage-product-overview","relation":"supports","note":"Launch lining material is directly stated."}
+{"id":"evidence-divider-material","assertionID":"assertion-divider-material","passageID":"passage-product-overview","relation":"supports","note":"Launch divider material is directly stated."}
+{"id":"evidence-dimensions","assertionID":"assertion-dimensions","passageID":"passage-product-overview","relation":"supports","note":"Launch dimensions are directly stated."}
+{"id":"evidence-empty-weight","assertionID":"assertion-empty-weight","passageID":"passage-product-overview","relation":"supports","note":"Empty launch weight is directly stated."}
+{"id":"evidence-msrp","assertionID":"assertion-msrp","passageID":"passage-product-price-care","relation":"supports","note":"The product brief states the target direct-to-consumer MSRP."}
+{"id":"evidence-launch-window","assertionID":"assertion-launch-window","passageID":"passage-product-roadmap","relation":"supports","note":"The roadmap states the launch target."}
+{"id":"evidence-launch-colors","assertionID":"assertion-launch-colors","passageID":"passage-product-roadmap","relation":"supports","note":"The roadmap states the launch colors."}
+{"id":"evidence-launch-contents","assertionID":"assertion-launch-contents","passageID":"passage-product-roadmap","relation":"supports","note":"The roadmap defines committed launch contents."}
+{"id":"evidence-pilot-machine-washable","assertionID":"assertion-pilot-machine-washable","passageID":"passage-product-price-care","relation":"supports","note":"A pilot pitch used the machine-washable phrase."}
+{"id":"evidence-launch-care","assertionID":"assertion-launch-care","passageID":"passage-lab-care","relation":"supports","note":"Current launch care guidance is spot-clean only."}
+{"id":"evidence-zipper-cycles","assertionID":"assertion-zipper-cycles","passageID":"passage-lab-durability","relation":"supports","note":"Synthetic engineering result for three samples."}
+{"id":"evidence-seam-load-average","assertionID":"assertion-seam-load-average","passageID":"passage-lab-durability","relation":"supports","note":"Synthetic average calculated and stated by the engineering summary."}
+{"id":"evidence-modular-preference","assertionID":"assertion-modular-preference","passageID":"passage-research-preference","relation":"supports","note":"Directional synthetic concept preference result."}
+{"id":"evidence-retrieval-need","assertionID":"assertion-retrieval-need","passageID":"passage-research-preference","relation":"supports","note":"Directional synthetic organizer-need result."}
+{"id":"evidence-price-too-expensive","assertionID":"assertion-price-too-expensive","passageID":"passage-research-price","relation":"supports","note":"Directional synthetic price reaction."}
+{"id":"evidence-market-size-founder","assertionID":"assertion-market-size-founder","passageID":"passage-founder-market","relation":"supports","note":"Fictional founder estimate with a broad category definition."}
+{"id":"evidence-market-size-research","assertionID":"assertion-market-size-research","passageID":"passage-research-market","relation":"supports","note":"Fictional research estimate with a narrow category definition."}
+{"id":"evidence-modular-rationale","assertionID":"assertion-modular-rationale","passageID":"passage-research-preference","relation":"contextualizes","note":"Directional research contextualizes, but does not prove, the product rationale."}
+{"id":"evidence-price-objection","assertionID":"assertion-price-objection","passageID":"passage-research-price","relation":"contextualizes","note":"Directional price reaction contextualizes the objection without proving demand."}
+{"id":"evidence-insulated-pod-status","assertionID":"assertion-insulated-pod-status","passageID":"passage-product-roadmap","relation":"supports","note":"Roadmap distinguishes research from commitment."}
+{"id":"evidence-mobile-app-planned","assertionID":"assertion-mobile-app-planned","passageID":"passage-product-roadmap","relation":"supports","note":"Roadmap directly states no companion app is planned."}
