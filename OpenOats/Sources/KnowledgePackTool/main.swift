@@ -24,6 +24,8 @@ struct KnowledgePackTool {
         try search(arguments: arguments, profiles: profiles)
       case "replay":
         try replay(arguments: arguments, profiles: profiles)
+      case "benchmark-replay":
+        try benchmarkReplay(arguments: arguments, profiles: profiles)
       case "benchmark-latency":
         try await benchmarkLatency(arguments: arguments, profiles: profiles)
       case "ingest-document":
@@ -159,6 +161,67 @@ struct KnowledgePackTool {
       )
       try reportData.write(to: outputURL, options: .atomic)
       printReplaySummary(report)
+      print("Report: \(outputURL.path)")
+    } else {
+      FileHandle.standardOutput.write(reportData)
+      FileHandle.standardOutput.write(Data("\n".utf8))
+    }
+
+    if report.verdict == .fail {
+      Darwin.exit(EXIT_FAILURE)
+    }
+  }
+
+  private static func benchmarkReplay(
+    arguments: [String],
+    profiles: KnowledgeDomainProfileRegistry
+  ) throws {
+    guard arguments.count == 2 || arguments.count == 4 else { fail(usage) }
+    guard arguments.count == 2 || arguments[2] == "--output" else { fail(usage) }
+
+    let specURL = URL(fileURLWithPath: arguments[1]).standardizedFileURL
+    let fixtureRoot = specURL.deletingLastPathComponent().resolvingSymlinksInPath()
+    let spec = try JSONDecoder().decode(
+      KnowledgeReplayBenchmarkSpec.self,
+      from: Data(contentsOf: specURL)
+    )
+    var packs: [String: KnowledgeReplayBenchmarkPack] = [:]
+    for reference in spec.packs {
+      guard !reference.relativePath.hasPrefix("/") else {
+        fail("Benchmark KnowledgePack paths must be relative to the benchmark file.")
+      }
+      let directory = fixtureRoot.appendingPathComponent(
+        reference.relativePath,
+        isDirectory: true
+      ).standardizedFileURL.resolvingSymlinksInPath()
+      guard isInside(directory, root: fixtureRoot) else {
+        fail("Benchmark KnowledgePack paths must stay inside the benchmark fixture root.")
+      }
+      let pack = try KnowledgePackLoader(profileRegistry: profiles).load(from: directory)
+      guard pack.manifest.packID == reference.packID else {
+        fail(
+          "Benchmark expected pack '\(reference.packID)' at \(reference.relativePath), but loaded '\(pack.manifest.packID)'."
+        )
+      }
+      packs[reference.packID] = KnowledgeReplayBenchmarkPack(
+        pack: pack,
+        rootDirectory: directory,
+        termAliases: profiles.termAliases(for: pack.manifest)
+      )
+    }
+    let report = try KnowledgeReplayBenchmarkRunner(packs: packs).run(spec)
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+    let reportData = try encoder.encode(report)
+
+    if arguments.count == 4 {
+      let outputURL = URL(fileURLWithPath: arguments[3]).standardizedFileURL
+      try FileManager.default.createDirectory(
+        at: outputURL.deletingLastPathComponent(),
+        withIntermediateDirectories: true
+      )
+      try reportData.write(to: outputURL, options: .atomic)
+      printReplayBenchmarkSummary(report)
       print("Report: \(outputURL.path)")
     } else {
       FileHandle.standardOutput.write(reportData)
@@ -757,6 +820,19 @@ struct KnowledgePackTool {
     }
   }
 
+  private static func printReplayBenchmarkSummary(_ report: KnowledgeReplayBenchmarkReport) {
+    print("\(report.verdict.rawValue): \(report.benchmarkName)")
+    print(
+      "Scenarios: \(report.passedScenarioCount)/\(report.scenarioCount) passed; false cards: \(report.falseCardCount)/\(report.negativeScenarioCount) (\(formatted(report.falseCardRate)))"
+    )
+    print(
+      "Processing latency: median \(formatted(report.latency.medianMilliseconds)) ms; p95 \(formatted(report.latency.p95Milliseconds)) ms; max \(formatted(report.latency.maximumMilliseconds)) ms"
+    )
+    for check in report.checks where !check.passed {
+      print("Failed \(check.name): \(check.detail)")
+    }
+  }
+
   private static func printLatencyBenchmarkSummary(_ report: LatencyBenchmarkOutput) {
     print("\(report.verdict.uppercased()): hot/warm latency benchmark")
     for lane in report.lanes {
@@ -776,6 +852,11 @@ struct KnowledgePackTool {
     String(format: "%.3f", value)
   }
 
+  private static func isInside(_ fileURL: URL, root: URL) -> Bool {
+    let rootPath = root.path.hasSuffix("/") ? root.path : root.path + "/"
+    return fileURL.path.hasPrefix(rootPath)
+  }
+
   private static func fail(_ message: String) -> Never {
     FileHandle.standardError.write(Data("knowledge-pack: \(message)\n".utf8))
     Darwin.exit(EXIT_FAILURE)
@@ -787,6 +868,7 @@ struct KnowledgePackTool {
       knowledge-pack inspect <pack-directory>
       knowledge-pack search <pack-directory> <query> [--kind <record-kind>] [--source <source-id>] [--qualifier <key=value>] [--limit <1-100>]
       knowledge-pack replay <pack-directory> <replay-spec.json> [--output <report.json>]
+      knowledge-pack benchmark-replay <benchmark-spec.json> [--output <report.json>]
       knowledge-pack benchmark-latency <pack-directory> [--samples <1-10000>] [--output <report.json>]
       knowledge-pack ingest-document <document.pdf|document.docx> --relative-path <pack-relative-path> [--title <title>] [--output <result.json>]
       knowledge-pack ingest-spreadsheet <spreadsheet.xlsx|spreadsheet.csv> --relative-path <pack-relative-path> [--title <title>] [--output <result.json>]

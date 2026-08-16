@@ -226,6 +226,17 @@ final class QuestionCandidateDetectorTests: XCTestCase {
           surfaceText: "product safety rating"
         )
       ])
+
+    let variantEvents = detector.process(
+      TranscriptRevision(
+        streamID: "variant",
+        sequence: 1,
+        text: "How safe is the product?",
+        stability: .final
+      ))
+    let variantCandidate = try XCTUnwrap(upsert(from: variantEvents))
+    XCTAssertEqual(variantCandidate.questionFamilyID, "question-product-safety")
+    XCTAssertEqual(variantCandidate.status, .stable)
   }
 
   @MainActor

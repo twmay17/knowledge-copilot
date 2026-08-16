@@ -232,6 +232,9 @@ swift run knowledge-pack replay \
 swift run knowledge-pack replay \
   ../fixtures/knowledge-packs/nestarc-product-pitch \
   ../fixtures/knowledge-packs/nestarc-product-pitch/evaluation/live-proof-materials.json
+swift run knowledge-pack benchmark-replay \
+  ../fixtures/replay-benchmark-v1.json \
+  --output /tmp/knowledge-replay-benchmark.json
 swift run knowledge-pack ingest-document \
   ../fixtures/document-ingestion/sample-evidence.docx \
   --relative-path sources/sample-evidence.docx
@@ -294,3 +297,7 @@ The timestamped replay specification is an executable vertical slice. It verifie
 partial question, stable reviewed card, response deadline, processing-latency budget, expected
 answer fragments, and exact citation files from a clean in-memory state. See
 [the replay protocol](knowledge-proof-replay.md).
+
+The cross-pack hardening corpus expands that proof to 101 deterministic hospitality and
+product-pitch scenarios, including corrections, ambiguity, explicit abstentions, false-card
+negatives, and rapid follow-ups. See [the multi-pack replay benchmark](replay-benchmark.md).

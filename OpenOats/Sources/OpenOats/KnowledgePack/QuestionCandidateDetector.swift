@@ -322,13 +322,15 @@ public struct QuestionCandidateDetector: Sendable {
     let matches = families.compactMap { family -> Match? in
       let familyAliasMatch = family.aliases.contains { Self.containsPhrase(text, phrase: $0) }
       let prefixMatch = family.prefixes.contains { Self.containsPhrase(text, phrase: $0) }
+      let exactReferenceMatch = family.references.contains(text)
       let alignedTerms = termMatches.filter { termMatch in
         terms.first(where: { $0.id == termMatch.id })?.forms.contains(where: {
           Self.containsPhrase(family.vocabulary, phrase: $0)
         }) == true
       }
-      let hasSpecificSignal = familyAliasMatch || prefixMatch || !alignedTerms.isEmpty
-      let hasQuestionShape = isQuestionLead || prefixMatch
+      let hasSpecificSignal =
+        exactReferenceMatch || familyAliasMatch || prefixMatch || !alignedTerms.isEmpty
+      let hasQuestionShape = exactReferenceMatch || isQuestionLead || prefixMatch
       guard hasSpecificSignal, hasQuestionShape else { return nil }
 
       let referenceScore =
@@ -341,7 +343,10 @@ public struct QuestionCandidateDetector: Sendable {
           return (referenceCoverage * 0.42) + (inputCoverage * 0.25)
         }.max() ?? 0
 
-      var score = prefixMatch ? max(referenceScore, 0.80) : referenceScore
+      var score =
+        exactReferenceMatch
+        ? max(referenceScore, 0.92)
+        : (prefixMatch ? max(referenceScore, 0.80) : referenceScore)
       if familyAliasMatch { score += 0.14 }
       if !alignedTerms.isEmpty { score += 0.12 }
       if isQuestionLead { score += 0.04 }

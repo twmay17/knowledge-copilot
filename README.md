@@ -61,6 +61,12 @@ supersession, duplicates, stale revisions, and explicit no-action outcomes are d
 replayable. Synthetic fixtures measure actionable false positives rather than hiding them in a demo.
 See [the live event detector contract](docs/live-event-detector.md).
 
+A versioned 101-scenario, two-domain replay benchmark now grades the complete deterministic event
+and answer path across direct, partial, corrected, ambiguous, conflicting, missing, rhetorical,
+cross-pack, and rapid-follow-up speech. It pins evidence states, response fragments, citations,
+false-card rate, and processing latency while keeping every fixture synthetic and redistributable.
+See [the multi-pack replay benchmark](docs/replay-benchmark.md).
+
 The no-admin Microsoft Teams capture baseline is documented in the
 [Teams audio-capture verification runbook](docs/teams-audio-verification.md), and the consented
 end-to-end private-alpha gate is documented in the

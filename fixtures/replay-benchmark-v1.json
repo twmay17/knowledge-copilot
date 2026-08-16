@@ -1,0 +1,717 @@
+{
+  "schemaVersion": 1,
+  "name": "KC-25 two-domain deterministic replay benchmark",
+  "minimumScenarioCount": 100,
+  "maximumFalseCardRate": 0,
+  "maximumP95ProcessingLatencyMilliseconds": 50,
+  "redistributable": true,
+  "packs": [
+    {
+      "packID": "synthetic-hotel-2020-v1",
+      "relativePath": "knowledge-packs/minimal-hospitality"
+    },
+    {
+      "packID": "nestarc-go-product-pitch-v1",
+      "relativePath": "knowledge-packs/nestarc-product-pitch"
+    }
+  ],
+  "scenarioTemplates": [
+    {
+      "id": "hospitality-revpar-calculated",
+      "packID": "synthetic-hotel-2020-v1",
+      "categories": ["direct"],
+      "utterances": [
+        "What was RevPAR for this asset in 2020?",
+        "What was the hotel's RevPAR in 2020?",
+        "How did RevPAR perform in 2020?"
+      ],
+      "expected": {
+        "answerMode": "reviewed",
+        "questionFamilyID": "question-revpar-period",
+        "responseCardID": "card-revpar-2020",
+        "evidenceState": "calculated",
+        "answerContains": ["$89.50", "$3,266,750", "36,500"],
+        "citationPassageIDs": ["passage-operating-2020-actual", "passage-inventory-2020-actual"]
+      }
+    },
+    {
+      "id": "hospitality-revpar-reported",
+      "packID": "synthetic-hotel-2020-v1",
+      "categories": ["direct"],
+      "utterances": [
+        "What does the operating statement report for 2020 RevPAR?",
+        "What is the stated 2020 RevPAR?",
+        "What does the operating statement report for 2020 RevPAR"
+      ],
+      "expected": {
+        "answerMode": "reviewed",
+        "questionFamilyID": "question-revpar-reported",
+        "responseCardID": "card-revpar-2020-direct",
+        "evidenceState": "directly_sourced",
+        "answerContains": ["$89.50", "operating statement"],
+        "citationPassageIDs": ["passage-operating-2020-actual"]
+      }
+    },
+    {
+      "id": "hospitality-room-count",
+      "packID": "synthetic-hotel-2020-v1",
+      "categories": ["direct"],
+      "utterances": [
+        "How many rooms does this hotel have?",
+        "What is the key count?",
+        "How many keys are at the property?"
+      ],
+      "expected": {
+        "answerMode": "reviewed",
+        "questionFamilyID": "question-room-count",
+        "responseCardID": "card-room-count-2020",
+        "evidenceState": "directly_sourced",
+        "answerContains": ["100 rooms"],
+        "citationPassageIDs": ["passage-inventory-2020-actual"]
+      }
+    },
+    {
+      "id": "hospitality-revpar-conflict",
+      "packID": "synthetic-hotel-2020-v1",
+      "categories": ["conflicting"],
+      "utterances": [
+        "Do all sources agree on 2020 RevPAR?",
+        "Is the 2020 RevPAR consistent across the corpus?",
+        "Do all sources agree on 2020 RevPAR"
+      ],
+      "expected": {
+        "answerMode": "reviewed",
+        "questionFamilyID": "question-revpar-conflict",
+        "responseCardID": "card-revpar-2020-conflict",
+        "evidenceState": "contested",
+        "answerContains": ["$89.50", "$92.00", "conflicts"],
+        "citationPassageIDs": ["passage-operating-2020-actual", "passage-memo-revpar-2020"]
+      }
+    },
+    {
+      "id": "hospitality-revpar-missing",
+      "packID": "synthetic-hotel-2020-v1",
+      "categories": ["missing"],
+      "utterances": [
+        "What was RevPAR in 2018?",
+        "Do we have 2018 RevPAR?",
+        "What was RevPAR in 2018"
+      ],
+      "expected": {
+        "answerMode": "reviewed",
+        "questionFamilyID": "question-revpar-2018",
+        "responseCardID": "card-revpar-2018-missing",
+        "evidenceState": "not_found_in_corpus",
+        "answerContains": ["does not contain", "2018"],
+        "citationPassageIDs": []
+      }
+    },
+    {
+      "id": "hospitality-occupancy",
+      "packID": "synthetic-hotel-2020-v1",
+      "categories": ["direct"],
+      "utterances": [
+        "What was 2020 occupancy?",
+        "What was the occupancy rate in 2020?",
+        "What was 2020 occupancy"
+      ],
+      "expected": {
+        "answerMode": "reviewed",
+        "questionFamilyID": "question-occupancy-2020",
+        "responseCardID": "card-occupancy-2020",
+        "evidenceState": "calculated",
+        "answerContains": ["72.0%", "26,280", "36,500"],
+        "citationPassageIDs": ["passage-inventory-2020-actual"]
+      }
+    },
+    {
+      "id": "hospitality-adr",
+      "packID": "synthetic-hotel-2020-v1",
+      "categories": ["direct"],
+      "utterances": [
+        "What was 2020 ADR?",
+        "What was average daily rate in 2020?",
+        "What was 2020 ADR"
+      ],
+      "expected": {
+        "answerMode": "reviewed",
+        "questionFamilyID": "question-adr-2020",
+        "responseCardID": "card-adr-2020",
+        "evidenceState": "calculated",
+        "answerContains": ["$124.31", "$3,266,750", "26,280"],
+        "citationPassageIDs": ["passage-operating-2020-actual", "passage-inventory-2020-actual"]
+      }
+    },
+    {
+      "id": "hospitality-total-revenue",
+      "packID": "synthetic-hotel-2020-v1",
+      "categories": ["direct"],
+      "utterances": [
+        "What was total revenue in 2020?",
+        "How much revenue did the hotel generate in 2020?",
+        "What was total revenue in 2020"
+      ],
+      "expected": {
+        "answerMode": "reviewed",
+        "questionFamilyID": "question-total-revenue-2020",
+        "responseCardID": "card-total-revenue-2020",
+        "evidenceState": "calculated",
+        "answerContains": ["$4,596,750", "$3,266,750", "$1,120,000"],
+        "citationPassageIDs": ["passage-operating-2020-actual"]
+      }
+    },
+    {
+      "id": "hospitality-gop",
+      "packID": "synthetic-hotel-2020-v1",
+      "categories": ["direct"],
+      "utterances": [
+        "What was gross operating profit in 2020?",
+        "What was 2020 GOP?",
+        "What was gross operating profit in 2020"
+      ],
+      "expected": {
+        "answerMode": "reviewed",
+        "questionFamilyID": "question-gop-2020",
+        "responseCardID": "card-gop-2020",
+        "evidenceState": "calculated",
+        "answerContains": ["$1,521,725", "$4,596,750", "$1,925,025"],
+        "citationPassageIDs": ["passage-operating-2020-actual"]
+      }
+    },
+    {
+      "id": "product-overview",
+      "packID": "nestarc-go-product-pitch-v1",
+      "categories": ["direct"],
+      "utterances": [
+        "What is NestArc Go?",
+        "What exactly is the product?",
+        "How would you describe NestArc Go?"
+      ],
+      "expected": {
+        "answerMode": "reviewed",
+        "questionFamilyID": "question-product-overview",
+        "responseCardID": "card-product-overview",
+        "evidenceState": "directly_sourced",
+        "answerContains": ["modular organizer", "not a sleep product"],
+        "citationPassageIDs": ["passage-product-overview"]
+      }
+    },
+    {
+      "id": "product-materials",
+      "packID": "nestarc-go-product-pitch-v1",
+      "categories": ["direct"],
+      "utterances": [
+        "What materials does NestArc Go use?",
+        "What is the product made from?",
+        "Which materials are in the launch version?"
+      ],
+      "expected": {
+        "answerMode": "reviewed",
+        "questionFamilyID": "question-materials",
+        "responseCardID": "card-materials",
+        "evidenceState": "directly_sourced",
+        "answerContains": ["recycled-PET", "thermoplastic-polyurethane", "polypropylene"],
+        "citationPassageIDs": ["passage-product-overview"]
+      }
+    },
+    {
+      "id": "product-size-weight",
+      "packID": "nestarc-go-product-pitch-v1",
+      "categories": ["direct"],
+      "utterances": [
+        "How large and heavy is NestArc Go?",
+        "What are the dimensions and empty weight?",
+        "How much does the insert weigh?"
+      ],
+      "expected": {
+        "answerMode": "reviewed",
+        "questionFamilyID": "question-size-weight",
+        "responseCardID": "card-size-weight",
+        "evidenceState": "directly_sourced",
+        "answerContains": ["31 × 22 × 12", "420 grams"],
+        "citationPassageIDs": ["passage-product-overview"]
+      }
+    },
+    {
+      "id": "product-price",
+      "packID": "nestarc-go-product-pitch-v1",
+      "categories": ["direct"],
+      "utterances": [
+        "What is the target price?",
+        "What will NestArc Go cost?",
+        "What is the launch MSRP?"
+      ],
+      "expected": {
+        "answerMode": "reviewed",
+        "questionFamilyID": "question-price",
+        "responseCardID": "card-price",
+        "evidenceState": "directly_sourced",
+        "answerContains": ["$68 MSRP", "unit economics"],
+        "citationPassageIDs": ["passage-product-price-care", "passage-commercial-launch"]
+      }
+    },
+    {
+      "id": "product-launch",
+      "packID": "nestarc-go-product-pitch-v1",
+      "categories": ["direct"],
+      "utterances": [
+        "When and in what colors will NestArc Go launch?",
+        "What is the launch timing?",
+        "Which colors are planned at launch?"
+      ],
+      "expected": {
+        "answerMode": "reviewed",
+        "questionFamilyID": "question-launch",
+        "responseCardID": "card-launch",
+        "evidenceState": "directly_sourced",
+        "answerContains": ["Q2 2027", "slate and moss"],
+        "citationPassageIDs": ["passage-product-roadmap"]
+      }
+    },
+    {
+      "id": "product-launch-contents",
+      "packID": "nestarc-go-product-pitch-v1",
+      "categories": ["direct"],
+      "utterances": [
+        "What is included at launch?",
+        "What comes with the launch version?",
+        "Which components are committed?"
+      ],
+      "expected": {
+        "answerMode": "reviewed",
+        "questionFamilyID": "question-launch-contents",
+        "responseCardID": "card-launch-contents",
+        "evidenceState": "directly_sourced",
+        "answerContains": ["six removable dividers", "two labeled wet-item pouches"],
+        "citationPassageIDs": ["passage-product-roadmap"]
+      }
+    },
+    {
+      "id": "product-durability",
+      "packID": "nestarc-go-product-pitch-v1",
+      "categories": ["direct"],
+      "utterances": [
+        "What durability testing has been completed?",
+        "How did the zipper and seams test?",
+        "What engineering evidence supports durability?"
+      ],
+      "expected": {
+        "answerMode": "reviewed",
+        "questionFamilyID": "question-durability",
+        "responseCardID": "card-durability",
+        "evidenceState": "supported_by_corpus",
+        "answerContains": ["20,000 zipper cycles", "18.0 kilograms", "not regulatory certification"],
+        "citationPassageIDs": ["passage-lab-durability"]
+      }
+    },
+    {
+      "id": "product-caregiver-research",
+      "packID": "nestarc-go-product-pitch-v1",
+      "categories": ["direct"],
+      "utterances": [
+        "What did the caregiver research find?",
+        "Did caregivers prefer the modular layout?",
+        "What organizer needs appeared in research?"
+      ],
+      "expected": {
+        "answerMode": "reviewed",
+        "questionFamilyID": "question-caregiver-research",
+        "responseCardID": "card-caregiver-research",
+        "evidenceState": "supported_by_corpus",
+        "answerContains": ["36 preferred", "31 ranked", "not representative"],
+        "citationPassageIDs": ["passage-research-preference"]
+      }
+    },
+    {
+      "id": "product-price-objection",
+      "packID": "nestarc-go-product-pitch-v1",
+      "categories": ["interpretive"],
+      "utterances": [
+        "Is price a serious objection?",
+        "Will customers think $68 is too expensive?",
+        "How should we answer the price objection?"
+      ],
+      "expected": {
+        "answerMode": "reviewed",
+        "questionFamilyID": "question-price-objection",
+        "responseCardID": "card-price-objection",
+        "evidenceState": "interpretive",
+        "answerContains": ["21 of 50", "too expensive", "does not prove"],
+        "citationPassageIDs": ["passage-research-price"]
+      }
+    },
+    {
+      "id": "product-wash-conflict",
+      "packID": "nestarc-go-product-pitch-v1",
+      "categories": ["conflicting"],
+      "utterances": [
+        "Do the sources agree that NestArc Go is machine washable?",
+        "Is the machine-washable claim supported?",
+        "What are the conflicting wash instructions?"
+      ],
+      "expected": {
+        "answerMode": "reviewed",
+        "questionFamilyID": "question-wash-conflict",
+        "responseCardID": "card-wash-conflict",
+        "evidenceState": "contested",
+        "answerContains": ["pilot pitch", "spot-clean only", "Do not repeat"],
+        "citationPassageIDs": ["passage-product-price-care", "passage-lab-care"]
+      }
+    },
+    {
+      "id": "product-market-size",
+      "packID": "nestarc-go-product-pitch-v1",
+      "categories": ["conflicting"],
+      "utterances": [
+        "What market size does the corpus support?",
+        "Is the U.S. opportunity $2.4 billion or $1.1 billion?",
+        "Do the market estimates agree?"
+      ],
+      "expected": {
+        "answerMode": "reviewed",
+        "questionFamilyID": "question-market-size",
+        "responseCardID": "card-market-size",
+        "evidenceState": "contested",
+        "answerContains": ["$2.4 billion", "$1.1 billion", "does not support one agreed"],
+        "citationPassageIDs": ["passage-founder-market", "passage-research-market"]
+      }
+    },
+    {
+      "id": "product-insulated-pod",
+      "packID": "nestarc-go-product-pitch-v1",
+      "categories": ["direct"],
+      "utterances": [
+        "Is the insulated bottle pod committed for launch?",
+        "Will the bottle pod ship at launch?",
+        "What is the insulated pod roadmap status?"
+      ],
+      "expected": {
+        "answerMode": "reviewed",
+        "questionFamilyID": "question-insulated-pod",
+        "responseCardID": "card-insulated-pod",
+        "evidenceState": "directly_sourced",
+        "answerContains": ["research item", "not a launch commitment"],
+        "citationPassageIDs": ["passage-product-roadmap"]
+      }
+    },
+    {
+      "id": "product-mobile-app",
+      "packID": "nestarc-go-product-pitch-v1",
+      "categories": ["direct"],
+      "utterances": [
+        "Is a companion mobile app planned?",
+        "Will NestArc Go have an app?",
+        "Is there a software component?"
+      ],
+      "expected": {
+        "answerMode": "reviewed",
+        "questionFamilyID": "question-mobile-app",
+        "responseCardID": "card-mobile-app",
+        "evidenceState": "directly_sourced",
+        "answerContains": ["No companion mobile app"],
+        "citationPassageIDs": ["passage-product-roadmap"]
+      }
+    },
+    {
+      "id": "product-modular-rationale",
+      "packID": "nestarc-go-product-pitch-v1",
+      "categories": ["interpretive"],
+      "utterances": [
+        "Why is the modular layout compelling?",
+        "What evidence supports the modular design?",
+        "Why would caregivers value dividers?"
+      ],
+      "expected": {
+        "answerMode": "reviewed",
+        "questionFamilyID": "question-modular-rationale",
+        "responseCardID": "card-modular-rationale",
+        "evidenceState": "interpretive",
+        "answerContains": ["36 of 50", "interpretation", "not proof"],
+        "citationPassageIDs": ["passage-research-preference"]
+      }
+    },
+    {
+      "id": "product-contamination-missing",
+      "packID": "nestarc-go-product-pitch-v1",
+      "categories": ["missing"],
+      "utterances": [
+        "Does NestArc Go prevent contamination?",
+        "Is contamination prevention proven?",
+        "Does the product keep baby items sanitary?"
+      ],
+      "expected": {
+        "answerMode": "reviewed",
+        "questionFamilyID": "question-contamination-prevention",
+        "responseCardID": "card-contamination-missing",
+        "evidenceState": "not_found_in_corpus",
+        "answerContains": ["does not contain evidence", "prevents contamination"],
+        "citationPassageIDs": []
+      }
+    },
+    {
+      "id": "product-sleep-safety-missing",
+      "packID": "nestarc-go-product-pitch-v1",
+      "categories": ["missing"],
+      "utterances": [
+        "Is NestArc Go safe for infant sleep?",
+        "Can a baby sleep in the insert?",
+        "Is sleep safety certified?"
+      ],
+      "expected": {
+        "answerMode": "reviewed",
+        "questionFamilyID": "question-sleep-safety",
+        "responseCardID": "card-sleep-safety-missing",
+        "evidenceState": "not_found_in_corpus",
+        "answerContains": ["does not support infant-sleep", "not a sleep product"],
+        "citationPassageIDs": []
+      }
+    },
+    {
+      "id": "product-version-clarification",
+      "packID": "nestarc-go-product-pitch-v1",
+      "categories": ["ambiguous"],
+      "utterances": [
+        "Which version's care instruction should I quote?",
+        "Is that the pilot or launch wash instruction?",
+        "Which product version do you mean?"
+      ],
+      "expected": {
+        "answerMode": "reviewed",
+        "questionFamilyID": "question-version-clarification",
+        "responseCardID": "card-version-clarification",
+        "evidenceState": "needs_clarification",
+        "answerContains": ["pilot pitch", "current launch version", "differs"],
+        "citationPassageIDs": []
+      }
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "partial-hospitality-revpar",
+      "packID": "synthetic-hotel-2020-v1",
+      "categories": ["partial"],
+      "revisions": [
+        {"streamID": "partial-h-revpar", "sequence": 1, "text": "What was the rev par", "stability": "partial", "expectedKinds": ["QuestionCandidate"]},
+        {"streamID": "partial-h-revpar", "sequence": 2, "text": "What was the rev par for this asset in 2020", "stability": "partial", "expectedKinds": ["QuestionStable"]}
+      ],
+      "expected": {"answerMode": "reviewed", "questionFamilyID": "question-revpar-period", "responseCardID": "card-revpar-2020", "evidenceState": "calculated", "answerContains": ["$89.50"], "citationPassageIDs": ["passage-operating-2020-actual", "passage-inventory-2020-actual"]}
+    },
+    {
+      "id": "partial-hospitality-room-count",
+      "packID": "synthetic-hotel-2020-v1",
+      "categories": ["partial"],
+      "revisions": [
+        {"streamID": "partial-h-rooms", "sequence": 1, "text": "How many rooms", "stability": "partial", "expectedKinds": ["QuestionCandidate"]},
+        {"streamID": "partial-h-rooms", "sequence": 2, "text": "How many rooms does this hotel have", "stability": "partial", "expectedKinds": ["QuestionStable"]}
+      ],
+      "expected": {"answerMode": "reviewed", "questionFamilyID": "question-room-count", "responseCardID": "card-room-count-2020", "evidenceState": "directly_sourced", "answerContains": ["100 rooms"], "citationPassageIDs": ["passage-inventory-2020-actual"]}
+    },
+    {
+      "id": "partial-hospitality-conflict",
+      "packID": "synthetic-hotel-2020-v1",
+      "categories": ["partial", "conflicting"],
+      "revisions": [
+        {"streamID": "partial-h-conflict", "sequence": 1, "text": "Do all sources agree", "stability": "partial", "expectedKinds": ["QuestionCandidate"]},
+        {"streamID": "partial-h-conflict", "sequence": 2, "text": "Do all sources agree on 2020 RevPAR", "stability": "partial", "expectedKinds": ["QuestionStable"]}
+      ],
+      "expected": {"answerMode": "reviewed", "questionFamilyID": "question-revpar-conflict", "responseCardID": "card-revpar-2020-conflict", "evidenceState": "contested", "answerContains": ["$92.00", "conflicts"], "citationPassageIDs": ["passage-operating-2020-actual", "passage-memo-revpar-2020"]}
+    },
+    {
+      "id": "partial-product-materials",
+      "packID": "nestarc-go-product-pitch-v1",
+      "categories": ["partial"],
+      "revisions": [
+        {"streamID": "partial-p-materials", "sequence": 1, "text": "What materials", "stability": "partial", "expectedKinds": ["QuestionCandidate"]},
+        {"streamID": "partial-p-materials", "sequence": 2, "text": "What materials does NestArc Go use", "stability": "partial", "expectedKinds": ["QuestionStable"]}
+      ],
+      "expected": {"answerMode": "reviewed", "questionFamilyID": "question-materials", "responseCardID": "card-materials", "evidenceState": "directly_sourced", "answerContains": ["recycled-PET"], "citationPassageIDs": ["passage-product-overview"]}
+    },
+    {
+      "id": "partial-product-market-conflict",
+      "packID": "nestarc-go-product-pitch-v1",
+      "categories": ["partial", "conflicting"],
+      "revisions": [
+        {"streamID": "partial-p-market", "sequence": 1, "text": "What market size", "stability": "partial", "expectedKinds": ["QuestionCandidate"]},
+        {"streamID": "partial-p-market", "sequence": 2, "text": "What market size does the corpus support", "stability": "partial", "expectedKinds": ["QuestionStable"]}
+      ],
+      "expected": {"answerMode": "reviewed", "questionFamilyID": "question-market-size", "responseCardID": "card-market-size", "evidenceState": "contested", "answerContains": ["$2.4 billion", "$1.1 billion"], "citationPassageIDs": ["passage-founder-market", "passage-research-market"]}
+    },
+    {
+      "id": "partial-product-sleep-safety",
+      "packID": "nestarc-go-product-pitch-v1",
+      "categories": ["partial", "missing"],
+      "revisions": [
+        {"streamID": "partial-p-sleep", "sequence": 1, "text": "Is NestArc Go safe for infant sleep", "stability": "partial", "expectedKinds": ["QuestionCandidate"]},
+        {"streamID": "partial-p-sleep", "sequence": 2, "text": "Is NestArc Go safe for infant sleep?", "stability": "final", "expectedKinds": ["QuestionStable"]}
+      ],
+      "expected": {"answerMode": "reviewed", "questionFamilyID": "question-sleep-safety", "responseCardID": "card-sleep-safety-missing", "evidenceState": "not_found_in_corpus", "answerContains": ["does not support infant-sleep"], "citationPassageIDs": []}
+    },
+    {
+      "id": "corrected-hospitality-revpar-to-occupancy",
+      "packID": "synthetic-hotel-2020-v1",
+      "categories": ["corrected"],
+      "revisions": [
+        {"streamID": "correct-h-1", "sequence": 1, "text": "What was RevPAR for this asset in 2020?", "stability": "final", "expectedKinds": ["QuestionStable"]},
+        {"streamID": "correct-h-1", "sequence": 2, "text": "Actually, what was occupancy in 2020?", "stability": "final", "expectedKinds": ["AnswerSuperseded", "TopicShift", "QuestionStable"]}
+      ],
+      "expected": {"answerMode": "reviewed", "questionFamilyID": "question-occupancy-2020", "responseCardID": "card-occupancy-2020", "evidenceState": "calculated", "answerContains": ["72.0%"], "citationPassageIDs": ["passage-inventory-2020-actual"]}
+    },
+    {
+      "id": "corrected-hospitality-occupancy-to-adr",
+      "packID": "synthetic-hotel-2020-v1",
+      "categories": ["corrected"],
+      "revisions": [
+        {"streamID": "correct-h-2", "sequence": 1, "text": "What was 2020 occupancy?", "stability": "final", "expectedKinds": ["QuestionStable"]},
+        {"streamID": "correct-h-2", "sequence": 2, "text": "Correction: what was ADR in 2020?", "stability": "final", "expectedKinds": ["AnswerSuperseded", "TopicShift", "QuestionStable"]}
+      ],
+      "expected": {"answerMode": "reviewed", "questionFamilyID": "question-adr-2020", "responseCardID": "card-adr-2020", "evidenceState": "calculated", "answerContains": ["$124.31"], "citationPassageIDs": ["passage-operating-2020-actual", "passage-inventory-2020-actual"]}
+    },
+    {
+      "id": "corrected-product-price-to-wash",
+      "packID": "nestarc-go-product-pitch-v1",
+      "categories": ["corrected", "conflicting"],
+      "revisions": [
+        {"streamID": "correct-p-1", "sequence": 1, "text": "What is the target price?", "stability": "final", "expectedKinds": ["QuestionStable"]},
+        {"streamID": "correct-p-1", "sequence": 2, "text": "Actually, do the sources agree that NestArc Go is machine washable?", "stability": "final", "expectedKinds": ["AnswerSuperseded", "TopicShift", "QuestionStable"]}
+      ],
+      "expected": {"answerMode": "reviewed", "questionFamilyID": "question-wash-conflict", "responseCardID": "card-wash-conflict", "evidenceState": "contested", "answerContains": ["spot-clean only"], "citationPassageIDs": ["passage-product-price-care", "passage-lab-care"]}
+    },
+    {
+      "id": "corrected-product-partial-materials-to-size",
+      "packID": "nestarc-go-product-pitch-v1",
+      "categories": ["partial", "corrected"],
+      "revisions": [
+        {"streamID": "correct-p-2", "sequence": 1, "text": "What materials", "stability": "partial", "expectedKinds": ["QuestionCandidate"]},
+        {"streamID": "correct-p-2", "sequence": 2, "text": "Sorry, how large and heavy is NestArc Go?", "stability": "final", "expectedKinds": ["AnswerSuperseded", "QuestionStable"]}
+      ],
+      "expected": {"answerMode": "reviewed", "questionFamilyID": "question-size-weight", "responseCardID": "card-size-weight", "evidenceState": "directly_sourced", "answerContains": ["420 grams"], "citationPassageIDs": ["passage-product-overview"]}
+    },
+    {
+      "id": "corrected-to-non-question",
+      "packID": "synthetic-hotel-2020-v1",
+      "categories": ["corrected", "rhetorical"],
+      "revisions": [
+        {"streamID": "correct-clear", "sequence": 1, "text": "What was 2020 ADR?", "stability": "final", "expectedKinds": ["QuestionStable"]},
+        {"streamID": "correct-clear", "sequence": 2, "text": "Actually, let's return to the agenda.", "stability": "final", "expectedKinds": ["AnswerSuperseded"]}
+      ],
+      "expected": {"answerMode": "none", "answerContains": [], "citationPassageIDs": []}
+    },
+    {
+      "id": "ambiguous-product-version-pilot-or-launch",
+      "packID": "nestarc-go-product-pitch-v1",
+      "categories": ["ambiguous"],
+      "revisions": [
+        {"streamID": "ambiguous-p-1", "sequence": 1, "text": "Is that the pilot or launch wash instruction?", "stability": "final", "expectedKinds": ["QuestionStable"]}
+      ],
+      "expected": {"answerMode": "reviewed", "questionFamilyID": "question-version-clarification", "responseCardID": "card-version-clarification", "evidenceState": "needs_clarification", "answerContains": ["pilot pitch", "current launch version"], "citationPassageIDs": []}
+    },
+    {
+      "id": "ambiguous-product-version-quote",
+      "packID": "nestarc-go-product-pitch-v1",
+      "categories": ["ambiguous"],
+      "revisions": [
+        {"streamID": "ambiguous-p-2", "sequence": 1, "text": "Which version's care instruction should I quote?", "stability": "final", "expectedKinds": ["QuestionStable"]}
+      ],
+      "expected": {"answerMode": "reviewed", "questionFamilyID": "question-version-clarification", "responseCardID": "card-version-clarification", "evidenceState": "needs_clarification", "answerContains": ["Specify whether", "wash language differs"], "citationPassageIDs": []}
+    },
+    {
+      "id": "conflicting-product-wash-partial",
+      "packID": "nestarc-go-product-pitch-v1",
+      "categories": ["partial", "conflicting"],
+      "revisions": [
+        {"streamID": "conflict-p", "sequence": 1, "text": "Is the machine washable claim", "stability": "partial", "expectedKinds": ["QuestionCandidate"]},
+        {"streamID": "conflict-p", "sequence": 2, "text": "Is the machine-washable claim supported?", "stability": "final", "expectedKinds": ["QuestionStable"]}
+      ],
+      "expected": {"answerMode": "reviewed", "questionFamilyID": "question-wash-conflict", "responseCardID": "card-wash-conflict", "evidenceState": "contested", "answerContains": ["corpus conflicts"], "citationPassageIDs": ["passage-product-price-care", "passage-lab-care"]}
+    },
+    {
+      "id": "conflicting-hospitality-revpar-partial",
+      "packID": "synthetic-hotel-2020-v1",
+      "categories": ["partial", "conflicting"],
+      "revisions": [
+        {"streamID": "conflict-h", "sequence": 1, "text": "Is the RevPAR consistent", "stability": "partial", "expectedKinds": ["QuestionCandidate"]},
+        {"streamID": "conflict-h", "sequence": 2, "text": "Is the 2020 RevPAR consistent across the corpus?", "stability": "final", "expectedKinds": ["QuestionStable"]}
+      ],
+      "expected": {"answerMode": "reviewed", "questionFamilyID": "question-revpar-conflict", "responseCardID": "card-revpar-2020-conflict", "evidenceState": "contested", "answerContains": ["corpus conflicts"], "citationPassageIDs": ["passage-operating-2020-actual", "passage-memo-revpar-2020"]}
+    },
+    {
+      "id": "missing-hospitality-unreviewed-period-fallback",
+      "packID": "synthetic-hotel-2020-v1",
+      "categories": ["missing"],
+      "revisions": [
+        {"streamID": "missing-h-fallback", "sequence": 1, "text": "What was total revenue in 2019?", "stability": "final", "expectedKinds": ["QuestionStable"]}
+      ],
+      "expected": {"answerMode": "fallback", "questionFamilyID": "question-total-revenue-2020", "evidenceState": "not_found_in_corpus", "answerContains": ["selected corpus does not contain"], "citationPassageIDs": []}
+    },
+    {
+      "id": "missing-product-contamination-partial",
+      "packID": "nestarc-go-product-pitch-v1",
+      "categories": ["partial", "missing"],
+      "revisions": [
+        {"streamID": "missing-p", "sequence": 1, "text": "Does NestArc Go prevent contamination", "stability": "partial", "expectedKinds": ["QuestionCandidate"]},
+        {"streamID": "missing-p", "sequence": 2, "text": "Does NestArc Go prevent contamination?", "stability": "final", "expectedKinds": ["QuestionStable"]}
+      ],
+      "expected": {"answerMode": "reviewed", "questionFamilyID": "question-contamination-prevention", "responseCardID": "card-contamination-missing", "evidenceState": "not_found_in_corpus", "answerContains": ["does not contain evidence"], "citationPassageIDs": []}
+    },
+    {
+      "id": "rhetorical-hospitality-no-card",
+      "packID": "synthetic-hotel-2020-v1",
+      "categories": ["rhetorical"],
+      "countsTowardFalseCardRate": true,
+      "revisions": [
+        {"streamID": "rhetorical-h", "sequence": 1, "text": "RevPAR can be useful when discussing hotel performance.", "stability": "final", "expectedKinds": ["NoAction"]}
+      ],
+      "expected": {"answerMode": "none", "answerContains": [], "citationPassageIDs": []}
+    },
+    {
+      "id": "rhetorical-product-no-card",
+      "packID": "nestarc-go-product-pitch-v1",
+      "categories": ["rhetorical"],
+      "countsTowardFalseCardRate": true,
+      "revisions": [
+        {"streamID": "rhetorical-p", "sequence": 1, "text": "The team discussed materials and launch timing during rehearsal.", "stability": "final", "expectedKinds": ["NoAction"]}
+      ],
+      "expected": {"answerMode": "none", "answerContains": [], "citationPassageIDs": []}
+    },
+    {
+      "id": "cross-pack-product-question-in-hospitality",
+      "packID": "synthetic-hotel-2020-v1",
+      "categories": ["cross_pack", "missing"],
+      "countsTowardFalseCardRate": true,
+      "revisions": [
+        {"streamID": "cross-h", "sequence": 1, "text": "What is NestArc Go?", "stability": "final", "expectedKinds": ["NoAction"]}
+      ],
+      "expected": {"answerMode": "none", "answerContains": [], "citationPassageIDs": []}
+    },
+    {
+      "id": "cross-pack-hospitality-question-in-product",
+      "packID": "nestarc-go-product-pitch-v1",
+      "categories": ["cross_pack", "missing"],
+      "countsTowardFalseCardRate": true,
+      "revisions": [
+        {"streamID": "cross-p", "sequence": 1, "text": "What was RevPAR for this asset in 2020?", "stability": "final", "expectedKinds": ["NoAction"]}
+      ],
+      "expected": {"answerMode": "none", "answerContains": [], "citationPassageIDs": []}
+    },
+    {
+      "id": "rapid-follow-up-product-materials-to-price",
+      "packID": "nestarc-go-product-pitch-v1",
+      "categories": ["rapid_follow_up"],
+      "revisions": [
+        {"streamID": "rapid-p-1", "sequence": 1, "text": "What materials does NestArc Go use?", "stability": "final", "expectedKinds": ["QuestionStable"]},
+        {"streamID": "rapid-p-2", "sequence": 1, "text": "What is the target price?", "stability": "final", "expectedKinds": ["AnswerSuperseded", "TopicShift", "QuestionStable"]}
+      ],
+      "expected": {"answerMode": "reviewed", "questionFamilyID": "question-price", "responseCardID": "card-price", "evidenceState": "directly_sourced", "answerContains": ["$68 MSRP"], "citationPassageIDs": ["passage-product-price-care", "passage-commercial-launch"]}
+    },
+    {
+      "id": "rapid-follow-up-hospitality-duplicate",
+      "packID": "synthetic-hotel-2020-v1",
+      "categories": ["rapid_follow_up"],
+      "revisions": [
+        {"streamID": "rapid-h-1", "sequence": 1, "text": "What was RevPAR for this asset in 2020?", "stability": "final", "expectedKinds": ["QuestionStable"]},
+        {"streamID": "rapid-h-2", "sequence": 1, "text": "What was the hotel's RevPAR in 2020?", "stability": "final", "expectedKinds": ["NoAction"]}
+      ],
+      "expected": {"answerMode": "reviewed", "questionFamilyID": "question-revpar-period", "responseCardID": "card-revpar-2020", "evidenceState": "calculated", "answerContains": ["$89.50"], "citationPassageIDs": ["passage-operating-2020-actual", "passage-inventory-2020-actual"]}
+    }
+  ]
+}
