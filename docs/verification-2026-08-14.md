@@ -809,3 +809,50 @@ Results:
 
 See [the evidence-outcome contract](knowledge-evidence-outcomes.md) and the
 [public-safe KC-20 evidence summary](evidence/kc20-evidence-outcomes-2026-08-15.md).
+
+## KC-21 local Ollama Study Provider
+
+The provider-neutral preparation boundary now includes a fully local Ollama adapter:
+
+- requests use Ollama's native non-streaming chat endpoint with a proposal-only JSON Schema;
+- the provider accepts only numeric loopback traffic and rejects off-device endpoints before the
+  transport runs;
+- redirects remain loopback-only, and the dedicated session disables cookies, caches, configured
+  proxies, and authorization headers;
+- the model does not control the pack identity, full-content hash, final analysis ID, or
+  provenance;
+- the actual response model is recorded as `generator: ollama:<model>`;
+- analysis IDs are deterministic over canonical validated proposals and provider provenance;
+- every response passes the existing exact-bundle reference, evidence-state, calculation, and
+  citation-closure validator; and
+- all proposals remain generated until the existing named human-review gate approves them.
+
+Passing local checks:
+
+```bash
+swift test --filter KnowledgeOllamaStudyProviderTests
+swift test --filter \
+  'KnowledgeOllamaStudyProviderTests|KnowledgeStudyReviewWorkspaceModelTests|KnowledgeStudyImportApplierTests|KnowledgeStudyReviewTests|KnowledgeStudyBundleTests'
+swift test --skip MeetingDetectorTests
+swift build -c release --product knowledge-pack
+swift build -c release --product OpenOats
+swift format lint --strict \
+  Sources/OpenOats/KnowledgePack/KnowledgeOllamaStudyProvider.swift \
+  Sources/KnowledgePackTool/main.swift \
+  Tests/OpenOatsTests/KnowledgeOllamaStudyProviderTests.swift
+git diff --check
+```
+
+Results:
+
+- 7 of 7 focused provider tests passed;
+- all 45 preparation, provider, review, import, and native-workspace tests passed;
+- the final broad run passed all 825 non-environmental package tests;
+- both release products built successfully;
+- the CLI rejected a non-loopback endpoint before creating an output file;
+- strict Swift formatting and whitespace checks passed; and
+- no real-model smoke was claimed because Ollama was not installed or listening in the build
+  environment.
+
+See [the local provider contract](ollama-study-provider.md) and the
+[public-safe KC-21 evidence summary](evidence/kc21-local-ollama-study-provider-2026-08-15.md).

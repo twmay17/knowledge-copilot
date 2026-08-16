@@ -7,6 +7,11 @@ The contract is provider-neutral. ChatGPT can be the first subscription-assisted
 workbench, but any model capable of returning the public JSON schema can produce the same untrusted
 analysis file.
 
+The optional [local Ollama Study Provider](ollama-study-provider.md) produces this contract through
+a loopback-only structured-output request. It assigns pack identity and `ollama:<model>` provenance
+locally, invokes this same validator before writing the analysis file, and grants the model no
+additional authority.
+
 ## Trust states
 
 ```text

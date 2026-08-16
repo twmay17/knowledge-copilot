@@ -5,7 +5,7 @@ import OpenOatsKit
 
 @main
 struct KnowledgePackTool {
-  static func main() {
+  static func main() async {
     let arguments = Array(CommandLine.arguments.dropFirst())
     guard let command = arguments.first else {
       fail(usage)
@@ -32,6 +32,8 @@ struct KnowledgePackTool {
         try importUnderwritingCSV(arguments: arguments)
       case "export-study-bundle":
         try exportStudyBundle(arguments: arguments, profiles: profiles)
+      case "analyze-study-with-ollama":
+        try await analyzeStudyWithOllama(arguments: arguments, profiles: profiles)
       case "prepare-study-review":
         try prepareStudyReview(arguments: arguments, profiles: profiles)
       case "approve-study-review":
@@ -309,6 +311,57 @@ struct KnowledgePackTool {
     print("Result: \(outputURL.path)")
   }
 
+  private static func analyzeStudyWithOllama(
+    arguments: [String],
+    profiles: KnowledgeDomainProfileRegistry
+  ) async throws {
+    guard arguments.count >= 6, arguments.count.isMultiple(of: 2) else { fail(usage) }
+    let directory = URL(fileURLWithPath: arguments[1], isDirectory: true).standardizedFileURL
+    let options = parseOptions(
+      Array(arguments.dropFirst(2)),
+      supported: ["--model", "--base-url", "--timeout-seconds", "--output"]
+    )
+    guard let model = options["--model"], let outputPath = options["--output"] else {
+      fail(usage)
+    }
+    let baseURLValue =
+      options["--base-url"] ?? KnowledgeOllamaStudyProvider.defaultBaseURL.absoluteString
+    guard let baseURL = URL(string: baseURLValue) else {
+      fail("Invalid --base-url '\(baseURLValue)'.")
+    }
+    let requestTimeout: TimeInterval
+    if let rawTimeout = options["--timeout-seconds"] {
+      guard let parsedTimeout = TimeInterval(rawTimeout), parsedTimeout > 0 else {
+        fail("--timeout-seconds must be a positive number.")
+      }
+      requestTimeout = parsedTimeout
+    } else {
+      requestTimeout = KnowledgeOllamaStudyProvider.defaultRequestTimeout
+    }
+
+    let outputURL = URL(fileURLWithPath: outputPath).standardizedFileURL
+    requireOutputOutsidePack(outputURL, packDirectory: directory)
+    let pack = try KnowledgePackLoader(profileRegistry: profiles).load(from: directory)
+    let bundle = try KnowledgeStudyBundleBuilder().build(from: pack)
+    let provider = try KnowledgeOllamaStudyProvider(
+      baseURL: baseURL,
+      model: model,
+      requestTimeout: requestTimeout
+    )
+    let analysis = try await provider.analyze(bundle: bundle)
+    try writeJSON(analysis, to: outputURL)
+
+    print("Generated local Study Analysis: \(analysis.analysisID)")
+    print("Bundle: \(analysis.bundleID); pack: \(analysis.packID)")
+    print("Generator: \(analysis.generator)")
+    print(
+      "Question families: \(analysis.questionFamilyProposals.count); response cards: \(analysis.responseCardProposals.count); contradictions: \(analysis.contradictions.count); gaps: \(analysis.corpusGaps.count)"
+    )
+    print("Endpoint: \(provider.endpoint.absoluteString); external network: blocked")
+    print("All proposals remain generated and require the existing human-review gate.")
+    print("Result: \(outputURL.path)")
+  }
+
   private static func prepareStudyReview(
     arguments: [String],
     profiles: KnowledgeDomainProfileRegistry
@@ -562,6 +615,7 @@ struct KnowledgePackTool {
       knowledge-pack ingest-spreadsheet <spreadsheet.xlsx|spreadsheet.csv> --relative-path <pack-relative-path> [--title <title>] [--output <result.json>]
       knowledge-pack import-underwriting-csv <pl-or-star.csv> --relative-path <pack-relative-path> --asset-id <stable-asset-id> [--period <YYYY|YYYY-MM|TTM:YYYY-MM|YTD:YYYY-MM>] [--status <actual|budget|forecast>] [--title <title>] [--output <result.json>]
       knowledge-pack export-study-bundle <pack-directory> --output <study-bundle.json>
+      knowledge-pack analyze-study-with-ollama <pack-directory> --model <ollama-model> [--base-url <http://localhost:11434>] [--timeout-seconds <seconds>] --output <study-analysis.json>
       knowledge-pack prepare-study-review <pack-directory> <study-analysis.json> --output <review-queue.json>
       knowledge-pack approve-study-review <pack-directory> <review-queue.json> <review-decisions.json> --output <approved-import.json>
       knowledge-pack plan-study-import <pack-directory> <approved-import.json> --output <plan.json>

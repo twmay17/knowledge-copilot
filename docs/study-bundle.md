@@ -31,6 +31,11 @@ Model output remains proposed preparation material. The
 states, calculations, and explicit reviewer decisions before any generated card can become
 `reviewed`.
 
+The optional [local Ollama Study Provider](ollama-study-provider.md) automates only the generation
+step against a model running on numeric loopback. It emits the same validated Study Analysis v1
+contract, records the actual Ollama model as provenance, and enters the same human-review path. It
+does not upload the bundle or create a second trust boundary.
+
 ### Live lane
 
 The V1 live path does not need a language-model call to answer a prepared question. Local
@@ -96,4 +101,5 @@ KC-15 establishes deterministic export and the user-operated preparation workflo
 the machine-readable analysis-result contract and human review gate. KC-17 adds read-only import
 planning plus locked, recoverable application of the approved artifact. Direct API automation, if
 added later, remains a replaceable adapter and is not required to obtain value from the
-subscription-assisted workflow.
+subscription-assisted workflow. KC-21 adds the optional loopback-only Ollama adapter without
+changing any of those contracts.

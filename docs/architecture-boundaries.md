@@ -91,6 +91,15 @@ clarification or not-found abstentions. It may classify a proposed claim as cont
 matching corpus assertions are internally consistent. It does not generate answer prose or choose
 which contested source is correct.
 
+### Replaceable preparation providers
+
+Study providers may propose question families, response cards, contradictions, and gaps from one
+deterministic Study Bundle, but they do not write reviewed knowledge. The first in-application
+provider uses a locally running Ollama model through a loopback-only structured-output request. It
+records the actual model as provenance and passes the result through the same pack-hash, reference,
+evidence-closure, and human-review gates used by a manually supplied frontier-model analysis. A
+future cloud adapter must implement the same contract and may not bypass it.
+
 ## First integration sequence
 
 1. Validate and inspect a KnowledgePack from the command line.

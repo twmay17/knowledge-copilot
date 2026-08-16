@@ -21,6 +21,11 @@ Frontier-model analysis returns through a bundle-hash-bound proposal schema and 
 response card. The gate validates the would-be merged pack before emitting an auditable import
 artifact. See [study analysis and human review](docs/study-analysis-review.md).
 
+The same Study Analysis contract can now be generated with a locally running Ollama model. The
+adapter permits only numeric loopback traffic, uses Ollama's schema-constrained structured output,
+records the actual model as provenance, and sends every proposal through the existing evidence and
+human-review gates. See [local Ollama Study Provider](docs/ollama-study-provider.md).
+
 Reviewed imports can now be planned without mutation and then applied through a locked,
 recoverable transaction. The writer rechecks the active corpus hash immediately before staging,
 preserves the existing JSONL content, validates the installed pack, rolls back partial failures,
