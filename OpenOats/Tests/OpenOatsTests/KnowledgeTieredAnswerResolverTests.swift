@@ -205,6 +205,58 @@ final class KnowledgeTieredAnswerResolverTests: XCTestCase {
     XCTAssertEqual(synthesisCallCount, 1)
   }
 
+  func testHotAndWarmReplayP50MeetComponentAndLiveTargets() async throws {
+    let hotResolver = try makeResolver()
+    let warmResolver = try makeResolver(packTransform: removingResponseCards)
+    var samples: [KnowledgeAnswerLatencySample] = []
+
+    for index in 0..<25 {
+      let start = ContinuousClock().now
+      let updates = await Self.collect(
+        hotResolver.updates(
+          for: .questionStable(
+            revPARCandidate(streamID: "hot-\(index)", status: .stable, sequence: 1)
+          )
+        ))
+      let update = try XCTUnwrap(updates.first { $0.lane == .hot })
+      let timing = try XCTUnwrap(update.timing)
+      samples.append(
+        KnowledgeAnswerLatencySample(
+          lane: .hot,
+          endToEndMilliseconds: milliseconds(start.duration(to: ContinuousClock().now)),
+          resolverMilliseconds: timing.elapsedMilliseconds
+        )
+      )
+    }
+
+    for index in 0..<25 {
+      let start = ContinuousClock().now
+      let updates = await Self.collect(
+        warmResolver.updates(for: .questionCandidate(warmCandidate(streamID: "warm-\(index)"))))
+      let update = try XCTUnwrap(updates.first { $0.lane == .warm })
+      let timing = try XCTUnwrap(update.timing)
+      samples.append(
+        KnowledgeAnswerLatencySample(
+          lane: .warm,
+          endToEndMilliseconds: milliseconds(start.duration(to: ContinuousClock().now)),
+          resolverMilliseconds: timing.elapsedMilliseconds
+        )
+      )
+    }
+
+    let report = KnowledgeAnswerLatencyReport(samples: samples)
+    let hot = try XCTUnwrap(report.summary(for: .hot))
+    let warm = try XCTUnwrap(report.summary(for: .warm))
+
+    XCTAssertEqual(hot.sampleCount, 25)
+    XCTAssertEqual(warm.sampleCount, 25)
+    XCTAssertLessThanOrEqual(hot.resolverP50Milliseconds, 40)
+    XCTAssertLessThanOrEqual(warm.resolverP50Milliseconds, 250)
+    XCTAssertEqual(hot.targetMilliseconds, 1_000)
+    XCTAssertEqual(warm.targetMilliseconds, 2_500)
+    XCTAssertTrue(report.meetsLiveP50Targets)
+  }
+
   func testStableClaimIsFactCheckedAgainstTypedCorpusValue() async throws {
     let resolver = try makeResolver(packTransform: removingResponseCards)
     let claim = KnowledgeClaimCandidate(
@@ -297,6 +349,57 @@ final class KnowledgeTieredAnswerResolverTests: XCTestCase {
     XCTAssertTrue(clearedUpdates.isEmpty)
   }
 
+  @MainActor
+  func testStoreCancelsSupersededWarmWorkAndReplacesTheOldCard() async throws {
+    let vectorAdapter = CancellationObservingVectorAdapter()
+    let store = KnowledgePackStore(
+      profileRegistry: registry,
+      vectorAdapter: vectorAdapter
+    )
+    await store.load(fromPath: fixtureURL().path)
+
+    let first = store.processLiveTranscriptRevision(
+      TranscriptRevision(
+        streamID: "remote",
+        sequence: 1,
+        text: "What was the rev par",
+        stability: .partial
+      ))
+    XCTAssertEqual(first.map(\.kind), [.questionCandidate])
+
+    for _ in 0..<100 where await vectorAdapter.callCount == 0 {
+      try await Task.sleep(for: .milliseconds(5))
+    }
+    let firstCallCount = await vectorAdapter.callCount
+    XCTAssertEqual(firstCallCount, 1)
+    XCTAssertEqual(store.visibleOverlayCards.first?.eventID, "remote#1")
+
+    let correction = store.processLiveTranscriptRevision(
+      TranscriptRevision(
+        streamID: "remote",
+        sequence: 2,
+        text: "Actually, what was occupancy in 2020?",
+        stability: .final
+      ))
+    XCTAssertEqual(correction.map(\.kind), [.answerSuperseded, .questionStable])
+
+    for _ in 0..<100 where await vectorAdapter.cancellationCount == 0 {
+      try await Task.sleep(for: .milliseconds(5))
+    }
+    for _ in 0..<100 where store.visibleOverlayCards.first?.eventID != "remote#2" {
+      try await Task.sleep(for: .milliseconds(5))
+    }
+
+    let cancellationCount = await vectorAdapter.cancellationCount
+    XCTAssertEqual(cancellationCount, 1)
+    XCTAssertGreaterThanOrEqual(store.tieredAnswerTaskCancellationRequestCount, 1)
+    XCTAssertEqual(store.visibleOverlayCards.map(\.eventID), ["remote#2"])
+    XCTAssertEqual(store.visibleOverlayCards.first?.title, "2020 occupancy")
+    let hotLatency = try XCTUnwrap(store.tieredAnswerLatencyReport.summary(for: .hot))
+    XCTAssertGreaterThanOrEqual(hotLatency.sampleCount, 2)
+    XCTAssertTrue(hotLatency.meetsP50Target == true)
+  }
+
   private var registry: KnowledgeDomainProfileRegistry {
     KnowledgeDomainProfileRegistry(profiles: [HospitalityDomainProfile()])
   }
@@ -377,6 +480,25 @@ final class KnowledgeTieredAnswerResolverTests: XCTestCase {
     )
   }
 
+  private func warmCandidate(streamID: String) -> QuestionCandidate {
+    QuestionCandidate(
+      id: "\(streamID)#generic",
+      streamID: streamID,
+      revisionSequence: 1,
+      questionFamilyID: "question-revpar-period",
+      sourceText: "What was RevPAR for this asset in 2020?",
+      confidence: 0.7,
+      status: .provisional,
+      bindings: [
+        ResolvedQuestionBinding(
+          key: "term",
+          value: "question_family:question-revpar-period",
+          surfaceText: "RevPAR"
+        )
+      ]
+    )
+  }
+
   private static func collect(
     _ stream: AsyncStream<KnowledgeTieredAnswerUpdate>
   ) async -> [KnowledgeTieredAnswerUpdate] {
@@ -402,6 +524,25 @@ final class KnowledgeTieredAnswerResolverTests: XCTestCase {
     let components = duration.components
     return Double(components.seconds) * 1_000
       + Double(components.attoseconds) / 1_000_000_000_000_000
+  }
+}
+
+private actor CancellationObservingVectorAdapter: KnowledgePackVectorSearchAdapter {
+  private(set) var callCount = 0
+  private(set) var cancellationCount = 0
+
+  func search(_ request: KnowledgePackVectorSearchRequest) async throws
+    -> [KnowledgePackVectorMatch]
+  {
+    callCount += 1
+    guard callCount == 1 else { return [] }
+    do {
+      try await Task.sleep(for: .seconds(10))
+      return []
+    } catch {
+      if error is CancellationError { cancellationCount += 1 }
+      throw error
+    }
   }
 }
 

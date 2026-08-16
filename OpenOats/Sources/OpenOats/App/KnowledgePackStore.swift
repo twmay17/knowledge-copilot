@@ -30,6 +30,8 @@ enum KnowledgePackLoadState: Equatable, Sendable {
 @Observable
 final class KnowledgePackStore {
   private let loader: KnowledgePackLoader
+  private let tieredVectorAdapter: (any KnowledgePackVectorSearchAdapter)?
+  private let tieredSynthesizer: (any KnowledgeConstrainedAnswerSynthesizer)?
   let profileRegistry: KnowledgeDomainProfileRegistry
   private(set) var selectedPack: KnowledgePack?
   private(set) var selectedPackDirectory: URL?
@@ -50,7 +52,12 @@ final class KnowledgePackStore {
   private var overlaySourceCatalog: KnowledgeOverlaySourceCatalog?
   private var tieredAnswerTasks: [String: Task<Void, Never>] = [:]
   private var tieredAnswerTaskTokens: [String: UUID] = [:]
+  private var tieredAnswerTaskKeyByStreamID: [String: String] = [:]
   private var liveRevisionSequenceByStream: [String: Int] = [:]
+  private(set) var tieredAnswerLatencySamples: [KnowledgeAnswerLatencySample] = []
+  private(set) var tieredAnswerTaskStartCount = 0
+  private(set) var tieredAnswerTaskCompletionCount = 0
+  private(set) var tieredAnswerTaskCancellationRequestCount = 0
 
   var visibleOverlayCards: [KnowledgeOverlayCard] { overlayPresentation.visibleCards }
   var primaryOverlayCard: KnowledgeOverlayCard? { overlayPresentation.primaryActionCard }
@@ -59,9 +66,19 @@ final class KnowledgePackStore {
   var pendingOverlayCorrections: [KnowledgeOverlayCorrectionRequest] {
     overlayPresentation.correctionRequests
   }
+  var tieredAnswerLatencyReport: KnowledgeAnswerLatencyReport {
+    KnowledgeAnswerLatencyReport(samples: tieredAnswerLatencySamples)
+  }
+  var activeTieredAnswerTaskCount: Int { tieredAnswerTasks.count }
 
-  init(profileRegistry: KnowledgeDomainProfileRegistry) {
+  init(
+    profileRegistry: KnowledgeDomainProfileRegistry,
+    vectorAdapter: (any KnowledgePackVectorSearchAdapter)? = nil,
+    synthesizer: (any KnowledgeConstrainedAnswerSynthesizer)? = nil
+  ) {
     self.profileRegistry = profileRegistry
+    tieredVectorAdapter = vectorAdapter
+    tieredSynthesizer = synthesizer
     loader = KnowledgePackLoader(profileRegistry: profileRegistry)
   }
 
@@ -208,6 +225,7 @@ final class KnowledgePackStore {
   @discardableResult
   func processLiveTranscriptRevision(_ revision: TranscriptRevision) -> [KnowledgeLiveEvent] {
     guard var detector = liveEventDetector else { return [] }
+    let liveLoopStart = ContinuousClock().now
     liveRevisionSequenceByStream[revision.streamID] = max(
       liveRevisionSequenceByStream[revision.streamID] ?? Int.min,
       revision.sequence
@@ -215,7 +233,7 @@ final class KnowledgePackStore {
     let events = detector.process(revision)
     liveEventDetector = detector
     apply(events)
-    resolveTieredAnswers(for: events)
+    resolveTieredAnswers(for: events, liveLoopStart: liveLoopStart)
     return events
   }
 
@@ -297,6 +315,13 @@ final class KnowledgePackStore {
     return isOverlayCompact
   }
 
+  func resetTieredAnswerPerformanceMeasurements() {
+    tieredAnswerLatencySamples = []
+    tieredAnswerTaskStartCount = 0
+    tieredAnswerTaskCompletionCount = 0
+    tieredAnswerTaskCancellationRequestCount = 0
+  }
+
   private func configureLiveKnowledgePath(for pack: KnowledgePack, rootDirectory: URL) {
     clearQuestionCandidateDetector()
     liveEventDetector = KnowledgeLiveEventDetector(
@@ -356,29 +381,86 @@ final class KnowledgePackStore {
     latestQuestionCandidateEvents = questionEvents
   }
 
-  private func resolveTieredAnswers(for events: [KnowledgeLiveEvent]) {
+  private func resolveTieredAnswers(
+    for events: [KnowledgeLiveEvent],
+    liveLoopStart: ContinuousClock.Instant
+  ) {
     guard let resolver = tieredAnswerResolver else { return }
     for event in events {
       guard let taskKey = tieredTaskKey(for: event) else { continue }
+      let streamID = tieredStreamID(for: event)
+      if let streamID, let currentTaskKey = tieredAnswerTaskKeyByStreamID[streamID] {
+        cancelTieredAnswerTask(taskKey: currentTaskKey)
+      }
       if case .answerSuperseded(let supersession) = event {
-        tieredAnswerTasks[supersession.previousEventID]?.cancel()
-      } else {
-        tieredAnswerTasks[taskKey]?.cancel()
+        cancelTieredAnswerTask(taskKey: supersession.previousEventID)
+      } else if tieredAnswerTasks[taskKey] != nil {
+        cancelTieredAnswerTask(taskKey: taskKey)
       }
 
       let token = UUID()
       tieredAnswerTaskTokens[taskKey] = token
+      if let streamID { tieredAnswerTaskKeyByStreamID[streamID] = taskKey }
+      tieredAnswerTaskStartCount += 1
+      let vectorAdapter = tieredVectorAdapter
+      let synthesizer = tieredSynthesizer
       tieredAnswerTasks[taskKey] = Task { @MainActor [weak self] in
-        for await update in resolver.updates(for: event) {
+        for await update in resolver.updates(
+          for: event,
+          vectorAdapter: vectorAdapter,
+          synthesizer: synthesizer
+        ) {
           guard !Task.isCancelled, let self else { break }
           var presentation = self.overlayPresentation
           presentation.apply(update, sourceCatalog: self.overlaySourceCatalog)
           self.overlayPresentation = presentation
+          self.recordTieredAnswerLatency(
+            update,
+            liveLoopStart: liveLoopStart
+          )
         }
         guard let self, self.tieredAnswerTaskTokens[taskKey] == token else { return }
         self.tieredAnswerTasks.removeValue(forKey: taskKey)
         self.tieredAnswerTaskTokens.removeValue(forKey: taskKey)
+        if let streamID, self.tieredAnswerTaskKeyByStreamID[streamID] == taskKey {
+          self.tieredAnswerTaskKeyByStreamID.removeValue(forKey: streamID)
+        }
+        self.tieredAnswerTaskCompletionCount += 1
       }
+    }
+  }
+
+  private func cancelTieredAnswerTask(taskKey: String) {
+    guard let task = tieredAnswerTasks.removeValue(forKey: taskKey) else { return }
+    task.cancel()
+    tieredAnswerTaskTokens.removeValue(forKey: taskKey)
+    let affectedStreams = tieredAnswerTaskKeyByStreamID.compactMap { streamID, activeTaskKey in
+      activeTaskKey == taskKey ? streamID : nil
+    }
+    for streamID in affectedStreams {
+      tieredAnswerTaskKeyByStreamID.removeValue(forKey: streamID)
+    }
+    tieredAnswerTaskCancellationRequestCount += 1
+  }
+
+  private func recordTieredAnswerLatency(
+    _ update: KnowledgeTieredAnswerUpdate,
+    liveLoopStart: ContinuousClock.Instant
+  ) {
+    guard let lane = update.lane, let timing = update.timing else { return }
+    let elapsed = liveLoopStart.duration(to: ContinuousClock().now)
+    tieredAnswerLatencySamples.append(
+      KnowledgeAnswerLatencySample(
+        lane: lane,
+        endToEndMilliseconds: Self.milliseconds(elapsed),
+        resolverMilliseconds: timing.elapsedMilliseconds
+      )
+    )
+    let maximumSampleCount = 500
+    if tieredAnswerLatencySamples.count > maximumSampleCount {
+      tieredAnswerLatencySamples.removeFirst(
+        tieredAnswerLatencySamples.count - maximumSampleCount
+      )
     }
   }
 
@@ -395,10 +477,23 @@ final class KnowledgePackStore {
     }
   }
 
+  private func tieredStreamID(for event: KnowledgeLiveEvent) -> String? {
+    switch event {
+    case .questionCandidate(let candidate), .questionStable(let candidate):
+      candidate.streamID
+    case .claimCandidate(let candidate), .claimStable(let candidate):
+      candidate.streamID
+    case .answerSuperseded, .topicShift, .noAction:
+      nil
+    }
+  }
+
   private func resetOverlayPresentation() {
     for task in tieredAnswerTasks.values { task.cancel() }
     tieredAnswerTasks.removeAll()
     tieredAnswerTaskTokens.removeAll()
+    tieredAnswerTaskKeyByStreamID.removeAll()
+    resetTieredAnswerPerformanceMeasurements()
     overlaySourceCatalog = nil
     overlayPresentation.reset()
     isOverlayCompact = false
@@ -413,5 +508,11 @@ final class KnowledgePackStore {
     case .followUp, .interrupted: .superseded
     case .packChanged: .packChanged
     }
+  }
+
+  private static func milliseconds(_ duration: Duration) -> Double {
+    let components = duration.components
+    return Double(components.seconds) * 1_000
+      + Double(components.attoseconds) / 1_000_000_000_000_000
   }
 }

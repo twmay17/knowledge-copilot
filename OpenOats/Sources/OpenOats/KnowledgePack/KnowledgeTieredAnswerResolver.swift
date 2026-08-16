@@ -323,6 +323,7 @@ public struct KnowledgeTieredAnswerResolver: Sendable {
     let start = await state.begin(input)
     guard start.accepted else { return }
     if let retraction = start.retraction { continuation.yield(retraction) }
+    guard !Task.isCancelled else { return }
 
     let hot = await runWithinBudget(lane: .hot) {
       let card = input.question.flatMap(answerCardResolver.resolve)
@@ -331,6 +332,7 @@ public struct KnowledgeTieredAnswerResolver: Sendable {
       }
       return HotResolution(card: card, evidence: evidence)
     }
+    guard !Task.isCancelled else { return }
     var admittedEvidence = hot.value?.evidence
     if let hotValue = hot.value,
       let proposal = hotProposal(input: input, resolution: hotValue, timing: hot.timing),
@@ -338,7 +340,7 @@ public struct KnowledgeTieredAnswerResolver: Sendable {
     {
       continuation.yield(update)
     }
-    guard await state.isCurrent(input) else { return }
+    guard !Task.isCancelled, await state.isCurrent(input) else { return }
 
     let previouslyAdmittedEvidence = admittedEvidence
     let warm = await runWithinBudget(lane: .warm) {
@@ -356,6 +358,7 @@ public struct KnowledgeTieredAnswerResolver: Sendable {
         }
       return WarmResolution(results: results, evidence: evidence)
     }
+    guard !Task.isCancelled else { return }
     if let warmValue = warm.value {
       admittedEvidence = warmValue.evidence
       if let proposal = warmProposal(input: input, resolution: warmValue, timing: warm.timing),
@@ -364,7 +367,7 @@ public struct KnowledgeTieredAnswerResolver: Sendable {
         continuation.yield(update)
       }
     }
-    guard await state.isCurrent(input), let synthesizer, let admittedEvidence,
+    guard !Task.isCancelled, await state.isCurrent(input), let synthesizer, let admittedEvidence,
       Self.isCorpusSupported(admittedEvidence.state)
     else { return }
 
@@ -381,7 +384,7 @@ public struct KnowledgeTieredAnswerResolver: Sendable {
     let cold = await runWithinBudget(lane: .cold) {
       try? await synthesizer.synthesize(synthesisRequest)
     }
-    guard let output = cold.value,
+    guard !Task.isCancelled, let output = cold.value,
       Self.isValid(output, for: synthesisRequest),
       await state.isCurrent(input)
     else { return }
@@ -636,11 +639,25 @@ public struct KnowledgeTieredAnswerResolver: Sendable {
     let budgetMilliseconds = budgets.milliseconds(for: lane)
     let clock = ContinuousClock()
     let start = clock.now
+    guard !Task.isCancelled else {
+      return Budgeted(
+        value: nil,
+        timing: KnowledgeAnswerLaneTiming(
+          budgetMilliseconds: budgetMilliseconds,
+          elapsedMilliseconds: 0
+        )
+      )
+    }
     let value: Value? = await withTaskGroup(
       of: BudgetRace<Value>.self,
       returning: Value?.self
     ) { group in
-      group.addTask { .value(await operation()) }
+      group.addTask {
+        guard !Task.isCancelled else { return .value(nil) }
+        let value = await operation()
+        guard !Task.isCancelled else { return .value(nil) }
+        return .value(value)
+      }
       group.addTask {
         try? await Task.sleep(for: .milliseconds(budgetMilliseconds))
         return .timeout

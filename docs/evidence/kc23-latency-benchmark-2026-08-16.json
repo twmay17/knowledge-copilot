@@ -1,0 +1,30 @@
+{
+  "generatedAt" : "2026-08-16T05:34:58Z",
+  "lanes" : [
+    {
+      "componentBudgetMilliseconds" : 40,
+      "endToEndMaximumMilliseconds" : 1.023041,
+      "endToEndP50Milliseconds" : 0.345166,
+      "endToEndP95Milliseconds" : 0.463709,
+      "lane" : "hot",
+      "liveP50TargetMilliseconds" : 1000,
+      "meetsLiveP50Target" : true,
+      "resolverP50Milliseconds" : 0.092667,
+      "sampleCount" : 100
+    },
+    {
+      "componentBudgetMilliseconds" : 250,
+      "endToEndMaximumMilliseconds" : 0.354084,
+      "endToEndP50Milliseconds" : 0.194792,
+      "endToEndP95Milliseconds" : 0.226709,
+      "lane" : "warm",
+      "liveP50TargetMilliseconds" : 2500,
+      "meetsLiveP50Target" : true,
+      "resolverP50Milliseconds" : 0.178,
+      "sampleCount" : 100
+    }
+  ],
+  "packID" : "synthetic-hotel-2020-v1",
+  "sampleCountPerLane" : 100,
+  "verdict" : "pass"
+}

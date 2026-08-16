@@ -36,6 +36,11 @@ support level, presentation quality, and the update it replaces. `AnswerSupersed
 explicit retraction. Superseded event IDs are tombstoned so a late ASR revision cannot resurrect an
 old answer.
 
+The application additionally measures sufficient-transcript-to-overlay latency against the release
+targets of 1,000 ms hot p50 and 2,500 ms warm p50. See
+[`answer-latency-and-cancellation.md`](answer-latency-and-cancellation.md) for the measurement
+boundary, benchmark command, and stream-aware cancellation contract.
+
 ## Corpus-only synthesis contract
 
 `KnowledgeConstrainedAnswerSynthesizer` receives one
@@ -77,7 +82,9 @@ itself is never promoted to a corpus-verified factual answer.
 
 `KnowledgePackStore` constructs and clears the resolver atomically with the active pack, index, and
 evidence evaluator. Overlay work can call `answerUpdates(for:vectorAdapter:synthesizer:)` for every
-live event while the existing synchronous reviewed-card path remains compatible.
+live event while the existing synchronous reviewed-card path remains compatible. The live path owns
+one background answer task per transcript stream, cancels it before replacement, and passes only the
+configured capability-limited vector or synthesis adapter into the resolver.
 
 This layer requires no Microsoft 365 administrator permission, Teams bot installation, tenant
 registration, cloud account, or network service. Audio capture and transcription feed live events

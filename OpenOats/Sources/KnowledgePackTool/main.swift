@@ -24,6 +24,8 @@ struct KnowledgePackTool {
         try search(arguments: arguments, profiles: profiles)
       case "replay":
         try replay(arguments: arguments, profiles: profiles)
+      case "benchmark-latency":
+        try await benchmarkLatency(arguments: arguments, profiles: profiles)
       case "ingest-document":
         try ingestDocument(arguments: arguments)
       case "ingest-spreadsheet":
@@ -166,6 +168,165 @@ struct KnowledgePackTool {
     if report.verdict == .fail {
       Darwin.exit(EXIT_FAILURE)
     }
+  }
+
+  private static func benchmarkLatency(
+    arguments: [String],
+    profiles: KnowledgeDomainProfileRegistry
+  ) async throws {
+    guard arguments.count >= 2 else { fail(usage) }
+    let options = parseOptions(
+      Array(arguments.dropFirst(2)),
+      supported: ["--samples", "--output"]
+    )
+    let sampleCount = options["--samples"].flatMap(Int.init) ?? 50
+    guard (1...10_000).contains(sampleCount) else { fail(usage) }
+
+    let directory = URL(fileURLWithPath: arguments[1], isDirectory: true).standardizedFileURL
+    let pack = try KnowledgePackLoader(profileRegistry: profiles).load(from: directory)
+    guard
+      let responseCard = pack.responseCards.first(where: {
+        $0.reviewStatus == .reviewed && !$0.questionFamilyIDs.isEmpty
+      }),
+      let questionFamilyID = responseCard.questionFamilyIDs.first,
+      let questionFamily = pack.questionFamilies.first(where: { $0.id == questionFamilyID })
+    else {
+      fail("Latency benchmark requires at least one reviewed response card and question family.")
+    }
+
+    let hotResolver = try makeTieredResolver(pack: pack, rootDirectory: directory)
+    let warmPack = KnowledgePack(
+      manifest: pack.manifest,
+      sources: pack.sources,
+      passages: pack.passages,
+      assertions: pack.assertions,
+      evidenceLinks: pack.evidenceLinks,
+      calculations: pack.calculations,
+      responseCards: [],
+      questionFamilies: pack.questionFamilies
+    )
+    let warmResolver = try makeTieredResolver(pack: warmPack, rootDirectory: directory)
+    var samples: [KnowledgeAnswerLatencySample] = []
+
+    for index in 0..<sampleCount {
+      let streamID = "latency-hot-\(index)"
+      let candidate = QuestionCandidate(
+        id: "\(streamID)#1",
+        streamID: streamID,
+        revisionSequence: 1,
+        questionFamilyID: questionFamily.id,
+        sourceText: questionFamily.canonicalQuestion,
+        confidence: 1,
+        status: .stable,
+        bindings: []
+      )
+      let start = ContinuousClock().now
+      let updates = await collect(hotResolver.updates(for: .questionStable(candidate)))
+      guard let update = updates.first(where: { $0.lane == .hot }), let timing = update.timing
+      else { fail("Hot lane did not produce a benchmark answer.") }
+      samples.append(
+        KnowledgeAnswerLatencySample(
+          lane: .hot,
+          endToEndMilliseconds: milliseconds(start.duration(to: ContinuousClock().now)),
+          resolverMilliseconds: timing.elapsedMilliseconds
+        )
+      )
+    }
+
+    for index in 0..<sampleCount {
+      let streamID = "latency-warm-\(index)"
+      let candidate = QuestionCandidate(
+        id: "\(streamID)#1",
+        streamID: streamID,
+        revisionSequence: 1,
+        questionFamilyID: questionFamily.id,
+        sourceText: questionFamily.canonicalQuestion,
+        confidence: 0.7,
+        status: .provisional,
+        bindings: [
+          ResolvedQuestionBinding(
+            key: "term",
+            value: "question_family:\(questionFamily.id)",
+            surfaceText: questionFamily.canonicalQuestion
+          )
+        ]
+      )
+      let start = ContinuousClock().now
+      let updates = await collect(warmResolver.updates(for: .questionCandidate(candidate)))
+      guard let update = updates.first(where: { $0.lane == .warm }), let timing = update.timing
+      else { fail("Warm lane did not produce a benchmark answer.") }
+      samples.append(
+        KnowledgeAnswerLatencySample(
+          lane: .warm,
+          endToEndMilliseconds: milliseconds(start.duration(to: ContinuousClock().now)),
+          resolverMilliseconds: timing.elapsedMilliseconds
+        )
+      )
+    }
+
+    let report = KnowledgeAnswerLatencyReport(samples: samples)
+    let budgets = KnowledgeAnswerLatencyBudgets()
+    let output = LatencyBenchmarkOutput(
+      generatedAt: Date(),
+      packID: pack.manifest.packID,
+      sampleCountPerLane: sampleCount,
+      verdict: report.meetsLiveP50Targets ? "pass" : "fail",
+      lanes: report.summaries.filter { $0.lane != .cold }.map {
+        LatencyBenchmarkOutput.Lane(
+          lane: $0.lane.rawValue,
+          sampleCount: $0.sampleCount,
+          componentBudgetMilliseconds: budgets.milliseconds(for: $0.lane),
+          liveP50TargetMilliseconds: $0.targetMilliseconds ?? 0,
+          resolverP50Milliseconds: $0.resolverP50Milliseconds,
+          endToEndP50Milliseconds: $0.endToEndP50Milliseconds,
+          endToEndP95Milliseconds: $0.endToEndP95Milliseconds,
+          endToEndMaximumMilliseconds: $0.endToEndMaximumMilliseconds,
+          meetsLiveP50Target: $0.meetsP50Target == true
+        )
+      }
+    )
+
+    if let outputPath = options["--output"] {
+      let outputURL = URL(fileURLWithPath: outputPath).standardizedFileURL
+      requireOutputOutsidePack(outputURL, packDirectory: directory)
+      try writeJSON(output, to: outputURL)
+      printLatencyBenchmarkSummary(output)
+      print("Report: \(outputURL.path)")
+    } else {
+      let encoder = JSONEncoder()
+      encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+      encoder.dateEncodingStrategy = .iso8601
+      FileHandle.standardOutput.write(try encoder.encode(output))
+      FileHandle.standardOutput.write(Data("\n".utf8))
+    }
+
+    if !report.meetsLiveP50Targets { Darwin.exit(EXIT_FAILURE) }
+  }
+
+  private static func makeTieredResolver(
+    pack: KnowledgePack,
+    rootDirectory: URL
+  ) throws -> KnowledgeTieredAnswerResolver {
+    let searchIndex = try KnowledgePackSearchIndex(pack: pack)
+    let evaluator = try KnowledgeEvidenceOutcomeEvaluator(
+      pack: pack,
+      searchIndex: searchIndex,
+      rootDirectory: rootDirectory
+    )
+    return try KnowledgeTieredAnswerResolver(
+      pack: pack,
+      searchIndex: searchIndex,
+      evidenceEvaluator: evaluator,
+      rootDirectory: rootDirectory
+    )
+  }
+
+  private static func collect(
+    _ stream: AsyncStream<KnowledgeTieredAnswerUpdate>
+  ) async -> [KnowledgeTieredAnswerUpdate] {
+    var updates: [KnowledgeTieredAnswerUpdate] = []
+    for await update in stream { updates.append(update) }
+    return updates
   }
 
   private static func ingestDocument(arguments: [String]) throws {
@@ -596,6 +757,21 @@ struct KnowledgePackTool {
     }
   }
 
+  private static func printLatencyBenchmarkSummary(_ report: LatencyBenchmarkOutput) {
+    print("\(report.verdict.uppercased()): hot/warm latency benchmark")
+    for lane in report.lanes {
+      print(
+        "\(lane.lane): end-to-end p50 \(formatted(lane.endToEndP50Milliseconds)) ms; p95 \(formatted(lane.endToEndP95Milliseconds)) ms; resolver p50 \(formatted(lane.resolverP50Milliseconds)) ms; target \(formatted(lane.liveP50TargetMilliseconds)) ms"
+      )
+    }
+  }
+
+  private static func milliseconds(_ duration: Duration) -> Double {
+    let components = duration.components
+    return Double(components.seconds) * 1_000
+      + Double(components.attoseconds) / 1_000_000_000_000_000
+  }
+
   private static func formatted(_ value: Double) -> String {
     String(format: "%.3f", value)
   }
@@ -611,6 +787,7 @@ struct KnowledgePackTool {
       knowledge-pack inspect <pack-directory>
       knowledge-pack search <pack-directory> <query> [--kind <record-kind>] [--source <source-id>] [--qualifier <key=value>] [--limit <1-100>]
       knowledge-pack replay <pack-directory> <replay-spec.json> [--output <report.json>]
+      knowledge-pack benchmark-latency <pack-directory> [--samples <1-10000>] [--output <report.json>]
       knowledge-pack ingest-document <document.pdf|document.docx> --relative-path <pack-relative-path> [--title <title>] [--output <result.json>]
       knowledge-pack ingest-spreadsheet <spreadsheet.xlsx|spreadsheet.csv> --relative-path <pack-relative-path> [--title <title>] [--output <result.json>]
       knowledge-pack import-underwriting-csv <pl-or-star.csv> --relative-path <pack-relative-path> --asset-id <stable-asset-id> [--period <YYYY|YYYY-MM|TTM:YYYY-MM|YTD:YYYY-MM>] [--status <actual|budget|forecast>] [--title <title>] [--output <result.json>]
@@ -621,4 +798,24 @@ struct KnowledgePackTool {
       knowledge-pack plan-study-import <pack-directory> <approved-import.json> --output <plan.json>
       knowledge-pack apply-study-import <pack-directory> <approved-import.json> --output <receipt.json>
     """
+}
+
+private struct LatencyBenchmarkOutput: Encodable {
+  struct Lane: Encodable {
+    let lane: String
+    let sampleCount: Int
+    let componentBudgetMilliseconds: Int
+    let liveP50TargetMilliseconds: Double
+    let resolverP50Milliseconds: Double
+    let endToEndP50Milliseconds: Double
+    let endToEndP95Milliseconds: Double
+    let endToEndMaximumMilliseconds: Double
+    let meetsLiveP50Target: Bool
+  }
+
+  let generatedAt: Date
+  let packID: String
+  let sampleCountPerLane: Int
+  let verdict: String
+  let lanes: [Lane]
 }
