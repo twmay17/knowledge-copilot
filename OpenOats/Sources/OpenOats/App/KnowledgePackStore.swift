@@ -41,6 +41,7 @@ final class KnowledgePackStore {
   private(set) var activeQuestionCandidates: [String: QuestionCandidate] = [:]
   private(set) var activeAnswerCards: [String: KnowledgeAnswerCard] = [:]
   private(set) var overlayPresentation = KnowledgeOverlayPresentationState()
+  private(set) var isOverlayCompact = false
   private(set) var latestQuestionCandidateEvents: [QuestionCandidateEvent] = []
   private(set) var latestLiveKnowledgeEvents: [KnowledgeLiveEvent] = []
   private var requestedPath = ""
@@ -52,6 +53,9 @@ final class KnowledgePackStore {
   private var liveRevisionSequenceByStream: [String: Int] = [:]
 
   var visibleOverlayCards: [KnowledgeOverlayCard] { overlayPresentation.visibleCards }
+  var primaryOverlayCard: KnowledgeOverlayCard? { overlayPresentation.primaryActionCard }
+  var primaryOverlayCopyText: String? { primaryOverlayCard?.clipboardText }
+  var primaryOverlaySourceURL: URL? { primaryOverlayCard?.firstOpenableSourceURL }
   var pendingOverlayCorrections: [KnowledgeOverlayCorrectionRequest] {
     overlayPresentation.correctionRequests
   }
@@ -262,6 +266,37 @@ final class KnowledgePackStore {
     overlayPresentation = presentation
   }
 
+  @discardableResult
+  func togglePrimaryOverlayPin() -> Bool? {
+    guard let eventID = primaryOverlayCard?.eventID else { return nil }
+    var presentation = overlayPresentation
+    let isPinned = presentation.togglePin(eventID: eventID)
+    overlayPresentation = presentation
+    return isPinned
+  }
+
+  @discardableResult
+  func dismissPrimaryOverlayCard() -> Bool {
+    guard let eventID = primaryOverlayCard?.eventID else { return false }
+    dismissOverlayCard(eventID: eventID)
+    return true
+  }
+
+  @discardableResult
+  func requestPrimaryOverlayCorrection() -> Bool {
+    guard let eventID = primaryOverlayCard?.eventID else { return false }
+    var presentation = overlayPresentation
+    guard presentation.requestCorrection(eventID: eventID) != nil else { return false }
+    overlayPresentation = presentation
+    return true
+  }
+
+  @discardableResult
+  func toggleOverlayCompactMode() -> Bool {
+    isOverlayCompact.toggle()
+    return isOverlayCompact
+  }
+
   private func configureLiveKnowledgePath(for pack: KnowledgePack, rootDirectory: URL) {
     clearQuestionCandidateDetector()
     liveEventDetector = KnowledgeLiveEventDetector(
@@ -366,6 +401,7 @@ final class KnowledgePackStore {
     tieredAnswerTaskTokens.removeAll()
     overlaySourceCatalog = nil
     overlayPresentation.reset()
+    isOverlayCompact = false
   }
 
   private static func cancellationReason(

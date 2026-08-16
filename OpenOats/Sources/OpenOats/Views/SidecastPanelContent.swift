@@ -14,6 +14,13 @@ struct SidecastPanelContent: View {
 
             Divider().opacity(0.3)
 
+            OverlayShareSafetyBanner(
+                hideFromScreenShare: settings.hideFromScreenShare,
+                appearance: .dark
+            )
+
+            Divider().opacity(0.3)
+
             if !knowledgePackStore.visibleOverlayCards.isEmpty {
                 KnowledgeAnswerCardList(
                     store: knowledgePackStore,

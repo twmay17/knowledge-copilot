@@ -386,6 +386,10 @@ struct ContentView: View {
         .onChange(of: settings.suggestionsAlwaysOnTop) {
             overlayManager.updateAlwaysOnTop(settings.suggestionsAlwaysOnTop)
         }
+        .onChange(of: settings.hideFromScreenShare) {
+            overlayManager.updateHideFromScreenShare(settings.hideFromScreenShare)
+            miniBarManager.updateHideFromScreenShare(settings.hideFromScreenShare)
+        }
         .onChange(of: settings.sidebarMode) {
             if settings.sidebarMode == .classicSuggestions {
                 coordinator.suggestionEngine?.startPreFetching()
@@ -427,6 +431,12 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .toggleSuggestionPanel)) { _ in
             toggleOverlay()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .knowledgeOverlayCommand)) { notification in
+            guard overlayManager.isVisible,
+                  let command = notification.object as? KnowledgeOverlayCommand
+            else { return }
+            handleKnowledgeOverlayCommand(command)
         }
         .onChange(of: pendingControlBarAction) {
             guard let action = pendingControlBarAction else { return }
@@ -480,6 +490,7 @@ struct ContentView: View {
         case .classicSuggestions:
             overlayManager.toggle(
                 content: SuggestionPanelContent(
+                    settings: settings,
                     engine: coordinator.suggestionEngine,
                     knowledgePackStore: knowledgePackStore
                 )
@@ -494,6 +505,7 @@ struct ContentView: View {
         case .classicSuggestions:
             overlayManager.showSidePanel(
                 content: SuggestionPanelContent(
+                    settings: settings,
                     engine: coordinator.suggestionEngine,
                     knowledgePackStore: knowledgePackStore
                 )
@@ -509,6 +521,26 @@ struct ContentView: View {
             engine: coordinator.sidecastEngine,
             knowledgePackStore: knowledgePackStore
         )
+    }
+
+    private func handleKnowledgeOverlayCommand(_ command: KnowledgeOverlayCommand) {
+        switch command {
+        case .togglePin:
+            knowledgePackStore.togglePrimaryOverlayPin()
+        case .copyAnswer:
+            guard let text = knowledgePackStore.primaryOverlayCopyText else { return }
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+        case .openSource:
+            guard let sourceURL = knowledgePackStore.primaryOverlaySourceURL else { return }
+            NSWorkspace.shared.open(sourceURL)
+        case .requestCorrection:
+            knowledgePackStore.requestPrimaryOverlayCorrection()
+        case .dismiss:
+            knowledgePackStore.dismissPrimaryOverlayCard()
+        case .toggleCompactMode:
+            knowledgePackStore.toggleOverlayCompactMode()
+        }
     }
 
     private func copyTranscript() {

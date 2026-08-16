@@ -4,6 +4,82 @@ import XCTest
 @testable import OpenOatsKit
 
 final class KnowledgeOverlayPresentationTests: XCTestCase {
+  func testKeyboardShortcutsMapEveryCoreControlAndRejectExtraModifiers() {
+    let expected: [String: KnowledgeOverlayCommand] = [
+      "p": .togglePin,
+      "c": .copyAnswer,
+      "e": .openSource,
+      "w": .requestCorrection,
+      "x": .dismiss,
+      "k": .toggleCompactMode,
+    ]
+
+    for (key, command) in expected {
+      XCTAssertEqual(
+        KnowledgeOverlayKeyboardShortcuts.command(
+          forKey: key,
+          commandPressed: true,
+          shiftPressed: true,
+          optionPressed: true
+        ),
+        command
+      )
+    }
+
+    XCTAssertNil(
+      KnowledgeOverlayKeyboardShortcuts.command(
+        forKey: "c",
+        commandPressed: true,
+        shiftPressed: true,
+        optionPressed: false
+      ))
+    XCTAssertNil(
+      KnowledgeOverlayKeyboardShortcuts.command(
+        forKey: "c",
+        commandPressed: true,
+        shiftPressed: false,
+        optionPressed: true
+      ))
+    XCTAssertNil(
+      KnowledgeOverlayKeyboardShortcuts.command(
+        forKey: "c",
+        commandPressed: true,
+        shiftPressed: true,
+        optionPressed: true,
+        controlPressed: true
+      ))
+  }
+
+  func testShareSafetyNoticeAlwaysWarnsAboutFullDisplaySharing() {
+    let protectedNotice = KnowledgeOverlayShareSafetyNotice.make(hideFromScreenShare: true)
+    let visibleNotice = KnowledgeOverlayShareSafetyNotice.make(hideFromScreenShare: false)
+
+    XCTAssertEqual(protectedNotice.severity, .caution)
+    XCTAssertTrue(protectedNotice.title.lowercased().contains("full-display"))
+    XCTAssertTrue(protectedNotice.message.contains("single app window"))
+    XCTAssertEqual(visibleNotice.severity, .warning)
+    XCTAssertTrue(visibleNotice.message.lowercased().contains("full-display"))
+  }
+
+  @MainActor
+  func testOverlayPanelsApplyScreenShareVisibilityAtRuntime() {
+    let overlay = OverlayPanel(contentRect: NSRect(x: 0, y: 0, width: 320, height: 200))
+    let miniBar = MiniBarPanel(contentRect: NSRect(x: 0, y: 0, width: 40, height: 18))
+
+    overlay.applyHideFromScreenShare(true)
+    miniBar.applyHideFromScreenShare(true)
+    XCTAssertEqual(overlay.sharingType, .none)
+    XCTAssertEqual(miniBar.sharingType, .none)
+
+    overlay.applyHideFromScreenShare(false)
+    miniBar.applyHideFromScreenShare(false)
+    XCTAssertEqual(overlay.sharingType, .readOnly)
+    XCTAssertEqual(miniBar.sharingType, .readOnly)
+
+    overlay.close()
+    miniBar.close()
+  }
+
   func testEveryEvidenceStateHasExplicitLanguageIndependentOfColor() {
     XCTAssertEqual(
       KnowledgeEvidenceState.allCases.map(\.overlayLabel),
@@ -71,7 +147,44 @@ final class KnowledgeOverlayPresentationTests: XCTestCase {
     XCTAssertEqual(card.claims.map(\.id), ["a-2"])
     XCTAssertEqual(card.sources.map(\.title), ["Plan B"])
     XCTAssertNotNil(card.sources.first?.fileURL)
+    XCTAssertEqual(card.firstOpenableSourceURL, card.sources.first?.fileURL)
+    XCTAssertTrue(card.clipboardText.contains(output.title))
+    XCTAssertTrue(card.clipboardText.contains(output.answer))
+    XCTAssertTrue(card.clipboardText.contains("Evidence: Supported by Corpus"))
+    XCTAssertTrue(card.clipboardText.contains("Plan B — Page 1"))
     XCTAssertTrue(card.why.contains("only from the cited corpus evidence"))
+  }
+
+  func testPrimaryActionTargetsTheLiveRemoteAnswerBeforePinnedOrLocalCards() throws {
+    var state = KnowledgeOverlayPresentationState()
+    state.apply(
+      update(
+        id: "u-pinned",
+        eventID: "event-pinned",
+        streamID: "remote",
+        payload: .reviewedCard(reviewedCard(id: "event-pinned", answer: "Pinned"))
+      ))
+    state.togglePin(eventID: "event-pinned")
+    state.apply(
+      update(
+        id: "u-local",
+        eventID: "event-local",
+        streamID: "local",
+        revisionSequence: 2,
+        payload: .reviewedCard(reviewedCard(id: "event-local", answer: "Local"))
+      ))
+    state.apply(
+      update(
+        id: "u-remote",
+        eventID: "event-remote",
+        streamID: "remote",
+        revisionSequence: 3,
+        payload: .reviewedCard(reviewedCard(id: "event-remote", answer: "Remote"))
+      ))
+
+    let primary = try XCTUnwrap(state.primaryActionCard)
+    XCTAssertEqual(primary.eventID, "event-remote")
+    XCTAssertEqual(primary.answer, "Remote")
   }
 
   func testRefinementReplacesVisibleContentForTheSameEvent() throws {
@@ -287,15 +400,27 @@ final class KnowledgeOverlayPresentationTests: XCTestCase {
     let card = try XCTUnwrap(store.visibleOverlayCards.first)
     XCTAssertEqual(card.evidenceState, .calculated)
     XCTAssertFalse(card.sources.isEmpty)
+    XCTAssertNotNil(store.primaryOverlayCopyText)
+    XCTAssertNotNil(store.primaryOverlaySourceURL)
+    XCTAssertTrue(store.toggleOverlayCompactMode())
+    XCTAssertTrue(store.isOverlayCompact)
+    XCTAssertEqual(store.togglePrimaryOverlayPin(), true)
+    XCTAssertTrue(try XCTUnwrap(store.primaryOverlayCard).isPinned)
+    XCTAssertTrue(store.requestPrimaryOverlayCorrection())
+    XCTAssertEqual(store.pendingOverlayCorrections.count, 1)
+    XCTAssertTrue(store.dismissPrimaryOverlayCard())
+    XCTAssertTrue(store.visibleOverlayCards.isEmpty)
 
     store.clear()
     XCTAssertTrue(store.visibleOverlayCards.isEmpty)
     XCTAssertTrue(store.pendingOverlayCorrections.isEmpty)
+    XCTAssertFalse(store.isOverlayCompact)
   }
 
   private func update(
     id: String = "u-1",
     eventID: String = "event-1",
+    streamID: String = "remote",
     revisionSequence: Int = 1,
     action: KnowledgeTieredAnswerUpdateAction = .show,
     supersedesUpdateID: String? = nil,
@@ -304,7 +429,7 @@ final class KnowledgeOverlayPresentationTests: XCTestCase {
     KnowledgeTieredAnswerUpdate(
       id: id,
       eventID: eventID,
-      streamID: "remote",
+      streamID: streamID,
       revisionSequence: revisionSequence,
       lane: action == .retract ? nil : .hot,
       action: action,

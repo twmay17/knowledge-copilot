@@ -265,7 +265,10 @@ private struct GeneralSettingsTab: View {
                 Section("Privacy") {
                     Toggle("Hide from screen sharing", isOn: $settings.hideFromScreenShare)
                         .font(.system(size: 12))
-                    Text("When enabled, the app is invisible during screen sharing and recording.")
+                    Text(
+                        "Excludes app windows from window capture when supported. "
+                            + "Full-display sharing may still show the overlay; share a single app window."
+                    )
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }

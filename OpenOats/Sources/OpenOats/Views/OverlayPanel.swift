@@ -1,8 +1,10 @@
 import AppKit
 import SwiftUI
 
-/// A floating NSPanel that is invisible to screen sharing.
+/// A floating NSPanel that can opt out of supported window-capture APIs.
 final class OverlayPanel: NSPanel {
+    var onClose: (() -> Void)?
+
     init(contentRect: NSRect, defaults: UserDefaults = .standard, alwaysOnTop: Bool = true) {
         super.init(
             contentRect: contentRect,
@@ -35,6 +37,15 @@ final class OverlayPanel: NSPanel {
         isFloatingPanel = enabled
         level = enabled ? .floating : .normal
     }
+
+    func applyHideFromScreenShare(_ enabled: Bool) {
+        sharingType = enabled ? .none : .readOnly
+    }
+
+    override func close() {
+        super.close()
+        onClose?()
+    }
 }
 
 /// Manages the floating suggestion side panel lifecycle.
@@ -44,6 +55,8 @@ final class OverlayManager: ObservableObject {
     private var sidecastPanel: OverlayPanel?
     private var hostingView: NSHostingView<AnyView>?
     private var sidecastHostingView: NSHostingView<AnyView>?
+    private var globalKeyboardMonitor: Any?
+    private var localKeyboardMonitor: Any?
     var defaults: UserDefaults = .standard
 
     // Classic suggestions panel dimensions
@@ -73,6 +86,7 @@ final class OverlayManager: ObservableObject {
                 ? true
                 : defaults.bool(forKey: "suggestionsAlwaysOnTop")
             let newPanel = OverlayPanel(contentRect: rect, defaults: defaults, alwaysOnTop: alwaysOnTop)
+            newPanel.onClose = { [weak self] in self?.stopKeyboardMonitoringIfHidden() }
             newPanel.minSize = NSSize(width: Self.classicWidth, height: Self.classicMinHeight)
             newPanel.maxSize = NSSize(width: Self.classicWidth + 120, height: Self.classicMaxHeight)
             newPanel.setFrameAutosaveName("SuggestionSidePanel")
@@ -87,6 +101,7 @@ final class OverlayManager: ObservableObject {
             panel?.contentView = newHostingView
         }
         panel?.orderFront(nil)
+        startKeyboardMonitoringIfNeeded()
     }
 
     /// Show the full-height sidecast sidebar docked to the right edge.
@@ -105,6 +120,7 @@ final class OverlayManager: ObservableObject {
                 height: screenFrame.height
             )
             let newPanel = OverlayPanel(contentRect: rect, defaults: defaults)
+            newPanel.onClose = { [weak self] in self?.stopKeyboardMonitoringIfHidden() }
             newPanel.minSize = NSSize(width: Self.sidecastMinWidth, height: 300)
             newPanel.maxSize = NSSize(width: Self.sidecastMaxWidth, height: screenFrame.height)
             newPanel.setFrameAutosaveName("SidecastSidebar")
@@ -119,6 +135,7 @@ final class OverlayManager: ObservableObject {
             sidecastPanel?.contentView = newHostingView
         }
         sidecastPanel?.orderFront(nil)
+        startKeyboardMonitoringIfNeeded()
     }
 
     func hide() {
@@ -129,6 +146,7 @@ final class OverlayManager: ObservableObject {
 
         sidecastPanel?.orderOut(nil)
         sidecastHostingView?.rootView = AnyView(EmptyView())
+        stopKeyboardMonitoring()
     }
 
     func toggle<Content: View>(content: Content) {
@@ -143,6 +161,9 @@ final class OverlayManager: ObservableObject {
         if sidecastPanel?.isVisible == true {
             sidecastPanel?.orderOut(nil)
             sidecastHostingView?.rootView = AnyView(EmptyView())
+            if panel?.isVisible != true {
+                stopKeyboardMonitoring()
+            }
         } else {
             showSidecastSidebar(content: content)
         }
@@ -157,11 +178,53 @@ final class OverlayManager: ObservableObject {
         panel?.applyAlwaysOnTop(enabled)
     }
 
+    func updateHideFromScreenShare(_ enabled: Bool) {
+        panel?.applyHideFromScreenShare(enabled)
+        sidecastPanel?.applyHideFromScreenShare(enabled)
+    }
+
     /// Hide after a delay (used for session end).
     func hideAfterDelay(seconds: Double) {
         Task {
             try? await Task.sleep(for: .seconds(seconds))
             hide()
         }
+    }
+
+    private func startKeyboardMonitoringIfNeeded() {
+        guard globalKeyboardMonitor == nil, localKeyboardMonitor == nil else { return }
+
+        globalKeyboardMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { event in
+            guard let command = KnowledgeOverlayKeyboardShortcuts.command(for: event) else { return }
+            Task { @MainActor in
+                NotificationCenter.default.post(name: .knowledgeOverlayCommand, object: command)
+            }
+        }
+
+        localKeyboardMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            guard let command = KnowledgeOverlayKeyboardShortcuts.command(for: event) else {
+                return event
+            }
+            Task { @MainActor in
+                NotificationCenter.default.post(name: .knowledgeOverlayCommand, object: command)
+            }
+            return nil
+        }
+    }
+
+    private func stopKeyboardMonitoring() {
+        if let globalKeyboardMonitor {
+            NSEvent.removeMonitor(globalKeyboardMonitor)
+            self.globalKeyboardMonitor = nil
+        }
+        if let localKeyboardMonitor {
+            NSEvent.removeMonitor(localKeyboardMonitor)
+            self.localKeyboardMonitor = nil
+        }
+    }
+
+    private func stopKeyboardMonitoringIfHidden() {
+        guard !isVisible else { return }
+        stopKeyboardMonitoring()
     }
 }

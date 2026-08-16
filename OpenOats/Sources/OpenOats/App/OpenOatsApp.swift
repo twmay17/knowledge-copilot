@@ -330,6 +330,7 @@ extension OpenOatsRootApp {
 
 extension Notification.Name {
     static let toggleSuggestionPanel = Notification.Name("toggleSuggestionPanel")
+    static let knowledgeOverlayCommand = Notification.Name("knowledgeOverlayCommand")
 }
 
 @MainActor

@@ -340,6 +340,14 @@ struct KnowledgeOverlayPresentationState: Equatable, Sendable {
     correctionRequestsByEvent.values.sorted { $0.eventID < $1.eventID }
   }
 
+  var primaryActionCard: KnowledgeOverlayCard? {
+    if let remoteCard = activeByStream["remote"] { return remoteCard }
+    if let activeCard = activeByStream.values.sorted(by: activeCardOrder).first {
+      return activeCard
+    }
+    return pinnedByEvent.values.sorted(by: pinnedCardOrder).first
+  }
+
   mutating func apply(
     _ update: KnowledgeTieredAnswerUpdate,
     sourceCatalog: KnowledgeOverlaySourceCatalog? = nil
@@ -451,6 +459,28 @@ struct KnowledgeOverlayPresentationState: Equatable, Sendable {
       pinned.isSuperseded = true
       pinnedByEvent[update.eventID] = pinned
     }
+  }
+
+  private func activeCardOrder(
+    _ lhs: KnowledgeOverlayCard,
+    _ rhs: KnowledgeOverlayCard
+  ) -> Bool {
+    if lhs.revisionSequence != rhs.revisionSequence {
+      return lhs.revisionSequence > rhs.revisionSequence
+    }
+    if lhs.streamID != rhs.streamID { return lhs.streamID < rhs.streamID }
+    return lhs.eventID < rhs.eventID
+  }
+
+  private func pinnedCardOrder(
+    _ lhs: KnowledgeOverlayCard,
+    _ rhs: KnowledgeOverlayCard
+  ) -> Bool {
+    if lhs.isSuperseded != rhs.isSuperseded { return !lhs.isSuperseded }
+    if lhs.revisionSequence != rhs.revisionSequence {
+      return lhs.revisionSequence > rhs.revisionSequence
+    }
+    return lhs.eventID < rhs.eventID
   }
 }
 

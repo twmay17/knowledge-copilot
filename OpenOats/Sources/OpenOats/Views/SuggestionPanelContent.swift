@@ -3,6 +3,7 @@ import SwiftUI
 /// Content view for the floating suggestion side panel.
 /// Shows the current suggestion (raw or streaming) with fading previous suggestions.
 struct SuggestionPanelContent: View {
+    @Bindable var settings: AppSettings
     let engine: SuggestionEngine?
     @Bindable var knowledgePackStore: KnowledgePackStore
 
@@ -29,6 +30,13 @@ struct SuggestionPanelContent: View {
             .padding(.horizontal, 12)
             .padding(.top, 10)
             .padding(.bottom, 6)
+
+            Divider()
+
+            OverlayShareSafetyBanner(
+                hideFromScreenShare: settings.hideFromScreenShare,
+                appearance: .standard
+            )
 
             Divider()
 

@@ -30,6 +30,10 @@ final class MiniBarPanel: NSPanel {
 
         setFrameAutosaveName("MiniBarPanel")
     }
+
+    func applyHideFromScreenShare(_ enabled: Bool) {
+        sharingType = enabled ? .none : .readOnly
+    }
 }
 
 /// Observable state model for the mini bar. Mutations drive SwiftUI updates
@@ -93,5 +97,9 @@ final class MiniBarManager: ObservableObject {
 
     var isVisible: Bool {
         panel?.isVisible == true
+    }
+
+    func updateHideFromScreenShare(_ enabled: Bool) {
+        panel?.applyHideFromScreenShare(enabled)
     }
 }

@@ -12,23 +12,57 @@ struct KnowledgeAnswerCardList: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
+      if store.primaryOverlayCard != nil {
+        shortcutGuide
+      }
+
       ForEach(store.visibleOverlayCards) { card in
         KnowledgeAnswerCardView(
           card: card,
           appearance: appearance,
+          isCompact: store.isOverlayCompact,
+          isKeyboardTarget: store.primaryOverlayCard?.eventID == card.eventID,
           onTogglePin: { store.toggleOverlayPin(eventID: card.eventID) },
+          onCopy: { copy(card.clipboardText) },
+          onOpenSource: card.firstOpenableSourceURL.map { sourceURL in
+            { NSWorkspace.shared.open(sourceURL) }
+          },
+          onToggleCompactMode: { store.toggleOverlayCompactMode() },
           onDismiss: { store.dismissOverlayCard(eventID: card.eventID) },
           onRequestCorrection: { store.requestOverlayCorrection(eventID: card.eventID) }
         )
       }
     }
   }
+
+  private func copy(_ text: String) {
+    NSPasteboard.general.clearContents()
+    NSPasteboard.general.setString(text, forType: .string)
+  }
+
+  private var shortcutGuide: some View {
+    HStack(alignment: .top, spacing: 5) {
+      Image(systemName: "keyboard")
+        .font(.system(size: 9, weight: .semibold))
+      Text("⌥⇧⌘ · C copy · E source · P pin · W wrong · X dismiss · K compact")
+        .font(.system(size: 8, weight: .medium))
+        .fixedSize(horizontal: false, vertical: true)
+    }
+    .foregroundStyle(appearance == .dark ? .white.opacity(0.55) : .secondary)
+    .accessibilityElement(children: .combine)
+    .accessibilityIdentifier("knowledge.answer.shortcutGuide")
+  }
 }
 
 private struct KnowledgeAnswerCardView: View {
   let card: KnowledgeOverlayCard
   let appearance: KnowledgeAnswerCardList.Appearance
+  let isCompact: Bool
+  let isKeyboardTarget: Bool
   let onTogglePin: () -> Void
+  let onCopy: () -> Void
+  let onOpenSource: (() -> Void)?
+  let onToggleCompactMode: () -> Void
   let onDismiss: () -> Void
   let onRequestCorrection: () -> Void
 
@@ -56,6 +90,8 @@ private struct KnowledgeAnswerCardView: View {
     VStack(alignment: .leading, spacing: 10) {
       cardHeader
 
+      cardActions
+
       Text(card.title)
         .font(.system(size: 13, weight: .semibold))
         .foregroundStyle(primaryColor)
@@ -65,21 +101,24 @@ private struct KnowledgeAnswerCardView: View {
         .font(.system(size: 15, weight: .medium))
         .foregroundStyle(primaryColor)
         .textSelection(.enabled)
+        .lineLimit(isCompact ? 4 : nil)
         .fixedSize(horizontal: false, vertical: true)
         .accessibilityIdentifier("knowledge.answer.text")
 
-      trustReason
+      if !isCompact {
+        trustReason
 
-      if !card.claims.isEmpty {
-        claimList
-      }
+        if !card.claims.isEmpty {
+          claimList
+        }
 
-      if !card.calculations.isEmpty {
-        calculationDisclosure
-      }
+        if !card.calculations.isEmpty {
+          calculationDisclosure
+        }
 
-      if !card.sources.isEmpty {
-        evidenceDisclosure
+        if !card.sources.isEmpty {
+          evidenceDisclosure
+        }
       }
 
       if card.isCorrectionRequested {
@@ -89,7 +128,7 @@ private struct KnowledgeAnswerCardView: View {
           .accessibilityIdentifier("knowledge.answer.correctionRequested")
       }
     }
-    .padding(12)
+    .padding(isCompact ? 9 : 12)
     .frame(maxWidth: .infinity, alignment: .leading)
     .background(cardBackground)
     .clipShape(RoundedRectangle(cornerRadius: 8))
@@ -112,21 +151,62 @@ private struct KnowledgeAnswerCardView: View {
       if card.isPinned {
         statusBadge(card.isSuperseded ? "Pinned snapshot" : "Pinned", icon: "pin.fill")
       }
+      if isKeyboardTarget {
+        statusBadge("Shortcut target", icon: "keyboard")
+      }
+
+      Spacer(minLength: 4)
+
+      actionButton(
+        icon: "xmark",
+        label: shortcutLabel("Dismiss answer", .dismiss),
+        action: onDismiss
+      )
+    }
+  }
+
+  private var cardActions: some View {
+    HStack(spacing: 5) {
+      if let onOpenSource {
+        actionButton(
+          icon: "doc.text.magnifyingglass",
+          label: shortcutLabel("Open first source", .openSource),
+          action: onOpenSource
+        )
+        .accessibilityIdentifier("knowledge.answer.openFirstSource")
+      }
+      actionButton(
+        icon: "doc.on.doc",
+        label: shortcutLabel("Copy answer and sources", .copyAnswer),
+        action: onCopy
+      )
+      .accessibilityIdentifier("knowledge.answer.copy")
+      if isKeyboardTarget {
+        actionButton(
+          icon: isCompact ? "rectangle.expand.vertical" : "rectangle.compress.vertical",
+          label: shortcutLabel(
+            isCompact ? "Use full answer view" : "Use compact answer view",
+            .toggleCompactMode
+          ),
+          action: onToggleCompactMode
+        )
+        .accessibilityIdentifier("knowledge.answer.compactMode")
+      }
 
       Spacer(minLength: 4)
 
       actionButton(
         icon: card.isPinned ? "pin.slash" : "pin",
-        label: card.isPinned ? "Unpin answer" : "Pin answer",
+        label: shortcutLabel(card.isPinned ? "Unpin answer" : "Pin answer", .togglePin),
         action: onTogglePin
       )
       actionButton(
         icon: "pencil.and.list.clipboard",
-        label: "Mark answer for correction",
+        label: shortcutLabel("Mark answer for correction", .requestCorrection),
         action: onRequestCorrection
       )
-      actionButton(icon: "xmark", label: "Dismiss answer", action: onDismiss)
     }
+    .accessibilityIdentifier("knowledge.answer.actions")
   }
 
   private var trustReason: some View {
@@ -289,6 +369,14 @@ private struct KnowledgeAnswerCardView: View {
       .font(.system(size: 8, weight: .medium))
       .foregroundStyle(secondaryColor)
       .lineLimit(1)
+  }
+
+  private func shortcutLabel(
+    _ label: String,
+    _ command: KnowledgeOverlayCommand
+  ) -> String {
+    guard isKeyboardTarget else { return label }
+    return "\(label) (\(command.shortcutLabel))"
   }
 
   private func actionButton(
