@@ -294,6 +294,27 @@ final class KnowledgeSpreadsheetIngestorTests: XCTestCase {
     )
   }
 
+  func testRelationshipTargetsAreContainedToTheExtractionRoot() {
+    let root = URL(fileURLWithPath: "/tmp/xlsx-probe", isDirectory: true)
+    let xl = root.appendingPathComponent("xl", isDirectory: true)
+
+    XCTAssertEqual(
+      KnowledgeSpreadsheetIngestor.relationshipTargetURL("worksheets/sheet1.xml", under: xl)?
+        .path,
+      "/tmp/xlsx-probe/xl/worksheets/sheet1.xml"
+    )
+    XCTAssertEqual(
+      KnowledgeSpreadsheetIngestor.relationshipTargetURL("/xl/worksheets/sheet1.xml", under: xl)?
+        .path,
+      "/tmp/xlsx-probe/xl/worksheets/sheet1.xml"
+    )
+    XCTAssertNil(
+      KnowledgeSpreadsheetIngestor.relationshipTargetURL(
+        "../../../../etc/passwd", under: xl))
+    XCTAssertNil(
+      KnowledgeSpreadsheetIngestor.relationshipTargetURL("../../outside.xml", under: xl))
+  }
+
   private func sha256(_ text: String) -> String {
     SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined()
   }

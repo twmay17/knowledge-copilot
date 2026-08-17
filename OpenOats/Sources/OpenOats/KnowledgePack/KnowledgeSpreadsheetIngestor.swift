@@ -286,7 +286,10 @@ public struct KnowledgeSpreadsheetIngestor: Sendable {
         throw KnowledgeSpreadsheetIngestionError.invalidXLSX(
           "sheet '\(sheet.name)' has no workbook relationship")
       }
-      let sheetURL = Self.relationshipTargetURL(target, under: xlDirectory)
+      guard let sheetURL = Self.relationshipTargetURL(target, under: xlDirectory) else {
+        throw KnowledgeSpreadsheetIngestionError.invalidXLSX(
+          "worksheet relationship for '\(sheet.name)' escapes the extracted archive")
+      }
       guard FileManager.default.fileExists(atPath: sheetURL.path) else {
         throw KnowledgeSpreadsheetIngestionError.invalidXLSX(
           "worksheet for '\(sheet.name)' is missing")
@@ -471,12 +474,18 @@ public struct KnowledgeSpreadsheetIngestor: Sendable {
     return delegate.result
   }
 
-  private static func relationshipTargetURL(_ target: String, under xlDirectory: URL) -> URL {
+  /// Resolves a workbook relationship target inside the extraction root.
+  /// Returns nil when the resolved path escapes the extracted archive — a
+  /// crafted .rels must not read arbitrary local files into the pack.
+  static func relationshipTargetURL(_ target: String, under xlDirectory: URL) -> URL? {
     let trimmed = target.hasPrefix("/") ? String(target.dropFirst()) : target
-    if trimmed.hasPrefix("xl/") {
-      return xlDirectory.deletingLastPathComponent().appendingPathComponent(trimmed)
+    let base = trimmed.hasPrefix("xl/") ? xlDirectory.deletingLastPathComponent() : xlDirectory
+    let resolved = base.appendingPathComponent(trimmed).standardizedFileURL
+    let root = xlDirectory.deletingLastPathComponent().standardizedFileURL
+    guard resolved.path == root.path || resolved.path.hasPrefix(root.path + "/") else {
+      return nil
     }
-    return xlDirectory.appendingPathComponent(trimmed).standardizedFileURL
+    return resolved
   }
 
   private static func locatorKey(sheet: String?, row: Int?) -> String {
