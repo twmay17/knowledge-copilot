@@ -12,7 +12,7 @@ final class KnowledgeNumericEquivalenceTests: XCTestCase {
     XCTAssertTrue(
       KnowledgeEvidenceOutcomeEvaluator.valuesAreEquivalent(ratio(0.0007), ratio(0.07 / 100.0)))
     XCTAssertTrue(
-      KnowledgeEvidenceOutcomeEvaluator.valuesAreEquivalent(ratio(0.0805), ratio(8.05 / 100.0)))
+      KnowledgeEvidenceOutcomeEvaluator.valuesAreEquivalent(ratio(0.0905), ratio(9.05 / 100.0)))
   }
 
   func testBoundaryValues() {

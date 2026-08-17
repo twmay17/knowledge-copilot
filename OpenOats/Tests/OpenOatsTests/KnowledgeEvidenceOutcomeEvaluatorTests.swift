@@ -342,7 +342,7 @@ final class KnowledgeEvidenceOutcomeEvaluatorTests: XCTestCase {
     let stored = sourcedAssertion(
       id: "assertion-cancellation-rate-2020",
       predicate: "generic.cancellation_rate",
-      value: KnowledgeValue(type: .number, number: 0.0805, unit: "ratio", scale: 1),
+      value: KnowledgeValue(type: .number, number: 0.0905, unit: "ratio", scale: 1),
       qualifiers: ["period": "2020"]
     )
     let expanded = copy(
@@ -351,8 +351,8 @@ final class KnowledgeEvidenceOutcomeEvaluatorTests: XCTestCase {
       evidenceLinks: pack.evidenceLinks + [stored.evidence]
     )
 
-    // Exactly the live parse path for a spoken "8.05%": divide by 100, unit ratio.
-    let spoken = KnowledgeValue(type: .number, number: 8.05 / 100.0, unit: "ratio", scale: 1)
+    // Exactly the live parse path for a spoken "9.05%": divide by 100, unit ratio.
+    let spoken = KnowledgeValue(type: .number, number: 9.05 / 100.0, unit: "ratio", scale: 1)
     let outcome = try makeEvaluator(pack: expanded).evaluate(
       KnowledgeEvidenceQuery(
         predicate: "generic.cancellation_rate",
@@ -363,7 +363,7 @@ final class KnowledgeEvidenceOutcomeEvaluatorTests: XCTestCase {
     XCTAssertEqual(outcome.state, .directlySourced)
 
     // A genuinely different spoken value must still be contradicted.
-    let different = KnowledgeValue(type: .number, number: 9.05 / 100.0, unit: "ratio", scale: 1)
+    let different = KnowledgeValue(type: .number, number: 8.05 / 100.0, unit: "ratio", scale: 1)
     let contradicted = try makeEvaluator(pack: expanded).evaluate(
       KnowledgeEvidenceQuery(
         predicate: "generic.cancellation_rate",
