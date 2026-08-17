@@ -200,12 +200,19 @@ final class KnowledgeBase {
             return false
         }
 
-        let cachedChunks = cache.entries.values.flatMap { $0 }
+        let excludedFolderPath = settings.knowledgePackFolderPath
+        let cachedChunks = cache.entries.values.flatMap { $0 }.filter { chunk in
+            !Self.isExcluded(
+                fileURL: folderURL.appendingPathComponent(chunk.relativePath),
+                excludedFolderPath: excludedFolderPath
+            )
+        }
         guard !cachedChunks.isEmpty else {
             return false
         }
 
-        finishIndexing(chunks: cachedChunks, fileCount: cache.entries.count)
+        let fileCount = Set(cachedChunks.map(\.relativePath)).count
+        finishIndexing(chunks: cachedChunks, fileCount: fileCount)
         indexingStatus = .idle
         return true
     }
@@ -237,8 +244,9 @@ final class KnowledgeBase {
 
         // Move all blocking file I/O off the main thread
         let cacheSnapshot = cache
+        let excludedFolderPath = settings.knowledgePackFolderPath
         let scanResult = await Task.detached {
-            Self.scanFiles(in: folderURL, cache: cacheSnapshot)
+            Self.scanFiles(in: folderURL, cache: cacheSnapshot, excludingFolderAt: excludedFolderPath)
         }.value
 
         guard !scanResult.fileURLs.isEmpty else {
@@ -350,8 +358,8 @@ final class KnowledgeBase {
     }
 
     /// Reads all KB files off the main thread. Pure file I/O — no actor-isolated state.
-    private nonisolated static func scanFiles(in folderURL: URL, cache: KBCache) -> FileScanResult {
-        let fileURLs = collectFilesStatic(in: folderURL)
+    private nonisolated static func scanFiles(in folderURL: URL, cache: KBCache, excludingFolderAt excludedFolderPath: String) -> FileScanResult {
+        let fileURLs = collectFilesStatic(in: folderURL, excludingFolderAt: excludedFolderPath)
         guard !fileURLs.isEmpty else {
             return FileScanResult(fileURLs: [], fileCount: 0, cachedChunks: [], filesToEmbed: [], currentCacheKeys: [])
         }
@@ -512,7 +520,20 @@ final class KnowledgeBase {
 
     // MARK: - File Collection
 
-    private nonisolated static func collectFilesStatic(in folderURL: URL) -> [URL] {
+    /// True when the file lies inside the excluded folder after standardizing
+    /// and resolving symlinks. Used to keep the selected KnowledgePack tree
+    /// out of classic KB indexing, whose chunks can reach an external
+    /// embedding provider regardless of the Knowledge network mode.
+    nonisolated static func isExcluded(fileURL: URL, excludedFolderPath: String) -> Bool {
+        let trimmed = excludedFolderPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        let excluded = URL(fileURLWithPath: trimmed, isDirectory: true)
+            .standardizedFileURL.resolvingSymlinksInPath().path
+        let candidate = fileURL.standardizedFileURL.resolvingSymlinksInPath().path
+        return candidate == excluded || candidate.hasPrefix(excluded + "/")
+    }
+
+    nonisolated static func collectFilesStatic(in folderURL: URL, excludingFolderAt excludedFolderPath: String) -> [URL] {
         let fm = FileManager.default
         guard let enumerator = fm.enumerator(
             at: folderURL,
@@ -524,6 +545,9 @@ final class KnowledgeBase {
         for case let fileURL as URL in enumerator {
             let ext = fileURL.pathExtension.lowercased()
             if ext == "md" || ext == "txt" {
+                if Self.isExcluded(fileURL: fileURL, excludedFolderPath: excludedFolderPath) {
+                    continue
+                }
                 urls.append(fileURL)
             }
         }

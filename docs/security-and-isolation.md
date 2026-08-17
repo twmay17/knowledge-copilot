@@ -22,7 +22,9 @@ The Knowledge Copilot settings expose two modes:
 - **Offline — no Knowledge Copilot egress:** deterministic pack search remains available;
   on-device and loopback adapters are allowed; external vector and synthesis adapters are
   never called. This mode governs the Knowledge Copilot only; transcription, note generation,
-  classic suggestions, and webhook settings control their own egress.
+  classic suggestions, and webhook settings control their own egress. Classic Knowledge Base
+  indexing skips any files inside the selected KnowledgePack folder, so pointing both settings
+  at overlapping trees cannot route corpus text through an embedding provider.
 - **Allow external adapters:** an external vector adapter may receive the query plus up to the 64
   highest-locally-ranked candidates' record IDs, titles, and complete searchable text (bounded to 512 KB
   of text per request), including evidence excerpts, aliases, and qualifier values. An external synthesis
