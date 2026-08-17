@@ -151,6 +151,7 @@ public struct KnowledgePackLoader: Sendable {
       contentsOf: emptyIDIssues(pack.responseCards.map(\.id), recordType: "response_card"))
     issues.append(
       contentsOf: emptyIDIssues(pack.questionFamilies.map(\.id), recordType: "question_family"))
+    issues.append(contentsOf: nearTwinNumericIssues(pack.assertions))
 
     let sourceIDs = Set(pack.sources.map(\.id))
     let sourcesByID = Dictionary(
@@ -659,6 +660,52 @@ public struct KnowledgePackLoader: Sendable {
       }
     }
     return []
+  }
+
+  /// Two assertions for the same subject/predicate/qualifiers whose numeric
+  /// values differ by only a few ULPs will register as conflicting (the
+  /// contested check is deliberately exact) even though the author almost
+  /// certainly meant the same fact — reachable via programmatic importers.
+  /// Warn so authors align the stored values.
+  private func nearTwinNumericIssues(
+    _ assertions: [KnowledgeAssertion]
+  ) -> [KnowledgePackValidationIssue] {
+    struct GroupKey: Hashable {
+      let subject: String
+      let predicate: String
+      let qualifiers: String
+    }
+    let numeric = assertions.filter { $0.value.type == .number }
+    let groups = Dictionary(grouping: numeric) { assertion in
+      GroupKey(
+        subject: assertion.subject,
+        predicate: assertion.predicate,
+        qualifiers: assertion.qualifiers.sorted { $0.key < $1.key }
+          .map { "\($0.key)=\($0.value)" }.joined(separator: "|")
+      )
+    }
+    var issues: [KnowledgePackValidationIssue] = []
+    for group in groups.values where group.count > 1 {
+      let sorted = group.sorted { $0.id < $1.id }
+      for (index, first) in sorted.enumerated() {
+        for second in sorted.dropFirst(index + 1) {
+          guard let firstNumber = first.value.number, let firstScale = first.value.scale,
+            let secondNumber = second.value.number, let secondScale = second.value.scale,
+            (first.value.unit ?? "") == (second.value.unit ?? ""),
+            firstNumber * firstScale != secondNumber * secondScale,
+            let distance = KnowledgeEvidenceOutcomeEvaluator.ulpDistance(
+              firstNumber * firstScale, secondNumber * secondScale),
+            distance <= KnowledgeEvidenceOutcomeEvaluator.maximumEquivalentULPDistance
+          else { continue }
+          issues.append(
+            warning(
+              "assertion.near_identical_value",
+              "Assertions '\(first.id)' and '\(second.id)' differ by only \(distance) ULP(s) and will register as conflicting. Align the stored values if they describe the same fact."
+            ))
+        }
+      }
+    }
+    return issues.sorted { $0.message < $1.message }
   }
 
   private func validateCalculationContext(

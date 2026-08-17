@@ -562,11 +562,12 @@ public struct KnowledgeEvidenceOutcomeEvaluator: Sendable {
   static let maximumEquivalentULPDistance: UInt64 = 8
 
   static func valuesAreEquivalent(_ lhs: KnowledgeValue, _ rhs: KnowledgeValue) -> Bool {
-    if lhs.type == .number, rhs.type == .number,
-      let lhsNumber = lhs.number, let lhsScale = lhs.scale,
-      let rhsNumber = rhs.number, let rhsScale = rhs.scale
-    {
-      guard lhs.unit == rhs.unit else { return false }
+    if lhs.type == .number || rhs.type == .number {
+      guard lhs.type == .number, rhs.type == .number,
+        let lhsNumber = lhs.number, let lhsScale = lhs.scale,
+        let rhsNumber = rhs.number, let rhsScale = rhs.scale
+      else { return false }
+      guard (lhs.unit ?? "") == (rhs.unit ?? "") else { return false }
       guard let distance = ulpDistance(lhsNumber * lhsScale, rhsNumber * rhsScale) else {
         return false
       }

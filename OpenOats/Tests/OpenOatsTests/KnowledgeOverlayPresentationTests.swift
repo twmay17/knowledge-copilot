@@ -97,6 +97,7 @@ final class KnowledgeOverlayPresentationTests: XCTestCase {
     let hiddenPanel = manager.panel
     let hiddenSidecast = manager.sidecastPanel
     let panelContent = hiddenPanel?.contentView
+    let sidecastContent = hiddenSidecast?.contentView
     let panelFrame = hiddenPanel?.frame
 
     manager.updateHideFromScreenShare(false)
@@ -106,6 +107,7 @@ final class KnowledgeOverlayPresentationTests: XCTestCase {
     XCTAssertTrue(manager.panel !== hiddenPanel)
     XCTAssertTrue(manager.sidecastPanel !== hiddenSidecast)
     XCTAssertTrue(manager.panel?.contentView === panelContent)
+    XCTAssertTrue(manager.sidecastPanel?.contentView === sidecastContent)
     XCTAssertEqual(manager.panel?.frame, panelFrame)
     manager.hide()
     manager.panel?.close()

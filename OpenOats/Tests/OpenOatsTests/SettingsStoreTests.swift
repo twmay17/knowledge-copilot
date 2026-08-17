@@ -1052,6 +1052,13 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertTrue(SettingsStore.foldersOverlap(link.path, real.path))
         XCTAssertTrue(SettingsStore.foldersOverlap(link.path + "/nested", real.path))
 
+        // Multi-level unmaterialized tails through a symlinked ancestor.
+        XCTAssertTrue(SettingsStore.foldersOverlap(link.path + "/a/b/c", real.path))
+        XCTAssertTrue(SettingsStore.foldersOverlap(real.path, link.path + "/a/b/c"))
+        // Fully nonexistent siblings still do not overlap.
+        XCTAssertFalse(
+            SettingsStore.foldersOverlap(base.path + "/ghost-a/x", base.path + "/ghost-b/x"))
+
         // Case aliases on case-insensitive volumes resolve to the same folder
         // (asserted only where the filesystem actually treats them as one).
         let cased = base.appendingPathComponent("CasedFolder", isDirectory: true)

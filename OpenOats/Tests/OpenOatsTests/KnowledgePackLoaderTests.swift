@@ -296,6 +296,71 @@ final class KnowledgePackLoaderTests: XCTestCase {
     }
   }
 
+  func testNearIdenticalNumericAssertionsProduceAuthorWarning() throws {
+    let pack = try makeLoader().load(from: fixtureURL())
+    guard let template = pack.assertions.first(where: { $0.value.type == .number }) else {
+      return XCTFail("fixture has numeric assertions")
+    }
+    // Two assertions for the same fact whose stored doubles differ by 1 ULP.
+    let base = 0.0905
+    let twin = 9.05 / 100.0
+    XCTAssertNotEqual(base, twin, "pair must genuinely drift for this test to mean anything")
+
+    let report = makeLoader().validate(
+      copyReplacingAssertionValues(pack, template: template, numbers: [base, twin])
+    )
+    XCTAssertTrue(report.issues.contains { $0.code == "assertion.near_identical_value" })
+    XCTAssertTrue(
+      report.issues.first { $0.code == "assertion.near_identical_value" }?
+        .severity == .warning)
+  }
+
+  /// Clones `template` once per entry in `numbers`, giving each clone a new
+  /// ID and the replacement number but otherwise copying every field
+  /// verbatim (subject/predicate/qualifiers/kind/confidence/evidenceLinkIDs,
+  /// and the value's unit/scale/text/boolean/date/referenceID), then appends
+  /// the clones to `pack.assertions`. The clones intentionally keep the
+  /// template's evidenceLinkIDs even though those links still point back at
+  /// the template's own ID: the resulting mismatched-evidence/missing-derivation
+  /// errors are unrelated to the near-twin check under test and are expected.
+  private func copyReplacingAssertionValues(
+    _ pack: KnowledgePack,
+    template: KnowledgeAssertion,
+    numbers: [Double]
+  ) -> KnowledgePack {
+    let clones = numbers.enumerated().map { offset, number in
+      KnowledgeAssertion(
+        id: "\(template.id)-near-twin-\(offset)",
+        subject: template.subject,
+        predicate: template.predicate,
+        value: KnowledgeValue(
+          type: template.value.type,
+          text: template.value.text,
+          number: number,
+          boolean: template.value.boolean,
+          date: template.value.date,
+          referenceID: template.value.referenceID,
+          unit: template.value.unit,
+          scale: template.value.scale
+        ),
+        qualifiers: template.qualifiers,
+        kind: template.kind,
+        confidence: template.confidence,
+        evidenceLinkIDs: template.evidenceLinkIDs
+      )
+    }
+    return KnowledgePack(
+      manifest: pack.manifest,
+      sources: pack.sources,
+      passages: pack.passages,
+      assertions: pack.assertions + clones,
+      evidenceLinks: pack.evidenceLinks,
+      calculations: pack.calculations,
+      responseCards: pack.responseCards,
+      questionFamilies: pack.questionFamilies
+    )
+  }
+
   private func directoryContents(at root: URL) throws -> [String: Data] {
     let keys: [URLResourceKey] = [.isRegularFileKey]
     guard

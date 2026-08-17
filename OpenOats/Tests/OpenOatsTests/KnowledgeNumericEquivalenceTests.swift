@@ -79,4 +79,26 @@ final class KnowledgeNumericEquivalenceTests: XCTestCase {
       )
     }
   }
+
+  func testZeroAsRightHandOperandAndTypeMismatchAndMalformedFailClosed() {
+    // Zero symmetry: the guard must hold with zero on either side.
+    XCTAssertFalse(
+      KnowledgeEvidenceOutcomeEvaluator.valuesAreEquivalent(
+        ratio(Double.leastNonzeroMagnitude), ratio(0)))
+
+    // A nil unit and an empty unit describe the same absent unit.
+    let nilUnit = KnowledgeValue(type: .number, number: 0.5, unit: nil, scale: 1)
+    let emptyUnit = KnowledgeValue(type: .number, number: 0.5, unit: "", scale: 1)
+    XCTAssertTrue(KnowledgeEvidenceOutcomeEvaluator.valuesAreEquivalent(nilUnit, emptyUnit))
+
+    // Number vs non-number is never equivalent.
+    let text = KnowledgeValue(type: .text, text: "0.5")
+    XCTAssertFalse(KnowledgeEvidenceOutcomeEvaluator.valuesAreEquivalent(ratio(0.5), text))
+    XCTAssertFalse(KnowledgeEvidenceOutcomeEvaluator.valuesAreEquivalent(text, ratio(0.5)))
+
+    // A malformed number (missing scale) fails closed, never "invalid == invalid".
+    let malformed = KnowledgeValue(type: .number, number: 0.5, unit: "ratio", scale: nil)
+    XCTAssertFalse(KnowledgeEvidenceOutcomeEvaluator.valuesAreEquivalent(malformed, malformed))
+    XCTAssertFalse(KnowledgeEvidenceOutcomeEvaluator.valuesAreEquivalent(malformed, ratio(0.5)))
+  }
 }
