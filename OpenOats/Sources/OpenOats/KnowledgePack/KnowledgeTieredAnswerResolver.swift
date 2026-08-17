@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 public enum KnowledgeAnswerLane: String, CaseIterable, Codable, Equatable, Sendable {
   case hot
@@ -246,11 +247,6 @@ public struct KnowledgeTieredAnswerResolver: Sendable {
   private struct Budgeted<Value: Sendable>: Sendable {
     let value: Value?
     let timing: KnowledgeAnswerLaneTiming
-  }
-
-  private enum BudgetRace<Value: Sendable>: Sendable {
-    case value(Value?)
-    case timeout
   }
 
   fileprivate struct Proposal: Sendable {
@@ -664,26 +660,41 @@ public struct KnowledgeTieredAnswerResolver: Sendable {
         )
       )
     }
-    let value: Value? = await withTaskGroup(
-      of: BudgetRace<Value>.self,
-      returning: Value?.self
-    ) { group in
-      group.addTask {
-        guard !Task.isCancelled else { return .value(nil) }
-        let value = await operation()
-        guard !Task.isCancelled else { return .value(nil) }
-        return .value(value)
+    // A structured race cannot return before its children finish, so a
+    // cancellation-resistant adapter would stall the stream past every
+    // budget. Run the operation as an explicit task, resume a continuation
+    // exactly once (result or timeout), and forward cancellation to the
+    // operation task from both the timeout path and outer cancellation —
+    // cooperative adapters still stop promptly; resistant ones leak a
+    // discarded background task instead of blocking the answer stream.
+    let operationTask = Task { await operation() }
+    let resumed = OSAllocatedUnfairLock(initialState: false)
+    let value: Value? = await withTaskCancellationHandler {
+      await withCheckedContinuation { (continuation: CheckedContinuation<Value?, Never>) in
+        Task {
+          let result = await operationTask.value
+          let claimed = resumed.withLock { state -> Bool in
+            if state { return false }
+            state = true
+            return true
+          }
+          if claimed { continuation.resume(returning: result) }
+        }
+        Task {
+          try? await Task.sleep(for: .milliseconds(budgetMilliseconds))
+          let claimed = resumed.withLock { state -> Bool in
+            if state { return false }
+            state = true
+            return true
+          }
+          if claimed {
+            operationTask.cancel()
+            continuation.resume(returning: nil)
+          }
+        }
       }
-      group.addTask {
-        try? await Task.sleep(for: .milliseconds(budgetMilliseconds))
-        return .timeout
-      }
-      guard let first = await group.next() else { return nil }
-      group.cancelAll()
-      switch first {
-      case .value(let value): return value
-      case .timeout: return nil
-      }
+    } onCancel: {
+      operationTask.cancel()
     }
     let elapsed = start.duration(to: clock.now)
     return Budgeted(

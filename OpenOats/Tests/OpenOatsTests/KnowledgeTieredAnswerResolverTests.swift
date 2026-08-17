@@ -234,6 +234,37 @@ final class KnowledgeTieredAnswerResolverTests: XCTestCase {
     XCTAssertEqual(synthesisCallCount, 1)
   }
 
+  func testCancellationResistantSynthesizerCannotStallTheAnswerStream() async throws {
+    let budgets = KnowledgeAnswerLatencyBudgets(
+      hotMilliseconds: 40,
+      warmMilliseconds: 200,
+      coldMilliseconds: 10
+    )
+    let resolver = try makeResolver(packTransform: removingResponseCards, budgets: budgets)
+    let synthesizer = ResistantSynthesizer()
+    let clock = ContinuousClock()
+    let start = clock.now
+
+    let updates = await Self.collect(
+      resolver.updates(
+        for: .questionStable(roomCountCandidate()),
+        synthesizer: synthesizer,
+        networkMode: .externalAllowed
+      ))
+    let elapsed = start.duration(to: clock.now)
+
+    XCTAssertFalse(updates.contains { $0.lane == .cold })
+    XCTAssertLessThan(
+      milliseconds(elapsed), 250, "the stream must close on budget, not on the adapter")
+    let callCount = await synthesizer.callCount
+    XCTAssertEqual(callCount, 1)
+
+    // The leaked background task completes on its own schedule and is discarded.
+    try await Task.sleep(for: .milliseconds(500))
+    let finished = await synthesizer.finished
+    XCTAssertTrue(finished)
+  }
+
   func testOfflineModeCompletesGroundedLoopWithoutCallingExternalAdapters() async throws {
     let vectorAdapter = CountingVectorAdapter()
     let synthesizer = RecordingSynthesizer(behavior: .valid)
@@ -805,5 +836,26 @@ private actor RecordingSynthesizer: KnowledgeConstrainedAnswerSynthesizer {
         citedEvidenceRecordIDs: validCitations
       )
     }
+  }
+}
+
+private actor ResistantSynthesizer: KnowledgeConstrainedAnswerSynthesizer {
+  private(set) var callCount = 0
+  private(set) var finished = false
+
+  func synthesize(
+    _ envelope: KnowledgeConstrainedSynthesisEnvelope
+  ) async throws -> KnowledgeConstrainedSynthesisOutput {
+    callCount += 1
+    // Deliberately ignores cancellation: swallows the sleep error and keeps
+    // going until its own deadline.
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: .milliseconds(400))
+    while clock.now < deadline {
+      try? await Task.sleep(for: .milliseconds(20))
+    }
+    finished = true
+    return KnowledgeConstrainedSynthesisOutput(
+      title: "late", answer: "late", citedEvidenceRecordIDs: [])
   }
 }
