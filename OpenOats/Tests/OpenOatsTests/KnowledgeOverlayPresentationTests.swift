@@ -1,4 +1,5 @@
 import HospitalityDomainProfile
+import SwiftUI
 import XCTest
 
 @testable import OpenOatsKit
@@ -62,22 +63,71 @@ final class KnowledgeOverlayPresentationTests: XCTestCase {
   }
 
   @MainActor
-  func testOverlayPanelsApplyScreenShareVisibilityAtRuntime() {
-    let overlay = OverlayPanel(contentRect: NSRect(x: 0, y: 0, width: 320, height: 200))
-    let miniBar = MiniBarPanel(contentRect: NSRect(x: 0, y: 0, width: 40, height: 18))
+  func testPanelsHideFromCaptureAndFreshPanelsAreCapturable() {
+    let overlay = OverlayPanel(
+      contentRect: NSRect(x: 0, y: 0, width: 320, height: 200),
+      hideFromScreenShare: false
+    )
+    let miniBar = MiniBarPanel(
+      contentRect: NSRect(x: 0, y: 0, width: 40, height: 18),
+      hideFromScreenShare: false
+    )
+    XCTAssertEqual(overlay.sharingType, .readOnly)
+    XCTAssertEqual(miniBar.sharingType, .readOnly)
 
     overlay.applyHideFromScreenShare(true)
     miniBar.applyHideFromScreenShare(true)
     XCTAssertEqual(overlay.sharingType, .none)
     XCTAssertEqual(miniBar.sharingType, .none)
-
-    overlay.applyHideFromScreenShare(false)
-    miniBar.applyHideFromScreenShare(false)
-    XCTAssertEqual(overlay.sharingType, .readOnly)
-    XCTAssertEqual(miniBar.sharingType, .readOnly)
-
+    // Assigning .readOnly after .none is refused by macOS (one-way
+    // capture-exclusion ratchet), so there is no restore assertion here:
+    // the managers rebuild panels instead — see the manager tests below.
     overlay.close()
     miniBar.close()
+  }
+
+  @MainActor
+  func testOverlayManagerRebuildsPanelsToRestoreCaptureVisibility() {
+    let manager = OverlayManager()
+    manager.showSidePanel(content: Text("panel"))
+    manager.showSidecastSidebar(content: Text("sidecast"))
+    manager.updateHideFromScreenShare(true)
+    XCTAssertEqual(manager.panel?.sharingType, NSWindow.SharingType.none)
+    XCTAssertEqual(manager.sidecastPanel?.sharingType, NSWindow.SharingType.none)
+    let hiddenPanel = manager.panel
+    let hiddenSidecast = manager.sidecastPanel
+    let panelContent = hiddenPanel?.contentView
+    let panelFrame = hiddenPanel?.frame
+
+    manager.updateHideFromScreenShare(false)
+
+    XCTAssertEqual(manager.panel?.sharingType, .readOnly)
+    XCTAssertEqual(manager.sidecastPanel?.sharingType, .readOnly)
+    XCTAssertTrue(manager.panel !== hiddenPanel)
+    XCTAssertTrue(manager.sidecastPanel !== hiddenSidecast)
+    XCTAssertTrue(manager.panel?.contentView === panelContent)
+    XCTAssertEqual(manager.panel?.frame, panelFrame)
+    manager.hide()
+    manager.panel?.close()
+    manager.sidecastPanel?.close()
+  }
+
+  @MainActor
+  func testMiniBarManagerRebuildsPanelToRestoreCaptureVisibility() {
+    let manager = MiniBarManager()
+    manager.show()
+    manager.updateHideFromScreenShare(true)
+    XCTAssertEqual(manager.panel?.sharingType, NSWindow.SharingType.none)
+    let hidden = manager.panel
+    let content = hidden?.contentView
+
+    manager.updateHideFromScreenShare(false)
+
+    XCTAssertEqual(manager.panel?.sharingType, .readOnly)
+    XCTAssertTrue(manager.panel !== hidden)
+    XCTAssertTrue(manager.panel?.contentView === content)
+    manager.hide()
+    manager.panel?.close()
   }
 
   func testEveryEvidenceStateHasExplicitLanguageIndependentOfColor() {

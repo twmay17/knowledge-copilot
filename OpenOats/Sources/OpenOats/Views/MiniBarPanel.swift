@@ -5,7 +5,11 @@ import SwiftUI
 /// Unlike the full OverlayPanel, this is a compact pill showing waveform
 /// and suggestion bubbles.
 final class MiniBarPanel: NSPanel {
-    init(contentRect: NSRect, defaults: UserDefaults = .standard) {
+    init(
+        contentRect: NSRect,
+        defaults: UserDefaults = .standard,
+        hideFromScreenShare: Bool? = nil
+    ) {
         super.init(
             contentRect: contentRect,
             styleMask: [.nonactivatingPanel, .fullSizeContentView, .borderless],
@@ -15,9 +19,10 @@ final class MiniBarPanel: NSPanel {
 
         isFloatingPanel = true
         level = .floating
-        let hidden = defaults.object(forKey: "hideFromScreenShare") == nil
-            ? true
-            : defaults.bool(forKey: "hideFromScreenShare")
+        let hidden = hideFromScreenShare
+            ?? (defaults.object(forKey: "hideFromScreenShare") == nil
+                ? true
+                : defaults.bool(forKey: "hideFromScreenShare"))
         sharingType = hidden ? .none : .readOnly
         isMovableByWindowBackground = true
         titlebarAppearsTransparent = true
@@ -52,7 +57,7 @@ final class MiniBarState {
 /// The NSHostingView is created once; subsequent updates mutate `state`.
 @MainActor
 final class MiniBarManager: ObservableObject {
-    private var panel: MiniBarPanel?
+    private(set) var panel: MiniBarPanel?
     private var hostingView: NSHostingView<AnyView>?
     let state = MiniBarState()
     var defaults: UserDefaults = .standard
@@ -100,6 +105,27 @@ final class MiniBarManager: ObservableObject {
     }
 
     func updateHideFromScreenShare(_ enabled: Bool) {
-        panel?.applyHideFromScreenShare(enabled)
+        guard let existing = panel else { return }
+        existing.applyHideFromScreenShare(enabled)
+        guard !enabled, existing.sharingType != .readOnly else { return }
+
+        // macOS refuses to make a window capturable again once it has been
+        // excluded (one-way ratchet); rebuild the panel and transplant its
+        // content and placement. MiniBarPanel sets its own autosave name.
+        let frame = existing.frame
+        let wasVisible = existing.isVisible
+        let content = existing.contentView
+        let replacement = MiniBarPanel(
+            contentRect: frame,
+            defaults: defaults,
+            hideFromScreenShare: false
+        )
+        existing.close()
+        replacement.contentView = content
+        replacement.setFrame(frame, display: false)
+        if wasVisible {
+            replacement.orderFront(nil)
+        }
+        panel = replacement
     }
 }

@@ -5,7 +5,12 @@ import SwiftUI
 final class OverlayPanel: NSPanel {
     var onClose: (() -> Void)?
 
-    init(contentRect: NSRect, defaults: UserDefaults = .standard, alwaysOnTop: Bool = true) {
+    init(
+        contentRect: NSRect,
+        defaults: UserDefaults = .standard,
+        alwaysOnTop: Bool = true,
+        hideFromScreenShare: Bool? = nil
+    ) {
         super.init(
             contentRect: contentRect,
             styleMask: [.nonactivatingPanel, .titled, .closable, .resizable, .fullSizeContentView],
@@ -15,9 +20,10 @@ final class OverlayPanel: NSPanel {
 
         isFloatingPanel = alwaysOnTop
         level = alwaysOnTop ? .floating : .normal
-        let hidden = defaults.object(forKey: "hideFromScreenShare") == nil
-            ? true
-            : defaults.bool(forKey: "hideFromScreenShare")
+        let hidden = hideFromScreenShare
+            ?? (defaults.object(forKey: "hideFromScreenShare") == nil
+                ? true
+                : defaults.bool(forKey: "hideFromScreenShare"))
         sharingType = hidden ? .none : .readOnly
         isMovableByWindowBackground = true
         titlebarAppearsTransparent = true
@@ -51,8 +57,8 @@ final class OverlayPanel: NSPanel {
 /// Manages the floating suggestion side panel lifecycle.
 @MainActor
 final class OverlayManager: ObservableObject {
-    private var panel: OverlayPanel?
-    private var sidecastPanel: OverlayPanel?
+    private(set) var panel: OverlayPanel?
+    private(set) var sidecastPanel: OverlayPanel?
     private var hostingView: NSHostingView<AnyView>?
     private var sidecastHostingView: NSHostingView<AnyView>?
     private var globalKeyboardMonitor: Any?
@@ -179,8 +185,49 @@ final class OverlayManager: ObservableObject {
     }
 
     func updateHideFromScreenShare(_ enabled: Bool) {
-        panel?.applyHideFromScreenShare(enabled)
-        sidecastPanel?.applyHideFromScreenShare(enabled)
+        panel = Self.panelHonoringScreenShare(panel, hidden: enabled, defaults: defaults)
+        sidecastPanel = Self.panelHonoringScreenShare(
+            sidecastPanel, hidden: enabled, defaults: defaults
+        )
+    }
+
+    /// Applies the requested capture visibility. macOS refuses to make a
+    /// window capturable again once it has been excluded (`sharingType`
+    /// ratchets one way per window), so re-enabling capture rebuilds the
+    /// panel and transplants its content, frame, and configuration.
+    private static func panelHonoringScreenShare(
+        _ existing: OverlayPanel?,
+        hidden: Bool,
+        defaults: UserDefaults
+    ) -> OverlayPanel? {
+        guard let existing else { return nil }
+        existing.applyHideFromScreenShare(hidden)
+        guard !hidden, existing.sharingType != .readOnly else { return existing }
+
+        let frame = existing.frame
+        let wasVisible = existing.isVisible
+        let autosaveName = existing.frameAutosaveName
+        let content = existing.contentView
+        let replacement = OverlayPanel(
+            contentRect: frame,
+            defaults: defaults,
+            alwaysOnTop: existing.isFloatingPanel,
+            hideFromScreenShare: false
+        )
+        replacement.onClose = existing.onClose
+        replacement.minSize = existing.minSize
+        replacement.maxSize = existing.maxSize
+        existing.onClose = nil
+        existing.close()
+        replacement.contentView = content
+        if !autosaveName.isEmpty {
+            replacement.setFrameAutosaveName(autosaveName)
+        }
+        replacement.setFrame(frame, display: false)
+        if wasVisible {
+            replacement.orderFront(nil)
+        }
+        return replacement
     }
 
     /// Hide after a delay (used for session end).
