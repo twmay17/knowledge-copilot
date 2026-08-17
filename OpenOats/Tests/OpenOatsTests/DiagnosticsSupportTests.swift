@@ -38,6 +38,40 @@ final class DiagnosticsSupportTests: XCTestCase {
         XCTAssertTrue(report.contains("test line"))
     }
 
+    func testDiagnosticsReportRedactsCredentialMaterial() {
+        let secret = "sk-proj-abcdefghijklmnopqrstuvwxyz123456"
+        let appInfo = DiagnosticsReportBuilder.AppInfo(
+            generatedAt: Date(timeIntervalSince1970: 0),
+            bundleIdentifier: "com.openoats.test",
+            version: "1.0",
+            build: "1",
+            macOSVersion: "Test"
+        )
+        let settings = DiagnosticsSettingsSnapshot(
+            notesGenerationProvider: "local",
+            transcriptionModel: "local",
+            batchTranscriptionModel: "local",
+            knowledgeRetrievalProvider: "local",
+            knowledgeBaseConfigured: true,
+            meetingDetectionEnabled: false,
+            calendarIntegrationEnabled: false,
+            saveAudioRecording: false,
+            batchRetranscriptionEnabled: false,
+            diagnosticLoggingEnabled: true
+        )
+
+        let report = DiagnosticsReportBuilder.buildText(
+            appInfo: appInfo,
+            settings: settings,
+            breadcrumbs: "provider api_key=\(secret)",
+            unifiedLog: "Authorization: Bearer abcdefghijklmnop"
+        )
+
+        XCTAssertFalse(report.contains(secret))
+        XCTAssertFalse(report.contains("abcdefghijklmnop"))
+        XCTAssertTrue(report.contains("<redacted:"))
+    }
+
     func testSystemAudioDiagnosticsMessageIsStructuredJSON() throws {
         let event = SystemAudioCapture.SystemAudioDiagnosticsEvent(
             event: "system_audio_tap_format_exhausted",

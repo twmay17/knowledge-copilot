@@ -48,6 +48,19 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual(store.llmProvider, .openRouter)
     }
 
+    func testKnowledgeNetworkModeDefaultsAndPersists() {
+        let suiteName = "com.openoats.test.knowledge-network.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+
+        let store = makeStore(defaults: defaults)
+        XCTAssertEqual(store.knowledgeNetworkMode, .externalAllowed)
+
+        store.knowledgeNetworkMode = .offline
+        XCTAssertEqual(defaults.string(forKey: "knowledgeNetworkMode"), "offline")
+        XCTAssertEqual(makeStore(defaults: defaults).knowledgeNetworkMode, .offline)
+    }
+
     func testOpenRouterApiKeyAutoTrimsWhitespace() {
         let store = makeStore()
         store.openRouterApiKey = "  sk-or-v1-abc123  \n"
@@ -887,6 +900,29 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual(store.lmStudioApiKey, "lm-updated")
         XCTAssertEqual(tracker.loadedKeys, ["openRouterApiKey", "lmStudioApiKey"])
         XCTAssertEqual(tracker.savedValues["lmStudioApiKey"], "lm-updated")
+    }
+
+    func testAPISecretsUseSecretStoreAndNeverPersistToUserDefaults() {
+        let suiteName = "com.openoats.test.secrets.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        let tracker = LoadTracker()
+        let secretStore = AppSecretStore(
+            loadValue: { _ in nil },
+            saveValue: { key, value in tracker.savedValues[key] = value }
+        )
+        let store = makeStore(defaults: defaults, secretStore: secretStore)
+
+        store.openAIApiKey = "sk-proj-abcdefghijklmnopqrstuvwxyz123456"
+        store.webhookSecret = "super-secret-webhook-value"
+
+        XCTAssertEqual(
+            tracker.savedValues["openAIApiKey"],
+            "sk-proj-abcdefghijklmnopqrstuvwxyz123456"
+        )
+        XCTAssertEqual(tracker.savedValues["webhookSecret"], "super-secret-webhook-value")
+        XCTAssertNil(defaults.object(forKey: "openAIApiKey"))
+        XCTAssertNil(defaults.object(forKey: "webhookSecret"))
     }
 
     // MARK: - Cloud ASR API Keys

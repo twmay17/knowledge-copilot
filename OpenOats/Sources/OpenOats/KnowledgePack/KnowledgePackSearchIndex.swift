@@ -137,19 +137,27 @@ public struct KnowledgePackVectorSearchRequest: Equatable, Sendable {
   public let query: String
   public let candidates: [KnowledgePackVectorCandidate]
   public let limit: Int
+  public let disclosure: KnowledgeVectorSearchDisclosure
 
   public init(
     packID: String,
     packContentHash: String,
     query: String,
     candidates: [KnowledgePackVectorCandidate],
-    limit: Int
+    limit: Int,
+    destination: KnowledgeDataDestination
   ) {
     self.packID = packID
     self.packContentHash = packContentHash
     self.query = query
     self.candidates = candidates
     self.limit = limit
+    disclosure = KnowledgeVectorSearchDisclosure(
+      destination: destination,
+      candidateRecordCount: candidates.count,
+      queryCharacterCount: query.count,
+      candidateSearchTextCharacterCount: candidates.reduce(0) { $0 + $1.text.count }
+    )
   }
 }
 
@@ -164,8 +172,14 @@ public struct KnowledgePackVectorMatch: Equatable, Sendable {
 }
 
 public protocol KnowledgePackVectorSearchAdapter: Sendable {
+  var dataDestination: KnowledgeDataDestination { get }
+
   func search(_ request: KnowledgePackVectorSearchRequest) async throws
     -> [KnowledgePackVectorMatch]
+}
+
+extension KnowledgePackVectorSearchAdapter {
+  public var dataDestination: KnowledgeDataDestination { .externalProvider }
 }
 
 public enum KnowledgePackSearchError: Error, Equatable, CustomStringConvertible {
@@ -351,7 +365,8 @@ public final class KnowledgePackSearchIndex: @unchecked Sendable {
           packContentHash: packContentHash,
           query: prepared.text,
           candidates: candidates,
-          limit: prepared.limit
+          limit: prepared.limit,
+          destination: vectorAdapter.dataDestination
         )
       )
     } catch {

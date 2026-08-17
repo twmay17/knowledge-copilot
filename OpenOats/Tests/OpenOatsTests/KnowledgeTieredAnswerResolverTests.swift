@@ -148,15 +148,16 @@ final class KnowledgeTieredAnswerResolverTests: XCTestCase {
     XCTAssertEqual(updates.last?.supersedesUpdateID, updates.first?.id)
     XCTAssertEqual(updates.last?.timing?.budgetMilliseconds, 2_000)
 
-    let recordedRequest = await synthesizer.lastRequest
-    let request = try XCTUnwrap(recordedRequest)
-    XCTAssertEqual(request.packID, "synthetic-hotel-2020-v1")
-    XCTAssertEqual(request.eventID, "remote#room-count")
-    XCTAssertFalse(request.evidenceRecords.isEmpty)
+    let recordedEnvelope = await synthesizer.lastEnvelope
+    let envelope = try XCTUnwrap(recordedEnvelope)
+    XCTAssertEqual(envelope.packID, "synthetic-hotel-2020-v1")
+    XCTAssertEqual(envelope.eventID, "remote#room-count")
+    XCTAssertFalse(envelope.allowedEvidenceRecordIDs.isEmpty)
     XCTAssertTrue(
-      request.evidenceRecords.contains { $0.id == "assertion:assertion-room-count-2020" })
+      envelope.allowedEvidenceRecordIDs.contains("assertion:assertion-room-count-2020"))
     XCTAssertTrue(
-      request.citationRequirements.allSatisfy { !$0.anyOfEvidenceRecordIDs.isEmpty })
+      envelope.citationRequirements.allSatisfy { !$0.anyOfEvidenceRecordIDs.isEmpty })
+    XCTAssertTrue(envelope.disclosure.leavesDevice)
   }
 
   func testUnknownOrIncompleteSynthesisCitationsAreRejectedByEvidenceGate() async throws {
@@ -203,6 +204,27 @@ final class KnowledgeTieredAnswerResolverTests: XCTestCase {
     XCTAssertLessThan(milliseconds(elapsed), 150)
     let synthesisCallCount = await synthesizer.callCount
     XCTAssertEqual(synthesisCallCount, 1)
+  }
+
+  func testOfflineModeCompletesGroundedLoopWithoutCallingExternalAdapters() async throws {
+    let vectorAdapter = CountingVectorAdapter()
+    let synthesizer = RecordingSynthesizer(behavior: .valid)
+    let resolver = try makeResolver(packTransform: removingResponseCards)
+
+    let updates = await Self.collect(
+      resolver.updates(
+        for: .questionStable(roomCountCandidate()),
+        vectorAdapter: vectorAdapter,
+        synthesizer: synthesizer,
+        networkMode: .offline
+      ))
+
+    XCTAssertTrue(updates.contains { $0.supportLevel == .corpusVerified })
+    XCTAssertFalse(updates.contains { $0.presentationQuality == .constrainedSynthesis })
+    let vectorCallCount = await vectorAdapter.callCount
+    let synthesisCallCount = await synthesizer.callCount
+    XCTAssertEqual(vectorCallCount, 0)
+    XCTAssertEqual(synthesisCallCount, 0)
   }
 
   func testHotAndWarmReplayP50MeetComponentAndLiveTargets() async throws {
@@ -347,6 +369,29 @@ final class KnowledgeTieredAnswerResolverTests: XCTestCase {
     let clearedUpdates = await Self.collect(
       store.answerUpdates(for: .questionStable(roomCountCandidate())))
     XCTAssertTrue(clearedUpdates.isEmpty)
+  }
+
+  @MainActor
+  func testStoreAppliesOfflineModeAndClearsExistingOverlayState() async throws {
+    let store = KnowledgePackStore(profileRegistry: registry)
+    await store.load(fromPath: fixtureURL().path)
+    _ = store.processLiveTranscriptRevision(
+      TranscriptRevision(
+        streamID: "remote",
+        sequence: 1,
+        text: "What was RevPAR in 2020?",
+        stability: .final
+      ))
+    for _ in 0..<100 where store.visibleOverlayCards.isEmpty {
+      try await Task.sleep(for: .milliseconds(5))
+    }
+    XCTAssertFalse(store.visibleOverlayCards.isEmpty)
+
+    store.setNetworkMode(.offline)
+
+    XCTAssertEqual(store.networkMode, .offline)
+    XCTAssertTrue(store.visibleOverlayCards.isEmpty)
+    XCTAssertEqual(store.activeTieredAnswerTaskCount, 0)
   }
 
   @MainActor
@@ -546,6 +591,17 @@ private actor CancellationObservingVectorAdapter: KnowledgePackVectorSearchAdapt
   }
 }
 
+private actor CountingVectorAdapter: KnowledgePackVectorSearchAdapter {
+  private(set) var callCount = 0
+
+  func search(_ request: KnowledgePackVectorSearchRequest) async throws
+    -> [KnowledgePackVectorMatch]
+  {
+    callCount += 1
+    return []
+  }
+}
+
 private actor RecordingSynthesizer: KnowledgeConstrainedAnswerSynthesizer {
   enum Behavior: Sendable {
     case valid
@@ -555,7 +611,7 @@ private actor RecordingSynthesizer: KnowledgeConstrainedAnswerSynthesizer {
   }
 
   private(set) var callCount = 0
-  private(set) var lastRequest: KnowledgeConstrainedSynthesisRequest?
+  private(set) var lastEnvelope: KnowledgeConstrainedSynthesisEnvelope?
   private let behavior: Behavior
 
   init(behavior: Behavior) {
@@ -563,14 +619,14 @@ private actor RecordingSynthesizer: KnowledgeConstrainedAnswerSynthesizer {
   }
 
   func synthesize(
-    _ request: KnowledgeConstrainedSynthesisRequest
+    _ envelope: KnowledgeConstrainedSynthesisEnvelope
   ) async throws -> KnowledgeConstrainedSynthesisOutput {
     callCount += 1
-    lastRequest = request
+    lastEnvelope = envelope
     if case .delayed(let milliseconds) = behavior {
       try await Task.sleep(for: .milliseconds(milliseconds))
     }
-    let validCitations = request.citationRequirements.compactMap {
+    let validCitations = envelope.citationRequirements.compactMap {
       $0.anyOfEvidenceRecordIDs.sorted().first
     }
     let citations: [String]

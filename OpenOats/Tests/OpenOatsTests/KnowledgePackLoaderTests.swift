@@ -11,6 +11,38 @@ final class KnowledgePackLoaderTests: XCTestCase {
     XCTAssertTrue(report.errors.isEmpty)
   }
 
+  func testCredentialLikeMaterialInPackRecordsFailsClosedWithoutEchoingSecret() {
+    let valid = makeValidPack()
+    let secret = "sk-proj-abcdefghijklmnopqrstuvwxyz123456"
+    let original = valid.passages[0]
+    let taintedPassage = KnowledgePassage(
+      id: original.id,
+      sourceID: original.sourceID,
+      text: "Internal API key: \(secret)",
+      locator: original.locator,
+      extraction: original.extraction,
+      spreadsheet: original.spreadsheet
+    )
+    let tainted = KnowledgePack(
+      manifest: valid.manifest,
+      sources: valid.sources,
+      passages: [taintedPassage],
+      assertions: valid.assertions,
+      evidenceLinks: valid.evidenceLinks,
+      calculations: valid.calculations,
+      responseCards: valid.responseCards,
+      questionFamilies: valid.questionFamilies
+    )
+
+    let report = makeLoader().validate(tainted)
+    let securityIssues = report.errors.filter { $0.code == "security.secret_detected" }
+
+    XCTAssertFalse(report.isValid)
+    XCTAssertFalse(securityIssues.isEmpty)
+    XCTAssertTrue(securityIssues.allSatisfy { !$0.message.contains(secret) })
+    XCTAssertTrue(securityIssues.contains { $0.message.contains("passages.jsonl record 1 text") })
+  }
+
   func testCalculatedCardRequiresRecordedCalculation() {
     let valid = makeValidPack()
     let invalidCard = KnowledgeResponseCard(
@@ -226,8 +258,9 @@ final class KnowledgePackLoaderTests: XCTestCase {
   }
 
   @MainActor
-  func testAppStoreLoadsAndSummarizesFixture() async {
+  func testAppStoreLoadsInPlaceWithoutMutatingOrCopyingFixture() async throws {
     let fixture = fixtureURL()
+    let contentsBeforeLoad = try directoryContents(at: fixture)
     let store = KnowledgePackStore(
       profileRegistry: KnowledgeDomainProfileRegistry(profiles: [HospitalityDomainProfile()]))
 
@@ -240,6 +273,28 @@ final class KnowledgePackLoaderTests: XCTestCase {
     XCTAssertEqual(summary.sourceCount, 3)
     XCTAssertEqual(summary.assertionCount, 18)
     XCTAssertEqual(summary.responseCardCount, 9)
+    XCTAssertEqual(store.selectedPackDirectory?.standardizedFileURL, fixture.standardizedFileURL)
+    XCTAssertEqual(try directoryContents(at: fixture), contentsBeforeLoad)
+  }
+
+  private func directoryContents(at root: URL) throws -> [String: Data] {
+    let keys: [URLResourceKey] = [.isRegularFileKey]
+    guard
+      let enumerator = FileManager.default.enumerator(
+        at: root,
+        includingPropertiesForKeys: keys,
+        options: [.skipsHiddenFiles]
+      )
+    else { return [:] }
+
+    var result: [String: Data] = [:]
+    for case let fileURL as URL in enumerator {
+      let values = try fileURL.resourceValues(forKeys: Set(keys))
+      guard values.isRegularFile == true else { continue }
+      let relativePath = String(fileURL.path.dropFirst(root.path.count + 1))
+      result[relativePath] = try Data(contentsOf: fileURL)
+    }
+    return result
   }
 
   private func makeLoader() -> KnowledgePackLoader {

@@ -68,6 +68,8 @@ struct DiagnosticsReportBuilder {
         breadcrumbs: String,
         unifiedLog: String
     ) -> String {
+        let safeBreadcrumbs = SensitiveDataGuard.redacted(breadcrumbs)
+        let safeUnifiedLog = SensitiveDataGuard.redacted(unifiedLog)
         let formatter = ISO8601DateFormatter()
         var lines: [String] = []
         lines.append("OpenOats Diagnostics Export")
@@ -91,11 +93,11 @@ struct DiagnosticsReportBuilder {
         lines.append("")
         lines.append("Breadcrumbs")
         lines.append("-----------")
-        lines.append(breadcrumbs.isEmpty ? "(none)" : breadcrumbs)
+        lines.append(safeBreadcrumbs.isEmpty ? "(none)" : safeBreadcrumbs)
         lines.append("")
         lines.append("Unified Log")
         lines.append("-----------")
-        lines.append(unifiedLog.isEmpty ? "(no recent log entries)" : unifiedLog)
+        lines.append(safeUnifiedLog.isEmpty ? "(no recent log entries)" : safeUnifiedLog)
         lines.append("")
         return lines.joined(separator: "\n")
     }
@@ -110,7 +112,9 @@ actor DiagnosticsBreadcrumbStore {
     func record(category: String, message: String) {
         guard UserDefaults.standard.bool(forKey: key) else { return }
         let formatter = ISO8601DateFormatter()
-        let line = "[\(formatter.string(from: Date()))] [\(category)] \(message)\n"
+        let safeCategory = SensitiveDataGuard.redacted(category)
+        let safeMessage = SensitiveDataGuard.redacted(message)
+        let line = "[\(formatter.string(from: Date()))] [\(safeCategory)] \(safeMessage)\n"
         let url = breadcrumbsURL()
         let directory = url.deletingLastPathComponent()
         do {

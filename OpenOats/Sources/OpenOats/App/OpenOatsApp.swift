@@ -37,7 +37,10 @@ public struct OpenOatsRootApp: App {
         self._container = State(initialValue: context.container)
         self._whatsNewController = State(initialValue: WhatsNewController(defaults: context.container.defaults))
         self._knowledgePackStore = State(
-            initialValue: KnowledgePackStore(profileRegistry: profileRegistry)
+            initialValue: KnowledgePackStore(
+                profileRegistry: profileRegistry,
+                networkMode: context.settings.knowledgeNetworkMode
+            )
         )
         self.updaterController = context.updaterController
         self.defaults = context.container.defaults
@@ -74,6 +77,9 @@ public struct OpenOatsRootApp: App {
                 }
                 .task(id: settings.knowledgePackFolderPath) {
                     await knowledgePackStore.load(fromPath: settings.knowledgePackFolderPath)
+                }
+                .onChange(of: settings.knowledgeNetworkMode) { _, mode in
+                    knowledgePackStore.setNetworkMode(mode)
                 }
                 .onOpenURL { url in
                     guard let command = OpenOatsDeepLink.parse(url) else { return }

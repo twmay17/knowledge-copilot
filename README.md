@@ -73,6 +73,11 @@ evidence links, calculations, response cards, or question families; eight typed 
 every evidence state; and explicit cross-pack scenarios must abstain without leaking a card. See
 [the KnowledgePack correctness gate](docs/correctness-gate.md).
 
+Knowledge Copilot privacy boundaries now include a persisted offline mode, fixed-instruction
+synthesis envelopes, explicit outbound-data disclosure, credential rejection/redaction, and
+root-contained deletion receipts. See
+[security, privacy, and isolation](docs/security-and-isolation.md).
+
 The no-admin Microsoft Teams capture baseline is documented in the
 [Teams audio-capture verification runbook](docs/teams-audio-verification.md), and the consented
 end-to-end private-alpha gate is documented in the

@@ -880,6 +880,10 @@ private struct IntelligenceSettingsTab: View {
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
 
+                    Text("Local storage: OpenOats reads the selected folder in place, creates no app-managed KnowledgePack copy, and keeps its search index in memory. Use FileVault or an encrypted volume to protect the source folder at rest.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+
                     HStack {
                         Text(settings.knowledgePackFolderPath.isEmpty ? "Not set" : settings.knowledgePackFolderPath)
                             .font(.system(size: 12))
@@ -901,6 +905,17 @@ private struct IntelligenceSettingsTab: View {
                             chooseKnowledgePackFolder()
                         }
                     }
+
+                    Picker("Network mode", selection: $settings.knowledgeNetworkMode) {
+                        ForEach(KnowledgeNetworkMode.allCases, id: \.self) { mode in
+                            Text(mode.displayName).tag(mode)
+                        }
+                    }
+                    .font(.system(size: 12))
+
+                    Text(settings.knowledgeNetworkMode.detail)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
 
                     knowledgePackStatus
                 }

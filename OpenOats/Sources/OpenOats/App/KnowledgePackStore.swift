@@ -32,6 +32,7 @@ final class KnowledgePackStore {
   private let loader: KnowledgePackLoader
   private let tieredVectorAdapter: (any KnowledgePackVectorSearchAdapter)?
   private let tieredSynthesizer: (any KnowledgeConstrainedAnswerSynthesizer)?
+  private(set) var networkMode: KnowledgeNetworkMode
   let profileRegistry: KnowledgeDomainProfileRegistry
   private(set) var selectedPack: KnowledgePack?
   private(set) var selectedPackDirectory: URL?
@@ -74,11 +75,13 @@ final class KnowledgePackStore {
   init(
     profileRegistry: KnowledgeDomainProfileRegistry,
     vectorAdapter: (any KnowledgePackVectorSearchAdapter)? = nil,
-    synthesizer: (any KnowledgeConstrainedAnswerSynthesizer)? = nil
+    synthesizer: (any KnowledgeConstrainedAnswerSynthesizer)? = nil,
+    networkMode: KnowledgeNetworkMode = .externalAllowed
   ) {
     self.profileRegistry = profileRegistry
     tieredVectorAdapter = vectorAdapter
     tieredSynthesizer = synthesizer
+    self.networkMode = networkMode
     loader = KnowledgePackLoader(profileRegistry: profileRegistry)
   }
 
@@ -179,6 +182,12 @@ final class KnowledgePackStore {
     state = .idle
   }
 
+  func setNetworkMode(_ mode: KnowledgeNetworkMode) {
+    guard networkMode != mode else { return }
+    networkMode = mode
+    resetOverlayPresentation()
+  }
+
   func searchKnowledgePack(
     _ query: KnowledgePackSearchQuery
   ) throws -> [KnowledgePackSearchResult] {
@@ -191,6 +200,9 @@ final class KnowledgePackStore {
     vectorAdapter: any KnowledgePackVectorSearchAdapter
   ) async throws -> [KnowledgePackSearchResult] {
     guard let searchIndex else { throw KnowledgePackSearchError.indexUnavailable }
+    guard networkMode.permits(vectorAdapter.dataDestination) else {
+      return try searchIndex.search(query)
+    }
     return try await searchIndex.search(query, vectorAdapter: vectorAdapter)
   }
 
@@ -212,7 +224,8 @@ final class KnowledgePackStore {
     return tieredAnswerResolver.updates(
       for: event,
       vectorAdapter: vectorAdapter,
-      synthesizer: synthesizer
+      synthesizer: synthesizer,
+      networkMode: networkMode
     )
   }
 
@@ -404,11 +417,13 @@ final class KnowledgePackStore {
       tieredAnswerTaskStartCount += 1
       let vectorAdapter = tieredVectorAdapter
       let synthesizer = tieredSynthesizer
+      let networkMode = networkMode
       tieredAnswerTasks[taskKey] = Task { @MainActor [weak self] in
         for await update in resolver.updates(
           for: event,
           vectorAdapter: vectorAdapter,
-          synthesizer: synthesizer
+          synthesizer: synthesizer,
+          networkMode: networkMode
         ) {
           guard !Task.isCancelled, let self else { break }
           var presentation = self.overlayPresentation

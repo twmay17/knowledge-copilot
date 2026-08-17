@@ -148,9 +148,15 @@ public struct KnowledgeConstrainedSynthesisOutput: Equatable, Sendable {
 
 /// Capability-poor by construction: implementations receive evidence, not a search or tool API.
 public protocol KnowledgeConstrainedAnswerSynthesizer: Sendable {
+  var dataDestination: KnowledgeDataDestination { get }
+
   func synthesize(
-    _ request: KnowledgeConstrainedSynthesisRequest
+    _ envelope: KnowledgeConstrainedSynthesisEnvelope
   ) async throws -> KnowledgeConstrainedSynthesisOutput
+}
+
+extension KnowledgeConstrainedAnswerSynthesizer {
+  public var dataDestination: KnowledgeDataDestination { .externalProvider }
 }
 
 public enum KnowledgeTieredAnswerPayload: Equatable, Sendable {
@@ -290,7 +296,8 @@ public struct KnowledgeTieredAnswerResolver: Sendable {
   public func updates(
     for event: KnowledgeLiveEvent,
     vectorAdapter: (any KnowledgePackVectorSearchAdapter)? = nil,
-    synthesizer: (any KnowledgeConstrainedAnswerSynthesizer)? = nil
+    synthesizer: (any KnowledgeConstrainedAnswerSynthesizer)? = nil,
+    networkMode: KnowledgeNetworkMode = .externalAllowed
   ) -> AsyncStream<KnowledgeTieredAnswerUpdate> {
     AsyncStream { continuation in
       let task = Task {
@@ -298,6 +305,7 @@ public struct KnowledgeTieredAnswerResolver: Sendable {
           event,
           vectorAdapter: vectorAdapter,
           synthesizer: synthesizer,
+          networkMode: networkMode,
           continuation: continuation
         )
       }
@@ -309,6 +317,7 @@ public struct KnowledgeTieredAnswerResolver: Sendable {
     _ event: KnowledgeLiveEvent,
     vectorAdapter: (any KnowledgePackVectorSearchAdapter)?,
     synthesizer: (any KnowledgeConstrainedAnswerSynthesizer)?,
+    networkMode: KnowledgeNetworkMode,
     continuation: AsyncStream<KnowledgeTieredAnswerUpdate>.Continuation
   ) async {
     defer { continuation.finish() }
@@ -346,7 +355,7 @@ public struct KnowledgeTieredAnswerResolver: Sendable {
     let warm = await runWithinBudget(lane: .warm) {
       let query = makeSearchQuery(input)
       let results: [KnowledgePackSearchResult]
-      if let vectorAdapter {
+      if let vectorAdapter, networkMode.permits(vectorAdapter.dataDestination) {
         results = (try? await searchIndex.search(query, vectorAdapter: vectorAdapter)) ?? []
       } else {
         results = (try? searchIndex.search(query)) ?? []
@@ -368,7 +377,8 @@ public struct KnowledgeTieredAnswerResolver: Sendable {
       }
     }
     guard !Task.isCancelled, await state.isCurrent(input), let synthesizer, let admittedEvidence,
-      Self.isCorpusSupported(admittedEvidence.state)
+      Self.isCorpusSupported(admittedEvidence.state),
+      networkMode.permits(synthesizer.dataDestination)
     else { return }
 
     if await state.hasReviewedAnswer(for: input) { return }
@@ -380,9 +390,15 @@ public struct KnowledgeTieredAnswerResolver: Sendable {
     guard !synthesisRequest.evidenceRecords.isEmpty,
       !synthesisRequest.citationRequirements.isEmpty
     else { return }
+    guard
+      let synthesisEnvelope = try? KnowledgeConstrainedSynthesisEnvelope(
+        request: synthesisRequest,
+        destination: synthesizer.dataDestination
+      )
+    else { return }
 
     let cold = await runWithinBudget(lane: .cold) {
-      try? await synthesizer.synthesize(synthesisRequest)
+      try? await synthesizer.synthesize(synthesisEnvelope)
     }
     guard !Task.isCancelled, let output = cold.value,
       Self.isValid(output, for: synthesisRequest),

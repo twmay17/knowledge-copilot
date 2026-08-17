@@ -1381,6 +1381,17 @@ final class SettingsStore {
         }
     }
 
+    @ObservationIgnored nonisolated(unsafe) private var _knowledgeNetworkMode: KnowledgeNetworkMode
+    var knowledgeNetworkMode: KnowledgeNetworkMode {
+        get { access(keyPath: \.knowledgeNetworkMode); return _knowledgeNetworkMode }
+        set {
+            withMutation(keyPath: \.knowledgeNetworkMode) {
+                _knowledgeNetworkMode = newValue
+                defaults.set(newValue.rawValue, forKey: "knowledgeNetworkMode")
+            }
+        }
+    }
+
     @ObservationIgnored nonisolated(unsafe) private var _hasSeenLaunchAtLoginSuggestion: Bool
     var hasSeenLaunchAtLoginSuggestion: Bool {
         get { access(keyPath: \.hasSeenLaunchAtLoginSuggestion); return _hasSeenLaunchAtLoginSuggestion }
@@ -1608,6 +1619,9 @@ final class SettingsStore {
         ) ?? [:]
         self._kbFolderPath = defaults.string(forKey: "kbFolderPath") ?? ""
         self._knowledgePackFolderPath = defaults.string(forKey: "knowledgePackFolderPath") ?? ""
+        self._knowledgeNetworkMode = KnowledgeNetworkMode(
+            rawValue: defaults.string(forKey: "knowledgeNetworkMode") ?? ""
+        ) ?? .externalAllowed
         self._hasSeenLaunchAtLoginSuggestion = defaults.bool(forKey: "hasSeenLaunchAtLoginSuggestion")
 
         // Ensure notes folder exists

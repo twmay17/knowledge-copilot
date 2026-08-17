@@ -93,6 +93,13 @@ final class KnowledgePackSearchIndexTests: XCTestCase {
     let request = await adapter.lastRequest
     XCTAssertEqual(request?.packID, pack.manifest.packID)
     XCTAssertTrue(request?.candidates.allSatisfy { $0.kind == .assertion } == true)
+    XCTAssertEqual(request?.disclosure.destination, .externalProvider)
+    XCTAssertEqual(request?.disclosure.candidateRecordCount, request?.candidates.count)
+    XCTAssertEqual(
+      Set(request?.disclosure.dataClasses ?? []),
+      [.queryText, .candidateSearchText, .candidateTitles, .corpusIdentifiers]
+    )
+    XCTAssertTrue(request?.disclosure.leavesDevice == true)
   }
 
   func testSourceHashChangeInvalidatesEveryTransitiveDependent() throws {

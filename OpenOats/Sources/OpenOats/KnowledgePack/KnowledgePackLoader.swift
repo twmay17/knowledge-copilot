@@ -128,6 +128,7 @@ public struct KnowledgePackLoader: Sendable {
       issues.append(error("manifest.missing_title", "Manifest title must not be empty."))
     }
     issues.append(contentsOf: profileRegistry.validate(pack))
+    issues.append(contentsOf: KnowledgePackSecurityPolicy.validationIssues(for: pack))
 
     issues.append(contentsOf: duplicateIssues(pack.sources.map(\.id), recordType: "source"))
     issues.append(contentsOf: duplicateIssues(pack.passages.map(\.id), recordType: "passage"))
