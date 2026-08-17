@@ -451,6 +451,55 @@ final class KnowledgeTieredAnswerResolverTests: XCTestCase {
     XCTAssertTrue(hotLatency.meetsP50Target == true)
   }
 
+  @MainActor
+  func testSwitchingOfflineCancelsInFlightExternalWorkAndSuppressesItsResults() async throws {
+    let vectorAdapter = CancellationObservingVectorAdapter()
+    let store = KnowledgePackStore(
+      profileRegistry: registry,
+      vectorAdapter: vectorAdapter,
+      networkMode: .externalAllowed
+    )
+    await store.load(fromPath: fixtureURL().path)
+
+    _ = store.processLiveTranscriptRevision(
+      TranscriptRevision(
+        streamID: "remote",
+        sequence: 1,
+        text: "What was the rev par",
+        stability: .partial
+      ))
+    for _ in 0..<100 where await vectorAdapter.callCount == 0 {
+      try await Task.sleep(for: .milliseconds(5))
+    }
+    let callsBeforeSwitch = await vectorAdapter.callCount
+    XCTAssertEqual(callsBeforeSwitch, 1)
+
+    store.setNetworkMode(.offline)
+
+    for _ in 0..<100 where await vectorAdapter.cancellationCount == 0 {
+      try await Task.sleep(for: .milliseconds(5))
+    }
+    let cancellations = await vectorAdapter.cancellationCount
+    XCTAssertEqual(cancellations, 1)
+    XCTAssertEqual(store.activeTieredAnswerTaskCount, 0)
+    XCTAssertTrue(store.visibleOverlayCards.isEmpty)
+
+    // Later work stays local: a card appears without the adapter being called again.
+    _ = store.processLiveTranscriptRevision(
+      TranscriptRevision(
+        streamID: "remote",
+        sequence: 2,
+        text: "What was RevPAR in 2020?",
+        stability: .final
+      ))
+    for _ in 0..<100 where store.visibleOverlayCards.isEmpty {
+      try await Task.sleep(for: .milliseconds(5))
+    }
+    XCTAssertFalse(store.visibleOverlayCards.isEmpty)
+    let callsAfterSwitch = await vectorAdapter.callCount
+    XCTAssertEqual(callsAfterSwitch, 1)
+  }
+
   private var registry: KnowledgeDomainProfileRegistry {
     KnowledgeDomainProfileRegistry(profiles: [HospitalityDomainProfile()])
   }

@@ -758,6 +758,7 @@ private struct TranscriptionSettingsTab: View {
 private struct IntelligenceSettingsTab: View {
     @Bindable var settings: AppSettings
     @Environment(KnowledgePackStore.self) private var knowledgePackStore
+    @State private var confirmExternalAdapters = false
 
     private var knowledgeBaseConfigured: Bool {
         !settings.kbFolderPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -906,12 +907,30 @@ private struct IntelligenceSettingsTab: View {
                         }
                     }
 
-                    Picker("Network mode", selection: $settings.knowledgeNetworkMode) {
+                    Picker(
+                        "Network mode",
+                        selection: Binding(
+                            get: { settings.knowledgeNetworkMode },
+                            set: { newMode in
+                                if settings.requestKnowledgeNetworkMode(newMode) {
+                                    confirmExternalAdapters = true
+                                }
+                            }
+                        )
+                    ) {
                         ForEach(KnowledgeNetworkMode.allCases, id: \.self) { mode in
                             Text(mode.displayName).tag(mode)
                         }
                     }
                     .font(.system(size: 12))
+                    .alert("Allow external adapters?", isPresented: $confirmExternalAdapters) {
+                        Button("Allow external adapters") {
+                            settings.confirmExternalKnowledgeAdapters()
+                        }
+                        Button("Stay offline", role: .cancel) {}
+                    } message: {
+                        Text(KnowledgeNetworkMode.externalAllowed.detail)
+                    }
 
                     Text(settings.knowledgeNetworkMode.detail)
                         .font(.system(size: 11))

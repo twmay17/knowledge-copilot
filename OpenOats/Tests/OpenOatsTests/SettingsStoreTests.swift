@@ -59,6 +59,49 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual(makeStore(defaults: defaults).knowledgeNetworkMode, .offline)
     }
 
+    func testExternalModeRequiresVersionedConsent() {
+        let suiteName = "com.openoats.test.knowledge-consent.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        let store = makeStore(defaults: defaults)
+
+        // Selecting external does not persist before confirmation.
+        XCTAssertTrue(store.requestKnowledgeNetworkMode(.externalAllowed))
+        XCTAssertEqual(store.knowledgeNetworkMode, .offline)
+        XCTAssertNil(defaults.string(forKey: "knowledgeNetworkMode"))
+
+        // Confirm persists external mode and stamps the consent version.
+        store.confirmExternalKnowledgeAdapters()
+        XCTAssertEqual(store.knowledgeNetworkMode, .externalAllowed)
+        XCTAssertEqual(
+            store.knowledgeExternalConsentVersion,
+            SettingsStore.currentKnowledgeExternalConsentVersion
+        )
+        XCTAssertEqual(makeStore(defaults: defaults).knowledgeNetworkMode, .externalAllowed)
+
+        // External -> offline needs no confirmation, applies, and persists.
+        XCTAssertFalse(store.requestKnowledgeNetworkMode(.offline))
+        XCTAssertEqual(store.knowledgeNetworkMode, .offline)
+        XCTAssertEqual(defaults.string(forKey: "knowledgeNetworkMode"), "offline")
+
+        // With consent already at the current version, re-enabling applies directly.
+        XCTAssertFalse(store.requestKnowledgeNetworkMode(.externalAllowed))
+        XCTAssertEqual(store.knowledgeNetworkMode, .externalAllowed)
+    }
+
+    func testLegacyExternalChoiceWithoutConsentFallsBackToOffline() {
+        let suiteName = "com.openoats.test.knowledge-consent-legacy.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        defaults.set("external_allowed", forKey: "knowledgeNetworkMode")
+
+        let store = makeStore(defaults: defaults)
+
+        XCTAssertEqual(store.knowledgeNetworkMode, .offline)
+        XCTAssertEqual(defaults.string(forKey: "knowledgeNetworkMode"), "offline")
+        XCTAssertTrue(store.externalKnowledgeConsentRequired)
+    }
+
     func testOpenRouterApiKeyAutoTrimsWhitespace() {
         let store = makeStore()
         store.openRouterApiKey = "  sk-or-v1-abc123  \n"

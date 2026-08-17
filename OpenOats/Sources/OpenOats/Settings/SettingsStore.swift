@@ -1382,7 +1382,7 @@ final class SettingsStore {
     }
 
     @ObservationIgnored nonisolated(unsafe) private var _knowledgeNetworkMode: KnowledgeNetworkMode
-    var knowledgeNetworkMode: KnowledgeNetworkMode {
+    private(set) var knowledgeNetworkMode: KnowledgeNetworkMode {
         get { access(keyPath: \.knowledgeNetworkMode); return _knowledgeNetworkMode }
         set {
             withMutation(keyPath: \.knowledgeNetworkMode) {
@@ -1390,6 +1390,44 @@ final class SettingsStore {
                 defaults.set(newValue.rawValue, forKey: "knowledgeNetworkMode")
             }
         }
+    }
+
+    /// Bump when the external-adapter disclosure text changes materially; a
+    /// stored external choice made under an older disclosure no longer counts.
+    static let currentKnowledgeExternalConsentVersion = 1
+
+    @ObservationIgnored nonisolated(unsafe) private var _knowledgeExternalConsentVersion: Int
+    private(set) var knowledgeExternalConsentVersion: Int {
+        get { access(keyPath: \.knowledgeExternalConsentVersion); return _knowledgeExternalConsentVersion }
+        set {
+            withMutation(keyPath: \.knowledgeExternalConsentVersion) {
+                _knowledgeExternalConsentVersion = newValue
+                defaults.set(newValue, forKey: "knowledgeExternalConsentVersion")
+            }
+        }
+    }
+
+    /// True when enabling external adapters requires a fresh full-disclosure
+    /// confirmation before it can take effect.
+    var externalKnowledgeConsentRequired: Bool {
+        knowledgeExternalConsentVersion < Self.currentKnowledgeExternalConsentVersion
+    }
+
+    /// Applies a requested mode change. Returns true when the change requires
+    /// an explicit confirmation first; in that case nothing is persisted.
+    @discardableResult
+    func requestKnowledgeNetworkMode(_ mode: KnowledgeNetworkMode) -> Bool {
+        if mode == .externalAllowed, externalKnowledgeConsentRequired {
+            return true
+        }
+        knowledgeNetworkMode = mode
+        return false
+    }
+
+    /// Records consent to the current disclosure and enables external adapters.
+    func confirmExternalKnowledgeAdapters() {
+        knowledgeExternalConsentVersion = Self.currentKnowledgeExternalConsentVersion
+        knowledgeNetworkMode = .externalAllowed
     }
 
     @ObservationIgnored nonisolated(unsafe) private var _hasSeenLaunchAtLoginSuggestion: Bool
@@ -1622,6 +1660,16 @@ final class SettingsStore {
         self._knowledgeNetworkMode = KnowledgeNetworkMode(
             rawValue: defaults.string(forKey: "knowledgeNetworkMode") ?? ""
         ) ?? .offline
+        self._knowledgeExternalConsentVersion = defaults.integer(
+            forKey: "knowledgeExternalConsentVersion")
+        // A stored external choice that predates the versioned disclosure does
+        // not satisfy the consent requirement; fall back to offline until the
+        // user re-confirms against the current disclosure text.
+        if self._knowledgeNetworkMode == .externalAllowed,
+           self._knowledgeExternalConsentVersion < Self.currentKnowledgeExternalConsentVersion {
+            self._knowledgeNetworkMode = .offline
+            defaults.set(KnowledgeNetworkMode.offline.rawValue, forKey: "knowledgeNetworkMode")
+        }
         self._hasSeenLaunchAtLoginSuggestion = defaults.bool(forKey: "hasSeenLaunchAtLoginSuggestion")
 
         // Ensure notes folder exists
