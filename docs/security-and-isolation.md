@@ -23,11 +23,11 @@ The Knowledge Copilot settings expose two modes:
   on-device and loopback adapters are allowed; external vector and synthesis adapters are
   never called. This mode governs the Knowledge Copilot only; transcription, note generation,
   classic suggestions, and webhook settings control their own egress.
-- **Allow external adapters:** an external vector adapter may receive the query plus every
-  active-scope candidate's record ID, title, and complete searchable text, including evidence
-  excerpts, aliases, and qualifier values. An external synthesis adapter may receive the detected
-  question or claim, admitted evidence text, source titles, corpus identifiers, and evidence
-  qualifiers.
+- **Allow external adapters:** an external vector adapter may receive the query plus up to the 64
+  highest-locally-ranked candidates' record IDs, titles, and complete searchable text (bounded to 512 KB
+  of text per request), including evidence excerpts, aliases, and qualifier values. An external synthesis
+  adapter may receive the detected question or claim, admitted evidence text, source titles, corpus
+  identifiers, and evidence qualifiers.
 
 Each vector request and synthesis envelope records its destination, disclosed data classes, record
 counts, and character counts. Neither contains pack files, credentials, retrieval capability, or

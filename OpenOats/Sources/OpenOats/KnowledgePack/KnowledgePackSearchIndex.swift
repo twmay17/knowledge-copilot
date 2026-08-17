@@ -335,6 +335,41 @@ public final class KnowledgePackSearchIndex: @unchecked Sendable {
     fullTextIndex = try KnowledgePackSQLiteFullTextIndex(documents: documents)
   }
 
+  /// External vector adapters receive at most this many locally-ranked
+  /// candidates per query, bounded further by total searchable-text bytes,
+  /// so a large corpus is never serialized wholesale into one request.
+  static let maximumVectorCandidateCount = 64
+  static let maximumVectorCandidatePayloadBytes = 512 * 1_024
+
+  /// Ranks scoped documents by the deterministic local channels (exact alias
+  /// hit, then full-text score) and keeps the top slice within both bounds.
+  /// Oversized documents are dropped, never truncated, so the adapter sees
+  /// only complete records. Result is re-sorted by ID for determinism.
+  static func vectorCandidateSelection(
+    _ documents: [SearchDocument],
+    exactDocumentIDs: Set<String>,
+    fullTextScores: [String: Double],
+    maximumCount: Int,
+    maximumPayloadBytes: Int
+  ) -> [SearchDocument] {
+    let ranked = documents.sorted { lhs, rhs in
+      let lhsScore = (exactDocumentIDs.contains(lhs.id) ? 1.0 : 0) + (fullTextScores[lhs.id] ?? 0)
+      let rhsScore = (exactDocumentIDs.contains(rhs.id) ? 1.0 : 0) + (fullTextScores[rhs.id] ?? 0)
+      if lhsScore != rhsScore { return lhsScore > rhsScore }
+      return lhs.id < rhs.id
+    }
+    var selected: [SearchDocument] = []
+    var payloadBytes = 0
+    for document in ranked {
+      guard selected.count < maximumCount else { break }
+      let documentBytes = document.searchableText.utf8.count
+      guard payloadBytes + documentBytes <= maximumPayloadBytes else { continue }
+      selected.append(document)
+      payloadBytes += documentBytes
+    }
+    return selected.sorted { $0.id < $1.id }
+  }
+
   public func search(_ query: KnowledgePackSearchQuery) throws -> [KnowledgePackSearchResult] {
     let prepared = try prepare(query)
     return makeResults(
@@ -348,7 +383,13 @@ public final class KnowledgePackSearchIndex: @unchecked Sendable {
     vectorAdapter: any KnowledgePackVectorSearchAdapter
   ) async throws -> [KnowledgePackSearchResult] {
     let prepared = try prepare(query)
-    let candidates = prepared.scopedDocuments.map {
+    let candidates = Self.vectorCandidateSelection(
+      prepared.scopedDocuments,
+      exactDocumentIDs: prepared.exactDocumentIDs,
+      fullTextScores: prepared.fullTextScores,
+      maximumCount: Self.maximumVectorCandidateCount,
+      maximumPayloadBytes: Self.maximumVectorCandidatePayloadBytes
+    ).map {
       KnowledgePackVectorCandidate(
         id: $0.id,
         kind: $0.kind,
@@ -659,7 +700,7 @@ public struct KnowledgePackDependencyInvalidator: Sendable {
   }
 }
 
-private struct SearchDocument: Sendable {
+struct SearchDocument: Sendable {
   let kind: KnowledgePackSearchRecordKind
   let recordID: String
   let title: String

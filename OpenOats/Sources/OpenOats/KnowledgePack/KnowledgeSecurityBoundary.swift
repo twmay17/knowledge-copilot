@@ -37,7 +37,7 @@ public enum KnowledgeNetworkMode: String, CaseIterable, Codable, Equatable, Send
     case .offline:
       "Uses deterministic pack search and on-device or loopback adapters only. External vector and synthesis adapters are not called. This governs the Knowledge Copilot only: cloud transcription, note generation, classic suggestions, and webhooks have their own settings."
     case .externalAllowed:
-      "An external vector adapter may receive the query plus every active-scope candidate's record ID, title, and complete searchable text, including evidence excerpts, aliases, and qualifier values. An external synthesis adapter may receive the question or claim plus admitted evidence text, source titles, corpus identifiers, and evidence qualifiers. Pack files, credentials, retrieval access, and tools are never included."
+      "An external vector adapter may receive the query plus up to the 64 highest-locally-ranked candidates' record IDs, titles, and complete searchable text (bounded to 512 KB of text per request), including evidence excerpts, aliases, and qualifier values. An external synthesis adapter may receive the question or claim plus admitted evidence text, source titles, corpus identifiers, and evidence qualifiers. Pack files, credentials, retrieval access, and tools are never included."
     }
   }
 }
