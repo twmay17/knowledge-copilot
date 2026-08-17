@@ -296,6 +296,33 @@ final class KnowledgePackLoaderTests: XCTestCase {
     }
   }
 
+  func testOversizedRecordFileFailsClosedWithExplicitError() {
+    let tiny = KnowledgePackLoader(
+      profileRegistry: KnowledgeDomainProfileRegistry(profiles: [HospitalityDomainProfile()]),
+      limits: KnowledgePackLoader.Limits(recordFileBytes: 16)
+    )
+    XCTAssertThrowsError(try tiny.load(from: fixtureURL())) { error in
+      guard case KnowledgePackLoadingError.fileTooLarge(let name, _, let limit) = error else {
+        return XCTFail("expected fileTooLarge, got \(error)")
+      }
+      XCTAssertTrue(name.hasSuffix(".jsonl"))
+      XCTAssertEqual(limit, 16)
+    }
+  }
+
+  func testOversizedSourceFileSkipsSecretScanWithWarning() throws {
+    let scanCapped = KnowledgePackLoader(
+      profileRegistry: KnowledgeDomainProfileRegistry(profiles: [HospitalityDomainProfile()]),
+      limits: KnowledgePackLoader.Limits(sourceScanBytes: 4)
+    )
+    // Loading must still succeed — the scan skip is a warning, not an error —
+    // and the warning must surface through the full load-path validation.
+    let issues = try issuesFromLoad(scanCapped, expectSuccess: true)
+    XCTAssertTrue(issues.contains { $0.code == "security.source_scan_skipped" })
+    XCTAssertTrue(
+      issues.first { $0.code == "security.source_scan_skipped" }?.severity == .warning)
+  }
+
   func testNearIdenticalNumericAssertionsProduceAuthorWarning() throws {
     let pack = try makeLoader().load(from: fixtureURL())
     guard let template = pack.assertions.first(where: { $0.value.type == .number }) else {
@@ -379,6 +406,14 @@ final class KnowledgePackLoaderTests: XCTestCase {
       result[relativePath] = try Data(contentsOf: fileURL)
     }
     return result
+  }
+
+  private func issuesFromLoad(
+    _ loader: KnowledgePackLoader, expectSuccess: Bool
+  ) throws -> [KnowledgePackValidationIssue] {
+    let result = try loader.loadWithReport(from: fixtureURL())
+    if expectSuccess { XCTAssertTrue(result.report.isValid) }
+    return result.report.issues
   }
 
   private func makeLoader() -> KnowledgePackLoader {

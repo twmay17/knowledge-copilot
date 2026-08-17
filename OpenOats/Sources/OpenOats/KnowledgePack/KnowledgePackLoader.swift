@@ -47,6 +47,7 @@ public enum KnowledgePackLoadingError: Error, CustomStringConvertible {
   case unreadableFile(String, Error)
   case invalidJSON(file: String, line: Int?, underlying: Error)
   case validationFailed(KnowledgePackValidationReport)
+  case fileTooLarge(String, byteCount: Int, limitBytes: Int)
 
   public var description: String {
     switch self {
@@ -59,18 +60,50 @@ public enum KnowledgePackLoadingError: Error, CustomStringConvertible {
       return "KnowledgePack file '\(file)'\(location) is invalid: \(error.localizedDescription)"
     case .validationFailed(let report):
       return report.errors.map(\.description).joined(separator: "\n")
+    case .fileTooLarge(let name, let byteCount, let limitBytes):
+      return
+        "KnowledgePack file '\(name)' is \(byteCount) bytes; the loader limit is \(limitBytes)."
     }
   }
 }
 
 public struct KnowledgePackLoader: Sendable {
-  private let profileRegistry: KnowledgeDomainProfileRegistry
+  /// Byte ceilings for pack files. Generous in production; injectable so
+  /// tests can exercise the fail-closed paths without gigabyte fixtures.
+  public struct Limits: Sendable {
+    public let manifestBytes: Int
+    public let recordFileBytes: Int
+    public let sourceScanBytes: Int
 
-  public init(profileRegistry: KnowledgeDomainProfileRegistry = .empty) {
+    public static let standard = Limits()
+
+    public init(
+      manifestBytes: Int = 4 * 1_024 * 1_024,
+      recordFileBytes: Int = 128 * 1_024 * 1_024,
+      sourceScanBytes: Int = 8 * 1_024 * 1_024
+    ) {
+      self.manifestBytes = manifestBytes
+      self.recordFileBytes = recordFileBytes
+      self.sourceScanBytes = sourceScanBytes
+    }
+  }
+
+  private let profileRegistry: KnowledgeDomainProfileRegistry
+  private let limits: Limits
+
+  public init(profileRegistry: KnowledgeDomainProfileRegistry = .empty, limits: Limits = .standard)
+  {
     self.profileRegistry = profileRegistry
+    self.limits = limits
   }
 
   public func load(from directory: URL) throws -> KnowledgePack {
+    try loadWithReport(from: directory).pack
+  }
+
+  func loadWithReport(from directory: URL) throws
+    -> (pack: KnowledgePack, report: KnowledgePackValidationReport)
+  {
     let decoder = Self.makeDecoder()
     let manifest: KnowledgePackManifest = try decodeJSON(
       KnowledgePackManifest.self,
@@ -108,7 +141,7 @@ public struct KnowledgePackLoader: Sendable {
     guard report.isValid else {
       throw KnowledgePackLoadingError.validationFailed(report)
     }
-    return pack
+    return (pack, report)
   }
 
   public func validate(_ pack: KnowledgePack) -> KnowledgePackValidationReport {
@@ -836,7 +869,7 @@ public struct KnowledgePackLoader: Sendable {
               "source.hash_mismatch",
               "Source '\(source.id)' SHA-256 does not match its manifest record."))
         }
-        issues.append(contentsOf: Self.sourceContentSecretIssues(source: source, data: data))
+        issues.append(contentsOf: sourceContentSecretIssues(source: source, data: data))
       } catch let readError {
         issues.append(
           error(
@@ -845,6 +878,16 @@ public struct KnowledgePackLoader: Sendable {
       }
     }
     return issues
+  }
+
+  private func enforceSizeLimit(_ fileURL: URL, fileName: String, limitBytes: Int) throws {
+    let byteCount =
+      (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? Int)
+      .flatMap { $0 } ?? 0
+    guard byteCount <= limitBytes else {
+      throw KnowledgePackLoadingError.fileTooLarge(
+        fileName, byteCount: byteCount, limitBytes: limitBytes)
+    }
   }
 
   private func decodeJSON<T: Decodable>(
@@ -857,6 +900,7 @@ public struct KnowledgePackLoader: Sendable {
     guard FileManager.default.fileExists(atPath: fileURL.path) else {
       throw KnowledgePackLoadingError.missingFile(fileName)
     }
+    try enforceSizeLimit(fileURL, fileName: fileName, limitBytes: limits.manifestBytes)
     let data: Data
     do {
       data = try Data(contentsOf: fileURL)
@@ -880,6 +924,7 @@ public struct KnowledgePackLoader: Sendable {
     guard FileManager.default.fileExists(atPath: fileURL.path) else {
       throw KnowledgePackLoadingError.missingFile(fileName)
     }
+    try enforceSizeLimit(fileURL, fileName: fileName, limitBytes: limits.recordFileBytes)
 
     let text: String
     do {
@@ -971,13 +1016,23 @@ public struct KnowledgePackLoader: Sendable {
   /// embedded keys in PDFs or archives are still caught without decoding the
   /// container format. One issue per credential kind per file; values are
   /// never retained or echoed.
-  private static func sourceContentSecretIssues(
+  private func sourceContentSecretIssues(
     source: KnowledgeSource,
     data: Data
   ) -> [KnowledgePackValidationIssue] {
+    guard data.count <= limits.sourceScanBytes else {
+      return [
+        KnowledgePackValidationIssue(
+          severity: .warning,
+          code: "security.source_scan_skipped",
+          message:
+            "Source file '\(source.relativePath)' (\(data.count) bytes) exceeds the \(limits.sourceScanBytes)-byte credential-scan ceiling and was not scanned. Verify it manually before distributing the pack."
+        )
+      ]
+    }
     let text =
       String(data: data, encoding: .utf8)
-      ?? printableASCIIRuns(in: data, minimumLength: 16)
+      ?? Self.printableASCIIRuns(in: data, minimumLength: 16)
     let kinds = Set(SensitiveDataGuard.findings(in: text).map(\.kind))
     return kinds.sorted { $0.rawValue < $1.rawValue }.map { kind in
       KnowledgePackValidationIssue(
