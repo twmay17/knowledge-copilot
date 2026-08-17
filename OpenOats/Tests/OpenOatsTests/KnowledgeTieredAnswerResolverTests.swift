@@ -395,6 +395,20 @@ final class KnowledgeTieredAnswerResolverTests: XCTestCase {
     )
     XCTAssertTrue(
       KnowledgeTieredAnswerResolver.numericTokensAreSupported(in: numberFree, by: records))
+
+    let zeroRecord = [
+      KnowledgeSynthesisEvidenceRecord(
+        id: "assertion:z1", kind: .assertion, title: "cancellations",
+        text: "Hotel — cancellations: 0 count [period=2020]",
+        sourceIDs: ["s1"], qualifiers: ["period": "2020"]
+      )
+    ]
+    let zeroProse = KnowledgeConstrainedSynthesisOutput(
+      title: "Cancellations", answer: "There were 0 cancellations in 2020.",
+      citedEvidenceRecordIDs: ["assertion:z1"]
+    )
+    XCTAssertTrue(
+      KnowledgeTieredAnswerResolver.numericTokensAreSupported(in: zeroProse, by: zeroRecord))
   }
 
   func testResolverRejectsEvaluatorFromDifferentPackContent() throws {
@@ -778,7 +792,13 @@ private actor RecordingSynthesizer: KnowledgeConstrainedAnswerSynthesizer {
         answer: "The hotel has 100 rooms and the seller committed to a 7.5% cap rate.",
         citedEvidenceRecordIDs: validCitations
       )
-    case .valid, .delayed:
+    case .valid:
+      return KnowledgeConstrainedSynthesisOutput(
+        title: "Corpus answer",
+        answer: "The hotel has 100 rooms.",
+        citedEvidenceRecordIDs: validCitations
+      )
+    case .delayed:
       return KnowledgeConstrainedSynthesisOutput(
         title: "Corpus answer",
         answer: "The admitted corpus evidence provides the answer.",

@@ -67,7 +67,8 @@ macOS treats a window's capture exclusion as one-way for the window's lifetime: 
 window cannot be made capturable again by reassignment. The overlay and mini-bar panels are
 rebuilt when "Hide from screen sharing" is turned off, so their visibility toggle is truthful in
 both directions. The main application window follows the setting when hiding but can only rejoin
-screen sharing after the app is relaunched; the setting's caption states this.
+screen sharing after the app is relaunched; the setting's caption states this. Window-capture
+exclusion does not protect against full-display sharing; presenters should share a single app window.
 
 ## Active-pack isolation
 
