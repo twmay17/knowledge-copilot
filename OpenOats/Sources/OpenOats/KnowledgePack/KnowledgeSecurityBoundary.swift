@@ -26,7 +26,7 @@ public enum KnowledgeNetworkMode: String, CaseIterable, Codable, Equatable, Send
   public var displayName: String {
     switch self {
     case .offline:
-      "Offline — no device egress"
+      "Offline — no Knowledge Copilot egress"
     case .externalAllowed:
       "Allow external adapters"
     }
@@ -35,7 +35,7 @@ public enum KnowledgeNetworkMode: String, CaseIterable, Codable, Equatable, Send
   public var detail: String {
     switch self {
     case .offline:
-      "Uses deterministic pack search and on-device or loopback adapters only. External vector and synthesis adapters are not called."
+      "Uses deterministic pack search and on-device or loopback adapters only. External vector and synthesis adapters are not called. This governs the Knowledge Copilot only: cloud transcription, note generation, classic suggestions, and webhooks have their own settings."
     case .externalAllowed:
       "An external vector adapter may receive the query plus every active-scope candidate's record ID, title, and complete searchable text, including evidence excerpts, aliases, and qualifier values. An external synthesis adapter may receive the question or claim plus admitted evidence text, source titles, corpus identifiers, and evidence qualifiers. Pack files, credentials, retrieval access, and tools are never included."
     }

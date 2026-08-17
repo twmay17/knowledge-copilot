@@ -1019,4 +1019,46 @@ final class SettingsStoreTests: XCTestCase {
         store.transcriptionModel = .parakeetV2
         XCTAssertEqual(store.cloudASRApiKey, "")
     }
+
+    func testFoldersOverlapDetectsAliasesAndContainment() throws {
+        // Same folder, cosmetic differences.
+        XCTAssertTrue(SettingsStore.foldersOverlap("/tmp/pack", "/tmp/pack/"))
+        XCTAssertTrue(SettingsStore.foldersOverlap("/tmp/a/../pack", "/tmp/pack"))
+
+        // Containment in either direction (classic KB collection is recursive).
+        XCTAssertTrue(SettingsStore.foldersOverlap("/tmp/kb", "/tmp/kb/deals/pack"))
+        XCTAssertTrue(SettingsStore.foldersOverlap("/tmp/kb/deals/pack", "/tmp/kb"))
+
+        // Filesystem root contains everything (string-prefix approaches break here).
+        XCTAssertTrue(SettingsStore.foldersOverlap("/", "/tmp/kb"))
+        XCTAssertTrue(SettingsStore.foldersOverlap("/tmp/kb", "/"))
+
+        // Disjoint folders and sibling-prefix names do not overlap.
+        XCTAssertFalse(SettingsStore.foldersOverlap("/tmp/pack", "/tmp/pack-other"))
+        XCTAssertFalse(SettingsStore.foldersOverlap("/tmp/pack", "/tmp/other"))
+
+        // Blank paths never overlap.
+        XCTAssertFalse(SettingsStore.foldersOverlap("", ""))
+        XCTAssertFalse(SettingsStore.foldersOverlap("/tmp/pack", " "))
+
+        // Symlink alias resolves to the same canonical location.
+        let base = FileManager.default.temporaryDirectory
+            .appendingPathComponent("overlap-\(UUID().uuidString)", isDirectory: true)
+        let real = base.appendingPathComponent("real", isDirectory: true)
+        let link = base.appendingPathComponent("alias")
+        try FileManager.default.createDirectory(at: real, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: real)
+        defer { try? FileManager.default.removeItem(at: base) }
+        XCTAssertTrue(SettingsStore.foldersOverlap(link.path, real.path))
+        XCTAssertTrue(SettingsStore.foldersOverlap(link.path + "/nested", real.path))
+
+        // Case aliases on case-insensitive volumes resolve to the same folder
+        // (asserted only where the filesystem actually treats them as one).
+        let cased = base.appendingPathComponent("CasedFolder", isDirectory: true)
+        try FileManager.default.createDirectory(at: cased, withIntermediateDirectories: true)
+        let lowercasedPath = base.appendingPathComponent("casedfolder", isDirectory: true).path
+        if FileManager.default.fileExists(atPath: lowercasedPath) {
+            XCTAssertTrue(SettingsStore.foldersOverlap(cased.path, lowercasedPath))
+        }
+    }
 }

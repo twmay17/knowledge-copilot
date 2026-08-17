@@ -19,8 +19,10 @@ are discarded, leaving the deterministic answer visible.
 
 The Knowledge Copilot settings expose two modes:
 
-- **Offline — no device egress:** deterministic pack search remains available; on-device and
-  loopback adapters are allowed; external vector and synthesis adapters are never called.
+- **Offline — no Knowledge Copilot egress:** deterministic pack search remains available;
+  on-device and loopback adapters are allowed; external vector and synthesis adapters are
+  never called. This mode governs the Knowledge Copilot only; transcription, note generation,
+  classic suggestions, and webhook settings control their own egress.
 - **Allow external adapters:** an external vector adapter may receive the query plus every
   active-scope candidate's record ID, title, and complete searchable text, including evidence
   excerpts, aliases, and qualifier values. An external synthesis adapter may receive the detected

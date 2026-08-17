@@ -936,6 +936,17 @@ private struct IntelligenceSettingsTab: View {
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
 
+                    if SettingsStore.foldersOverlap(
+                        settings.knowledgePackFolderPath, settings.kbFolderPath
+                    ) {
+                        Label(
+                            "The KnowledgePack folder overlaps the classic Knowledge Base folder. Classic retrieval indexes that tree recursively and can send its text to the configured embedding provider regardless of this mode.",
+                            systemImage: "exclamationmark.triangle"
+                        )
+                        .font(.system(size: 11))
+                        .foregroundStyle(.orange)
+                    }
+
                     knowledgePackStatus
                 }
 

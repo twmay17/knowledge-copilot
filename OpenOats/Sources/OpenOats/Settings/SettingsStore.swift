@@ -25,6 +25,54 @@ final class SettingsStore {
         return result
     }
 
+    /// True when two non-empty folder paths refer to the same canonical
+    /// location or one contains the other. Classic Knowledge Base collection
+    /// is recursive, so any overlap routes KnowledgePack text through its
+    /// embedding provider. Containment compares standardized, symlink-resolved
+    /// path components — never raw string prefixes, which break at the
+    /// filesystem root — then falls back to FileManager's relationship check
+    /// so existing directories on case-insensitive volumes are still caught.
+    nonisolated static func foldersOverlap(_ first: String, _ second: String) -> Bool {
+        func canonicalURL(_ raw: String) -> URL? {
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+            let standardized = URL(fileURLWithPath: trimmed, isDirectory: true).standardizedFileURL
+            // resolvingSymlinksInPath() mirrors realpath(3): it only resolves
+            // symlinks when the full path exists on disk, otherwise it returns the
+            // path unresolved. Walk up to the deepest existing ancestor, resolve
+            // symlinks there, then re-append the remaining (not-yet-materialized)
+            // components unresolved, so a symlinked ancestor is still seen through.
+            var resolvedAncestor = standardized
+            var unresolvedTail: [String] = []
+            while !FileManager.default.fileExists(atPath: resolvedAncestor.path),
+                resolvedAncestor.pathComponents.count > 1 {
+                unresolvedTail.insert(resolvedAncestor.lastPathComponent, at: 0)
+                resolvedAncestor.deleteLastPathComponent()
+            }
+            resolvedAncestor = resolvedAncestor.resolvingSymlinksInPath()
+            return unresolvedTail.reduce(resolvedAncestor) { $0.appendingPathComponent($1) }
+        }
+        guard let firstURL = canonicalURL(first), let secondURL = canonicalURL(second) else {
+            return false
+        }
+        let firstComponents = firstURL.pathComponents
+        let secondComponents = secondURL.pathComponents
+        let sharedCount = min(firstComponents.count, secondComponents.count)
+        if Array(firstComponents.prefix(sharedCount))
+            == Array(secondComponents.prefix(sharedCount)) {
+            return true
+        }
+        for (directory, item) in [(firstURL, secondURL), (secondURL, firstURL)] {
+            var relationship = FileManager.URLRelationship.other
+            if (try? FileManager.default.getRelationship(
+                &relationship, ofDirectoryAt: directory, toItemAt: item)) != nil,
+                relationship != .other {
+                return true
+            }
+        }
+        return false
+    }
+
     private static func normalizeDefaultNotesTemplateID(_ value: UUID?) -> UUID? {
         guard value != TemplateStore.genericID else { return nil }
         return value
