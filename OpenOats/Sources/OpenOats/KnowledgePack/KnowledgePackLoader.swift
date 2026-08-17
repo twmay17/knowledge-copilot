@@ -300,7 +300,7 @@ public struct KnowledgePackLoader: Sendable {
             issues.append(
               error(
                 "passage.spreadsheet_invalid_cell",
-                "Spreadsheet passage '\(passage.id)' contains invalid cell reference '\(cell.reference)'."
+                "Spreadsheet passage '\(passage.id)' contains invalid cell reference '\(Self.echoSafe(cell.reference))'."
               ))
           }
           if let formula = cell.formula,
@@ -309,13 +309,13 @@ public struct KnowledgePackLoader: Sendable {
             issues.append(
               error(
                 "passage.spreadsheet_empty_formula",
-                "Spreadsheet passage '\(passage.id)' contains an empty formula for '\(cell.reference)'."
+                "Spreadsheet passage '\(passage.id)' contains an empty formula for '\(Self.echoSafe(cell.reference))'."
               ))
           } else if cell.formula != nil, cell.value == nil {
             issues.append(
               warning(
                 "passage.spreadsheet_formula_missing_value",
-                "Spreadsheet passage '\(passage.id)' formula cell '\(cell.reference)' has no cached value."
+                "Spreadsheet passage '\(passage.id)' formula cell '\(Self.echoSafe(cell.reference))' has no cached value."
               ))
           }
         }
@@ -630,14 +630,14 @@ public struct KnowledgePackLoader: Sendable {
         issues.append(
           error(
             "assertion.invalid_qualifier_key",
-            "Assertion '\(assertion.id)' qualifier key '\(key)' must be normalized lowercase text."
+            "Assertion '\(assertion.id)' qualifier key '\(Self.echoSafe(key))' must be normalized lowercase text."
           ))
       }
       if normalizedValue.isEmpty || normalizedValue != value {
         issues.append(
           error(
             "assertion.invalid_qualifier_value",
-            "Assertion '\(assertion.id)' qualifier '\(key)' must have a normalized non-empty value."
+            "Assertion '\(assertion.id)' qualifier '\(Self.echoSafe(key))' must have a normalized non-empty value."
           ))
       }
     }
@@ -760,7 +760,7 @@ public struct KnowledgePackLoader: Sendable {
           issues.append(
             error(
               "calculation.context_missing",
-              "Calculation '\(calculation.id)' output declares \(key) '\(expected)', but input assertion '\(input.id)' omits that context."
+              "Calculation '\(calculation.id)' output declares \(key) '\(Self.echoSafe(expected))', but input assertion '\(input.id)' omits that context."
             ))
           continue
         }
@@ -768,7 +768,7 @@ public struct KnowledgePackLoader: Sendable {
           issues.append(
             error(
               "calculation.context_mismatch",
-              "Calculation '\(calculation.id)' mixes output \(key) '\(expected)' with input assertion '\(input.id)' \(key) '\(actual)'."
+              "Calculation '\(calculation.id)' mixes output \(key) '\(Self.echoSafe(expected))' with input assertion '\(input.id)' \(key) '\(Self.echoSafe(actual))'."
             ))
         }
       }
@@ -859,7 +859,7 @@ public struct KnowledgePackLoader: Sendable {
         issues.append(
           error(
             "source.file_missing",
-            "Source '\(source.id)' file '\(source.relativePath)' does not exist."))
+            "Source '\(source.id)' file '\(Self.echoSafe(source.relativePath))' does not exist."))
         continue
       }
       do {
@@ -1028,7 +1028,7 @@ public struct KnowledgePackLoader: Sendable {
           severity: .warning,
           code: "security.source_scan_skipped",
           message:
-            "Source file '\(source.relativePath)' (\(data.count) bytes) exceeds the \(limits.sourceScanBytes)-byte credential-scan ceiling and was not scanned. Verify it manually before distributing the pack."
+            "Source file '\(Self.echoSafe(source.relativePath))' (\(data.count) bytes) exceeds the \(limits.sourceScanBytes)-byte credential-scan ceiling and was not scanned. Verify it manually before distributing the pack."
         )
       ]
     }
@@ -1041,7 +1041,7 @@ public struct KnowledgePackLoader: Sendable {
         severity: .error,
         code: "security.secret_in_source_file",
         message:
-          "Source file '\(source.relativePath)' contains credential-like material (\(kind.rawValue)). Remove the secret before importing; its value was not retained or reported."
+          "Source file '\(Self.echoSafe(source.relativePath))' contains credential-like material (\(kind.rawValue)). Remove the secret before importing; its value was not retained or reported."
       )
     }
   }
@@ -1063,6 +1063,15 @@ public struct KnowledgePackLoader: Sendable {
       runs.append(String(decoding: current, as: UTF8.self))
     }
     return runs.joined(separator: "\n")
+  }
+
+  /// Free-form pack text echoed into validation messages is redacted and
+  /// truncated: a field that fails one rule may still contain credential
+  /// material, and messages travel to UI, CLI output, and reports.
+  private static func echoSafe(_ value: String) -> String {
+    let redacted = SensitiveDataGuard.redacted(value)
+    guard redacted.count > 80 else { return redacted }
+    return redacted.prefix(80) + "…"
   }
 
   private func error(_ code: String, _ message: String) -> KnowledgePackValidationIssue {

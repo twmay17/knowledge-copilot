@@ -1,5 +1,6 @@
 import Foundation
 import Security
+import os
 
 struct AppSecretStore: Sendable {
     let loadValue: @Sendable (String) -> String?
@@ -48,6 +49,12 @@ typealias AppSettingsStorage = SettingsStorage
 
 // MARK: - Keychain Helper
 
+/// No existing `Log` category (Utils/Logging.swift) fits Keychain storage, and
+/// that file is outside this change's scope, so this stays file-local. Key
+/// names are non-secret identifiers safe to log `.public`; values must never
+/// appear in a log line.
+private let keychainLog = Logger(subsystem: "com.openoats.app", category: "keychain")
+
 enum KeychainHelper {
     private static let service = "com.openoats.app"
 
@@ -60,9 +67,13 @@ enum KeychainHelper {
             kSecAttrService as String: service,
             kSecAttrAccount as String: key,
             kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
         ]
 
-        SecItemAdd(query as CFDictionary, nil)
+        let status = SecItemAdd(query as CFDictionary, nil)
+        if status != errSecSuccess {
+            keychainLog.error("Keychain save failed for \(key, privacy: .public): \(status)")
+        }
     }
 
     static func saveIfMissing(key: String, value: String) {
@@ -73,9 +84,13 @@ enum KeychainHelper {
             kSecAttrService as String: service,
             kSecAttrAccount as String: key,
             kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
         ]
 
-        SecItemAdd(query as CFDictionary, nil)
+        let status = SecItemAdd(query as CFDictionary, nil)
+        if status != errSecSuccess {
+            keychainLog.error("Keychain saveIfMissing failed for \(key, privacy: .public): \(status)")
+        }
     }
 
     static func load(key: String) -> String? {
@@ -99,6 +114,9 @@ enum KeychainHelper {
             kSecAttrService as String: service,
             kSecAttrAccount as String: key,
         ]
-        SecItemDelete(query as CFDictionary)
+        let status = SecItemDelete(query as CFDictionary)
+        if status != errSecSuccess, status != errSecItemNotFound {
+            keychainLog.error("Keychain delete failed for \(key, privacy: .public): \(status)")
+        }
     }
 }

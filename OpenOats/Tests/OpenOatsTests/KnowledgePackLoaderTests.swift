@@ -388,6 +388,39 @@ final class KnowledgePackLoaderTests: XCTestCase {
     )
   }
 
+  func testQualifierValidationMessagesTruncateAndRedactEchoedValues() throws {
+    let pack = try makeLoader().load(from: fixtureURL())
+    guard let template = pack.assertions.first else { return XCTFail("fixture has assertions") }
+    let secret = "api_key = " + String(repeating: "Z", count: 300)
+    let poisoned = KnowledgeAssertion(
+      id: "assertion-echo-probe",
+      subject: template.subject,
+      predicate: template.predicate,
+      value: template.value,
+      qualifiers: [secret: "x"],
+      kind: template.kind,
+      confidence: template.confidence,
+      evidenceLinkIDs: template.evidenceLinkIDs
+    )
+    let mutated = KnowledgePack(
+      manifest: pack.manifest,
+      sources: pack.sources,
+      passages: pack.passages,
+      assertions: pack.assertions + [poisoned],
+      evidenceLinks: pack.evidenceLinks,
+      calculations: pack.calculations,
+      responseCards: pack.responseCards,
+      questionFamilies: pack.questionFamilies
+    )
+    let report = makeLoader().validate(mutated)
+    let echoing = report.issues.filter { $0.code == "assertion.invalid_qualifier_key" }
+    XCTAssertFalse(echoing.isEmpty)
+    for issue in echoing {
+      XCTAssertFalse(issue.message.contains(String(repeating: "Z", count: 100)))
+      XCTAssertTrue(issue.message.contains("<redacted:") || issue.message.count < 250)
+    }
+  }
+
   private func directoryContents(at root: URL) throws -> [String: Data] {
     let keys: [URLResourceKey] = [.isRegularFileKey]
     guard
