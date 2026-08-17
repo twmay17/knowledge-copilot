@@ -91,6 +91,53 @@ final class KnowledgeDataDeletionTests: XCTestCase {
     XCTAssertTrue(FileManager.default.fileExists(atPath: root.path))
   }
 
+  func testSymlinkTargetOutsideRootIsRejected() throws {
+    let base = FileManager.default.temporaryDirectory
+      .appendingPathComponent("del-symlink-\(UUID().uuidString)", isDirectory: true)
+    let root = base.appendingPathComponent("root", isDirectory: true)
+    let outside = base.appendingPathComponent("outside", isDirectory: true)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: base) }
+    let victim = outside.appendingPathComponent("victim.txt")
+    try "keep me".write(to: victim, atomically: true, encoding: .utf8)
+    let link = root.appendingPathComponent("alias.txt")
+    try FileManager.default.createSymbolicLink(at: link, withDestinationURL: victim)
+
+    XCTAssertThrowsError(
+      try KnowledgeDataDeletionService().delete([
+        KnowledgeDeletionTarget(kind: .cache, url: link, allowedRoot: root)
+      ])
+    ) { error in
+      guard case KnowledgeDataDeletionError.targetOutsideAllowedRoot = error else {
+        return XCTFail("expected containment rejection, got \(error)")
+      }
+    }
+    XCTAssertTrue(FileManager.default.fileExists(atPath: victim.path))
+  }
+
+  func testHardLinkedContentSurvivesPathDeletionAndReceiptStatesPathAbsence() throws {
+    let base = FileManager.default.temporaryDirectory
+      .appendingPathComponent("del-hardlink-\(UUID().uuidString)", isDirectory: true)
+    let root = base.appendingPathComponent("root", isDirectory: true)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: base) }
+    let original = root.appendingPathComponent("audio.caf")
+    try "bytes".write(to: original, atomically: true, encoding: .utf8)
+    let twin = base.appendingPathComponent("twin.caf")
+    try FileManager.default.linkItem(at: original, to: twin)
+
+    let receipt = try KnowledgeDataDeletionService().delete([
+      KnowledgeDeletionTarget(kind: .audio, url: original, allowedRoot: root)
+    ])
+
+    XCTAssertTrue(receipt.isComplete)
+    XCTAssertFalse(FileManager.default.fileExists(atPath: original.path))
+    // Documented semantics: the receipt proves the PATH is absent; content
+    // reachable through other hard links is outside the service's authority.
+    XCTAssertTrue(FileManager.default.fileExists(atPath: twin.path))
+  }
+
   private func temporaryRoot() -> URL {
     FileManager.default.temporaryDirectory.appendingPathComponent(
       "knowledge-deletion-\(UUID().uuidString)",

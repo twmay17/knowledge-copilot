@@ -53,6 +53,7 @@ source text to a telemetry transport, and transcript logging uses OSLog private 
 and caches. Every target must be a descendant of its caller-supplied allowed root; deleting the root
 itself or anything outside it fails closed. Successful deletion returns a per-artifact receipt that
 records whether the target existed and proves it is absent afterward. The operation is idempotent.
+Receipts prove the deleted path is absent; content still reachable through other hard links to the same file is outside the service's authority.
 
 The service is deliberately not connected to an automatic broad-directory cleanup. Product UI must
 show the exact paths and obtain confirmation before asking it to remove real user data.

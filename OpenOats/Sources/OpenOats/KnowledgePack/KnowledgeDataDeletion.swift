@@ -74,7 +74,11 @@ public enum KnowledgeDataDeletionError: Error, Equatable, CustomStringConvertibl
   }
 }
 
-/// Deletes only explicit, root-contained local artifacts and returns an auditable absence receipt.
+/// Deletes only explicit, root-contained local artifacts and returns an
+/// auditable receipt. Receipts prove the PATH is absent afterwards; content
+/// still reachable through other hard links is outside this service's
+/// authority. Targets are re-validated immediately before removal to narrow
+/// the validate→delete race window.
 public struct KnowledgeDataDeletionService: Sendable {
   public init() {}
 
@@ -85,15 +89,18 @@ public struct KnowledgeDataDeletionService: Sendable {
     var results: [KnowledgeDeletionResult] = []
 
     for item in validated {
-      let existedBefore = FileManager.default.fileExists(atPath: item.canonicalTarget.path)
+      // Narrow the validate→delete window: a path component swapped for a
+      // symlink after the first validation must fail containment now.
+      let recheck = try validate(item.target)
+      let existedBefore = FileManager.default.fileExists(atPath: recheck.canonicalTarget.path)
       if existedBefore {
         do {
-          try FileManager.default.removeItem(at: item.canonicalTarget)
+          try FileManager.default.removeItem(at: recheck.canonicalTarget)
         } catch {
           throw KnowledgeDataDeletionError.deletionFailed(item.target.kind)
         }
       }
-      let absentAfter = !FileManager.default.fileExists(atPath: item.canonicalTarget.path)
+      let absentAfter = !FileManager.default.fileExists(atPath: recheck.canonicalTarget.path)
       guard absentAfter else {
         throw KnowledgeDataDeletionError.deletionFailed(item.target.kind)
       }
