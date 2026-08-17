@@ -176,6 +176,7 @@ public struct KnowledgeEvidenceOutcome: Codable, Equatable, Sendable {
 public enum KnowledgeEvidenceOutcomeError: Error, Equatable, CustomStringConvertible {
   case blankPredicate
   case staleIndex
+  case duplicateRecordIDs([String])
 
   public var description: String {
     switch self {
@@ -183,6 +184,8 @@ public enum KnowledgeEvidenceOutcomeError: Error, Equatable, CustomStringConvert
       return "An evidence query requires a canonical predicate."
     case .staleIndex:
       return "The evidence evaluator requires an index for the exact active KnowledgePack content."
+    case .duplicateRecordIDs(let ids):
+      return "KnowledgePack contains duplicate record IDs: \(ids.joined(separator: ", "))."
     }
   }
 }
@@ -215,6 +218,10 @@ public struct KnowledgeEvidenceOutcomeEvaluator: Sendable {
     searchIndex: KnowledgePackSearchIndex,
     rootDirectory: URL
   ) throws {
+    let duplicates = KnowledgePackSearchIndex.duplicateRecordIDs(in: pack)
+    guard duplicates.isEmpty else {
+      throw KnowledgeEvidenceOutcomeError.duplicateRecordIDs(duplicates)
+    }
     let contentHash = try KnowledgeStudyBundleBuilder().build(from: pack).packContentHash
     guard searchIndex.packID == pack.manifest.packID,
       searchIndex.packContentHash == contentHash

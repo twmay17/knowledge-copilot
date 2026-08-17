@@ -188,6 +188,7 @@ public enum KnowledgePackSearchError: Error, Equatable, CustomStringConvertible 
   case indexUnavailable
   case packMismatch(expected: String, actual: String)
   case sqlite(String)
+  case duplicateRecordIDs([String])
 
   public var description: String {
     switch self {
@@ -201,6 +202,8 @@ public enum KnowledgePackSearchError: Error, Equatable, CustomStringConvertible 
       return "Search was scoped to pack '\(actual)', but this index belongs to '\(expected)'."
     case .sqlite(let message):
       return "The local KnowledgePack full-text index failed: \(message)"
+    case .duplicateRecordIDs(let ids):
+      return "KnowledgePack contains duplicate record IDs: \(ids.joined(separator: ", "))."
     }
   }
 }
@@ -279,6 +282,10 @@ public enum KnowledgePackSearchIndexer {
     previousPack: KnowledgePack? = nil,
     previousIndex: KnowledgePackSearchIndex? = nil
   ) throws -> KnowledgePackSearchIndexBuild {
+    let duplicates = KnowledgePackSearchIndex.duplicateRecordIDs(in: pack)
+    guard duplicates.isEmpty else {
+      throw KnowledgePackSearchError.duplicateRecordIDs(duplicates)
+    }
     let contentHash = try KnowledgeStudyBundleBuilder().build(from: pack).packContentHash
     let invalidationPlan: KnowledgePackDependencyInvalidationPlan?
     if let previousPack, previousPack.manifest.packID == pack.manifest.packID {
@@ -321,11 +328,19 @@ public final class KnowledgePackSearchIndex: @unchecked Sendable {
   private let fullTextIndex: KnowledgePackSQLiteFullTextIndex
 
   public convenience init(pack: KnowledgePack) throws {
+    let duplicates = Self.duplicateRecordIDs(in: pack)
+    guard duplicates.isEmpty else {
+      throw KnowledgePackSearchError.duplicateRecordIDs(duplicates)
+    }
     let contentHash = try KnowledgeStudyBundleBuilder().build(from: pack).packContentHash
     try self.init(pack: pack, packContentHash: contentHash)
   }
 
   fileprivate init(pack: KnowledgePack, packContentHash: String) throws {
+    let duplicates = Self.duplicateRecordIDs(in: pack)
+    guard duplicates.isEmpty else {
+      throw KnowledgePackSearchError.duplicateRecordIDs(duplicates)
+    }
     packID = pack.manifest.packID
     self.packContentHash = packContentHash
     let documents = SearchDocument.makeDocuments(from: pack)
@@ -333,6 +348,24 @@ public final class KnowledgePackSearchIndex: @unchecked Sendable {
     documentCount = documents.count
     exactIDsByAlias = Self.makeExactLookup(documents: documents)
     fullTextIndex = try KnowledgePackSQLiteFullTextIndex(documents: documents)
+  }
+
+  /// Kind-qualified IDs that appear more than once. Validated packs can never
+  /// contain duplicates, but the initializers are public — a programmatic
+  /// pack must fail with a thrown error, not a dictionary trap.
+  static func duplicateRecordIDs(in pack: KnowledgePack) -> [String] {
+    var counts: [String: Int] = [:]
+    for id in pack.sources.map({ "source:\($0.id)" })
+      + pack.passages.map({ "passage:\($0.id)" })
+      + pack.assertions.map({ "assertion:\($0.id)" })
+      + pack.evidenceLinks.map({ "evidence_link:\($0.id)" })
+      + pack.calculations.map({ "calculation:\($0.id)" })
+      + pack.responseCards.map({ "response_card:\($0.id)" })
+      + pack.questionFamilies.map({ "question_family:\($0.id)" })
+    {
+      counts[id, default: 0] += 1
+    }
+    return counts.filter { $0.value > 1 }.keys.sorted()
   }
 
   /// External vector adapters receive at most this many locally-ranked
@@ -571,6 +604,11 @@ public struct KnowledgePackDependencyInvalidator: Sendable {
     from previousPack: KnowledgePack,
     to currentPack: KnowledgePack
   ) throws -> KnowledgePackDependencyInvalidationPlan {
+    let duplicates = KnowledgePackSearchIndex.duplicateRecordIDs(in: previousPack)
+      + KnowledgePackSearchIndex.duplicateRecordIDs(in: currentPack)
+    guard duplicates.isEmpty else {
+      throw KnowledgePackSearchError.duplicateRecordIDs(duplicates.sorted())
+    }
     guard previousPack.manifest.packID == currentPack.manifest.packID else {
       throw KnowledgePackSearchError.packMismatch(
         expected: previousPack.manifest.packID,
