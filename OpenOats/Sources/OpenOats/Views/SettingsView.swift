@@ -266,8 +266,8 @@ private struct GeneralSettingsTab: View {
                     Toggle("Hide from screen sharing", isOn: $settings.hideFromScreenShare)
                         .font(.system(size: 12))
                     Text(
-                        "Excludes app windows from window capture when supported. "
-                            + "Full-display sharing may still show the overlay; share a single app window."
+                        "Overlay panels hide and reappear immediately. The main app window can only rejoin screen sharing after the app restarts "
+                            + "(macOS keeps a window hidden once it has been excluded)."
                     )
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)

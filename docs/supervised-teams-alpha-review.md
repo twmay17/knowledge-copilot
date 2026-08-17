@@ -62,7 +62,11 @@ producing output callbacks lowers measured system-track coverage.
 1. Confirm aloud that this is a non-confidential recording test and every participant consents.
 2. Start OpenOats, acknowledge the consent notice if shown, and confirm the green **Live** timer.
 3. Confirm the OpenOats overlay is outside the shared region.
-4. Have the remote participant speak these prepared prompts naturally, leaving enough time to
+4. Verify capture hiding end to end: with **Hide from screen sharing** on, confirm on the second
+   device that the overlay and mini bar are absent from the shared view; turn it off and confirm
+   both reappear in the share (the app rebuilds the panels). Note that the main window stays out
+   of the share until the app is relaunched.
+5. Have the remote participant speak these prepared prompts naturally, leaving enough time to
    observe each result:
    - “What was the RevPAR for this asset in 2020?” Expected: a grounded `$89.50` card appears
      automatically and cites the operating statement and room inventory.
@@ -71,10 +75,10 @@ producing output callbacks lowers measured system-track coverage.
      `72.0%` occupancy card becomes current.
    - “What was RevPAR in 2018?” Expected: a supported `not_found_in_corpus` answer, not an invented
      value.
-5. At minutes `0`, `10`, `20`, and `30`, complete the microphone and remote-system checkpoints in
+6. At minutes `0`, `10`, `20`, and `30`, complete the microphone and remote-system checkpoints in
    the audio-verification runbook.
-6. Keep the call active continuously for at least 31 minutes without changing audio devices.
-7. Stop OpenOats, wait for finalization, and confirm the session transcript/notes artifact exists.
+7. Keep the call active continuously for at least 31 minutes without changing audio devices.
+8. Stop OpenOats, wait for finalization, and confirm the session transcript/notes artifact exists.
 
 Record every observed failure or material weakness, even when the session ultimately passes. Use
 synthetic, share-safe wording in the issue title and detail.

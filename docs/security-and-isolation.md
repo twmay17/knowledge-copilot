@@ -61,6 +61,14 @@ The V1 settings review confirms that no destructive deletion action is exposed. 
 the service contract is available and tested, but a future UI must show each exact target and require
 an explicit confirmation before it can call the service.
 
+## Screen-share visibility
+
+macOS treats a window's capture exclusion as one-way for the window's lifetime: once excluded, a
+window cannot be made capturable again by reassignment. The overlay and mini-bar panels are
+rebuilt when "Hide from screen sharing" is turned off, so their visibility toggle is truthful in
+both directions. The main application window follows the setting when hiding but can only rejoin
+screen sharing after the app is relaunched; the setting's caption states this.
+
 ## Active-pack isolation
 
 Search, evidence evaluation, response cards, optional synthesis, and the correctness gate are bound
