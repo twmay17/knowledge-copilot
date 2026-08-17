@@ -705,9 +705,12 @@ public struct KnowledgeTieredAnswerResolver: Sendable {
     let allowedIDs = Set(request.evidenceRecords.map(\.id))
     let citedIDs = Set(output.citedEvidenceRecordIDs)
     guard !citedIDs.isEmpty, citedIDs.isSubset(of: allowedIDs) else { return false }
-    return request.citationRequirements.allSatisfy {
-      !citedIDs.isDisjoint(with: $0.anyOfEvidenceRecordIDs)
-    }
+    guard
+      request.citationRequirements.allSatisfy({
+        !citedIDs.isDisjoint(with: $0.anyOfEvidenceRecordIDs)
+      })
+    else { return false }
+    return numericTokensAreSupported(in: output, for: request)
   }
 
   private static func isCorpusSupported(_ state: KnowledgeEvidenceState) -> Bool {
@@ -717,6 +720,52 @@ public struct KnowledgeTieredAnswerResolver: Sendable {
       return true
     case .notFoundInCorpus, .needsClarification:
       return false
+    }
+  }
+
+  /// Every number the model writes must match a number present in the
+  /// admitted evidence (title, text, or qualifier values), allowing
+  /// percent/ratio re-expression (x, x/100, x*100) within the same ULP bound
+  /// used for claim fact-checking. A valid citation set cannot smuggle
+  /// unsupported figures into the prose; failure discards the synthesis and
+  /// leaves the deterministic card visible. Conservative by design: prose
+  /// counts ("all 3 sources agree") not present in evidence also reject.
+  static func numericTokensAreSupported(
+    in output: KnowledgeConstrainedSynthesisOutput,
+    for request: KnowledgeConstrainedSynthesisRequest
+  ) -> Bool {
+    numericTokensAreSupported(in: output, by: request.evidenceRecords)
+  }
+
+  static func numericTokensAreSupported(
+    in output: KnowledgeConstrainedSynthesisOutput,
+    by records: [KnowledgeSynthesisEvidenceRecord]
+  ) -> Bool {
+    let proseNumbers = numericValues(in: output.title + "\n" + output.answer)
+    guard !proseNumbers.isEmpty else { return true }
+    let evidenceText = records.map { record in
+      ([record.title, record.text] + record.qualifiers.values.sorted()).joined(separator: "\n")
+    }.joined(separator: "\n")
+    let evidenceNumbers = numericValues(in: evidenceText)
+    return proseNumbers.allSatisfy { candidate in
+      evidenceNumbers.contains { evidence in
+        [1.0, 0.01, 100.0].contains { scale in
+          KnowledgeEvidenceOutcomeEvaluator.ulpDistance(candidate * scale, evidence)
+            .map { $0 <= KnowledgeEvidenceOutcomeEvaluator.maximumEquivalentULPDistance }
+            ?? false
+        }
+      }
+    }
+  }
+
+  /// Numeric tokens with optional thousands separators and decimals.
+  static func numericValues(in text: String) -> [Double] {
+    let pattern = #"\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?"#
+    guard let expression = try? NSRegularExpression(pattern: pattern) else { return [] }
+    let range = NSRange(text.startIndex..<text.endIndex, in: text)
+    return expression.matches(in: text, range: range).compactMap { match in
+      guard let swiftRange = Range(match.range, in: text) else { return nil }
+      return Double(text[swiftRange].replacingOccurrences(of: ",", with: ""))
     }
   }
 

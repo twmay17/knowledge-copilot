@@ -184,6 +184,29 @@ final class KnowledgeTieredAnswerResolverTests: XCTestCase {
     XCTAssertFalse(incompleteUpdates.contains { $0.lane == .cold })
     XCTAssertTrue(unknownUpdates.contains { $0.supportLevel == .corpusVerified })
     XCTAssertTrue(incompleteUpdates.contains { $0.supportLevel == .corpusVerified })
+
+    let unknownCallCount = await unknown.callCount
+    XCTAssertEqual(unknownCallCount, 1, "synthesis ran and was rejected — it did not silently skip")
+    let incompleteCallCount = await incomplete.callCount
+    XCTAssertEqual(
+      incompleteCallCount, 1, "synthesis ran and was rejected — it did not silently skip")
+  }
+
+  func testSynthesisWithUnsupportedNumberIsDiscardedByNumericEchoGate() async throws {
+    let resolver = try makeResolver(packTransform: removingResponseCards)
+    let synthesizer = RecordingSynthesizer(behavior: .unsupportedNumber)
+
+    let updates = await Self.collect(
+      resolver.updates(
+        for: .questionStable(roomCountCandidate()),
+        synthesizer: synthesizer,
+        networkMode: .externalAllowed
+      ))
+
+    let synthesisCallCount = await synthesizer.callCount
+    XCTAssertEqual(synthesisCallCount, 1, "the gate rejects output; it does not skip the call")
+    XCTAssertFalse(updates.contains { $0.presentationQuality == .constrainedSynthesis })
+    XCTAssertTrue(updates.contains { $0.supportLevel == .corpusVerified })
   }
 
   func testColdLaneBudgetCancelsSlowSynthesisWithoutDelayingStream() async throws {
@@ -334,6 +357,44 @@ final class KnowledgeTieredAnswerResolverTests: XCTestCase {
     XCTAssertEqual(retracted.first?.supersedesUpdateID, shown.first?.id)
     XCTAssertNil(retracted.first?.payload)
     XCTAssertTrue(late.isEmpty)
+  }
+
+  func testNumericValuesParsesPlainThousandsAndDecimalTokens() {
+    XCTAssertEqual(
+      KnowledgeTieredAnswerResolver.numericValues(in: "RevPAR was $89.50 across 3,266,750 in 2020"),
+      [89.50, 3_266_750, 2020]
+    )
+    XCTAssertTrue(KnowledgeTieredAnswerResolver.numericValues(in: "no numbers here").isEmpty)
+  }
+
+  func testNumericEchoAcceptsEvidenceNumbersAndPercentReexpression() {
+    let records = [
+      KnowledgeSynthesisEvidenceRecord(
+        id: "assertion:a1", kind: .assertion, title: "occupancy",
+        text: "Hotel — occupancy: 0.0905 ratio [period=2020]",
+        sourceIDs: ["s1"], qualifiers: ["period": "2020"]
+      )
+    ]
+    let supported = KnowledgeConstrainedSynthesisOutput(
+      title: "Occupancy", answer: "Occupancy was 9.05% in 2020.",
+      citedEvidenceRecordIDs: ["assertion:a1"]
+    )
+    XCTAssertTrue(
+      KnowledgeTieredAnswerResolver.numericTokensAreSupported(in: supported, by: records))
+
+    let invented = KnowledgeConstrainedSynthesisOutput(
+      title: "Occupancy", answer: "Occupancy was 9.05% and the cap rate commitment is 7.5%.",
+      citedEvidenceRecordIDs: ["assertion:a1"]
+    )
+    XCTAssertFalse(
+      KnowledgeTieredAnswerResolver.numericTokensAreSupported(in: invented, by: records))
+
+    let numberFree = KnowledgeConstrainedSynthesisOutput(
+      title: "Occupancy", answer: "Occupancy is stated in the operating statement.",
+      citedEvidenceRecordIDs: ["assertion:a1"]
+    )
+    XCTAssertTrue(
+      KnowledgeTieredAnswerResolver.numericTokensAreSupported(in: numberFree, by: records))
   }
 
   func testResolverRejectsEvaluatorFromDifferentPackContent() throws {
@@ -662,6 +723,7 @@ private actor RecordingSynthesizer: KnowledgeConstrainedAnswerSynthesizer {
     case valid
     case unknownCitation
     case incompleteCitation
+    case unsupportedNumber
     case delayed(milliseconds: Int)
   }
 
@@ -684,19 +746,31 @@ private actor RecordingSynthesizer: KnowledgeConstrainedAnswerSynthesizer {
     let validCitations = envelope.citationRequirements.compactMap {
       $0.anyOfEvidenceRecordIDs.sorted().first
     }
-    let citations: [String]
     switch behavior {
     case .unknownCitation:
-      citations = ["web:invented-result"]
+      return KnowledgeConstrainedSynthesisOutput(
+        title: "Corpus answer",
+        answer: "The admitted corpus evidence provides the answer.",
+        citedEvidenceRecordIDs: ["web:invented-result"]
+      )
     case .incompleteCitation:
-      citations = Array(validCitations.prefix(1))
+      return KnowledgeConstrainedSynthesisOutput(
+        title: "Corpus answer",
+        answer: "The admitted corpus evidence provides the answer.",
+        citedEvidenceRecordIDs: Array(validCitations.prefix(1))
+      )
+    case .unsupportedNumber:
+      return KnowledgeConstrainedSynthesisOutput(
+        title: "Room count",
+        answer: "The hotel has 100 rooms and the seller committed to a 7.5% cap rate.",
+        citedEvidenceRecordIDs: validCitations
+      )
     case .valid, .delayed:
-      citations = validCitations
+      return KnowledgeConstrainedSynthesisOutput(
+        title: "Corpus answer",
+        answer: "The admitted corpus evidence provides the answer.",
+        citedEvidenceRecordIDs: validCitations
+      )
     }
-    return KnowledgeConstrainedSynthesisOutput(
-      title: "Corpus answer",
-      answer: "The admitted corpus evidence provides the answer.",
-      citedEvidenceRecordIDs: citations
-    )
   }
 }

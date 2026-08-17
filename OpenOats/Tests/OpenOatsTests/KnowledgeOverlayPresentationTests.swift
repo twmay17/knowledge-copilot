@@ -202,7 +202,7 @@ final class KnowledgeOverlayPresentationTests: XCTestCase {
     XCTAssertTrue(card.clipboardText.contains(output.answer))
     XCTAssertTrue(card.clipboardText.contains("Evidence: Supported by Corpus"))
     XCTAssertTrue(card.clipboardText.contains("Plan B — Page 1"))
-    XCTAssertTrue(card.why.contains("only from the cited corpus evidence"))
+    XCTAssertTrue(card.why.contains("Drafted from the cited evidence"))
   }
 
   func testPrimaryActionTargetsTheLiveRemoteAnswerBeforePinnedOrLocalCards() throws {

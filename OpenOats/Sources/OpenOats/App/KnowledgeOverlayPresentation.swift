@@ -182,7 +182,8 @@ struct KnowledgeOverlayCard: Equatable, Sendable, Identifiable {
       title: output.title,
       answer: output.answer,
       evidenceState: evidence.state,
-      why: "Drafted only from the cited corpus evidence shown below. \(evidenceReason(evidence))",
+      why:
+        "Drafted from the cited evidence — verify wording against the sources below. \(evidenceReason(evidence))",
       sources: (citedSources.isEmpty ? evidence.contributingSources : citedSources).map(source),
       claims: (citedClaims.isEmpty ? evidence.claims : citedClaims).map(claim),
       calculations: []
