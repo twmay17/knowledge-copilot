@@ -68,3 +68,54 @@ disconnected until an exact-target confirmation flow is deliberately designed.
 
 KC-27 remains **In Progress** only for the dependency-driven rerun after KC-26's live-findings
 closure.
+
+## Addendum — audit remediation wave 1 (2026-08-17)
+
+Changes on branch `fix/audit-remediation-wave-1` (HEAD `3c15809`), six commits, following an
+independent audit and two review rounds:
+
+- Claim fact-checking compares numeric values within 8 ULPs instead of requiring bit-identical
+  doubles, eliminating false "Contradicted by corpus" results on fractional-percent literals whose
+  parse path rounds differently than the stored decimal (~28% of two-decimal percents). Verified
+  through the public `evaluate()` path with a genuinely drifting 1-ULP pair (0.0905 vs a spoken
+  "9.05%") and a 9,999-value sweep.
+- The Knowledge network mode defaults to **offline** at the setting, store, and resolver layers.
+  Enabling external adapters requires a versioned full-disclosure confirmation;
+  `knowledgeNetworkMode` is `private(set)` so the consent API is the only mutation path; a stored
+  external choice made before this consent version reloads as offline until re-confirmed.
+  Switching offline cancels in-flight external work (pinned by test).
+- The offline mode is renamed "Offline — no Knowledge Copilot egress" and its description states
+  what it does not govern. Settings warns when the KnowledgePack folder overlaps the classic
+  Knowledge Base folder (canonicalized, symlink- and containment-aware), because classic KB
+  collection is recursive.
+- Screen-share correction: `NSWindow.sharingType` is a one-way per-window ratchet on macOS 26.3.1
+  (probe-verified: `.none` sticks; re-assigning `.readOnly` is silently refused; only a freshly
+  created window is capturable). Re-enabling capture now rebuilds the overlay and mini-bar panels,
+  transplanting content, frame, and configuration; tests assert this truthful contract. The 906/0
+  recorded above was accurate for its run; the identical command failed 2 assertions in a GUI
+  session on 2026-08-17 before this fix, and the machine-state variable behind that difference was
+  not identified. `applyScreenShareVisibility` over the main window remains subject to the same
+  ratchet — logged for Wave 2.
+
+Environment and results, captured at completion:
+
+```text
+Mon Aug 17 03:02:27 UTC 2026 (baseline capture)
+macOS 26.3.1 (a), build 25D771280a
+Xcode 26.6, build 17F113
+Apple Swift 6.3.3 (swiftlang-6.3.3.1.3), arm64-apple-macosx26.0
+Branch fix/audit-remediation-wave-1, base 616a18f7, HEAD 3c15809
+
+Authoritative GUI-session suite run (maintainer terminal, 2026-08-17, HEAD 3c15809):
+	 Executed 919 tests, with 0 failures (0 unexpected) in 61.940 (61.994) seconds
+
+PASS: KnowledgePack V1 correctness gate
+Packs: 2/2 passed; outcome probes: 8/8 passed
+Replay: 101/101 passed; cross-pack: 2/2 passed
+
+UI smoke:
+	 Executed 11 tests, with 0 failures (0 unexpected) in 127.281 (127.292) seconds
+```
+
+The sandboxed session runner reproduced the same zero-failure suite result at this HEAD (919/0) —
+its earlier 2-assertion failures came from the replaced test asserting the ratcheted direction.
