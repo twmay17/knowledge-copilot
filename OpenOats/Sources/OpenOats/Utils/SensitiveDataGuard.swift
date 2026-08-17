@@ -56,9 +56,19 @@ public enum SensitiveDataGuard {
         options: []
       ),
       Pattern(
+        kind: .providerCredential,
+        expression: #"\bAIza[0-9A-Za-z_-]{35}\b"#,
+        options: []
+      ),
+      Pattern(
         kind: .bearerToken,
         expression: #"\b(?:authorization\s*:\s*)?bearer\s+[A-Za-z0-9._~+/=-]{8,}"#,
         options: [.caseInsensitive]
+      ),
+      Pattern(
+        kind: .bearerToken,
+        expression: #"\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b"#,
+        options: []
       ),
       Pattern(
         kind: .credentialAssignment,

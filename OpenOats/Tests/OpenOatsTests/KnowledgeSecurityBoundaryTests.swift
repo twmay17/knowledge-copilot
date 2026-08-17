@@ -119,4 +119,18 @@ final class KnowledgeSecurityBoundaryTests: XCTestCase {
     XCTAssertFalse(KnowledgeNetworkMode.offline.permits(.externalProvider))
     XCTAssertTrue(KnowledgeNetworkMode.externalAllowed.permits(.externalProvider))
   }
+
+  func testSensitiveDataGuardDetectsGoogleKeysAndJWTs() {
+    let googleKey = "AIza" + String(repeating: "A", count: 35)
+    let jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9P"
+    let source = "notes \(googleKey) and header \(jwt) end"
+
+    let kinds = Set(SensitiveDataGuard.findings(in: source).map(\.kind))
+    XCTAssertTrue(kinds.contains(.providerCredential))
+    XCTAssertTrue(kinds.contains(.bearerToken))
+
+    let redacted = SensitiveDataGuard.redacted(source)
+    XCTAssertFalse(redacted.contains(googleKey))
+    XCTAssertFalse(redacted.contains(jwt))
+  }
 }

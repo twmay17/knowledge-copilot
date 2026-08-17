@@ -277,6 +277,25 @@ final class KnowledgePackLoaderTests: XCTestCase {
     XCTAssertEqual(try directoryContents(at: fixture), contentsBeforeLoad)
   }
 
+  func testSourceFileContainingCredentialFailsClosedWithoutEchoingIt() throws {
+    let temporary = FileManager.default.temporaryDirectory
+      .appendingPathComponent("pack-secret-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.copyItem(at: fixtureURL(), to: temporary)
+    defer { try? FileManager.default.removeItem(at: temporary) }
+
+    let secret = "AIza" + String(repeating: "B", count: 35)
+    let target = temporary.appendingPathComponent("sources/demo-room-inventory.csv")
+    let existing = try String(contentsOf: target, encoding: .utf8)
+    try (existing + "\nnotes,\(secret)\n").write(to: target, atomically: true, encoding: .utf8)
+
+    XCTAssertThrowsError(try makeLoader().load(from: temporary)) { error in
+      let description = String(describing: error)
+      XCTAssertTrue(description.contains("security.secret_in_source_file"))
+      XCTAssertTrue(description.contains("source.hash_mismatch"), "edited file also fails its hash")
+      XCTAssertFalse(description.contains(secret), "the secret value must never be echoed")
+    }
+  }
+
   private func directoryContents(at root: URL) throws -> [String: Data] {
     let keys: [URLResourceKey] = [.isRegularFileKey]
     guard

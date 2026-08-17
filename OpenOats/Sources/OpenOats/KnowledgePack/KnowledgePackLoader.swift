@@ -789,6 +789,7 @@ public struct KnowledgePackLoader: Sendable {
               "source.hash_mismatch",
               "Source '\(source.id)' SHA-256 does not match its manifest record."))
         }
+        issues.append(contentsOf: Self.sourceContentSecretIssues(source: source, data: data))
       } catch let readError {
         issues.append(
           error(
@@ -916,6 +917,48 @@ public struct KnowledgePackLoader: Sendable {
 
   private static func sha256(_ data: Data) -> String {
     SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+  }
+
+  /// Scans a source file's bytes for credential-like material. Text files are
+  /// scanned whole; binary files are scanned via their printable-ASCII runs so
+  /// embedded keys in PDFs or archives are still caught without decoding the
+  /// container format. One issue per credential kind per file; values are
+  /// never retained or echoed.
+  private static func sourceContentSecretIssues(
+    source: KnowledgeSource,
+    data: Data
+  ) -> [KnowledgePackValidationIssue] {
+    let text =
+      String(data: data, encoding: .utf8)
+      ?? printableASCIIRuns(in: data, minimumLength: 16)
+    let kinds = Set(SensitiveDataGuard.findings(in: text).map(\.kind))
+    return kinds.sorted { $0.rawValue < $1.rawValue }.map { kind in
+      KnowledgePackValidationIssue(
+        severity: .error,
+        code: "security.secret_in_source_file",
+        message:
+          "Source file '\(source.relativePath)' contains credential-like material (\(kind.rawValue)). Remove the secret before importing; its value was not retained or reported."
+      )
+    }
+  }
+
+  private static func printableASCIIRuns(in data: Data, minimumLength: Int) -> String {
+    var runs: [String] = []
+    var current: [UInt8] = []
+    for byte in data {
+      if (0x20...0x7E).contains(byte) || byte == 0x0A || byte == 0x0D || byte == 0x09 {
+        current.append(byte)
+      } else {
+        if current.count >= minimumLength {
+          runs.append(String(decoding: current, as: UTF8.self))
+        }
+        current.removeAll(keepingCapacity: true)
+      }
+    }
+    if current.count >= minimumLength {
+      runs.append(String(decoding: current, as: UTF8.self))
+    }
+    return runs.joined(separator: "\n")
   }
 
   private func error(_ code: String, _ message: String) -> KnowledgePackValidationIssue {
