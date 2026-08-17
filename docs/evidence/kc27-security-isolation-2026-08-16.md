@@ -119,3 +119,60 @@ UI smoke:
 
 The sandboxed session runner reproduced the same zero-failure suite result at this HEAD (919/0) —
 its earlier 2-assertion failures came from the replaced test asserting the ratcheted direction.
+
+## Addendum — audit remediation wave 2 (2026-08-17)
+
+Changes on branch `fix/audit-remediation-wave-2` (base `6ec8733`, HEAD `bf1e086`), eight commits,
+each task-reviewed plus a whole-branch review whose two findings were fixed and re-confirmed:
+
+- External vector requests are bounded to the 64 highest-locally-ranked candidates and 512 KB of
+  searchable text per request (whole records only — oversized documents are dropped, never
+  truncated); the network-mode disclosure copy states the bound instead of "every active-scope
+  candidate".
+- Pack validation now scans raw source-file bytes for credential-like material (UTF-8 files whole;
+  binary files via printable-ASCII runs), one `security.secret_in_source_file` error per credential
+  kind per file, values never echoed. Google `AIza…` keys and bare JWTs join the detection
+  patterns.
+- Synthesized prose passes a deterministic numeric-echo gate: every number the model writes must
+  match a number present in the admitted evidence (within 8 ULPs, allowing percent/ratio
+  re-expression), or the synthesis is discarded and the deterministic card remains. The card
+  caption now reads "Drafted from the cited evidence — verify wording against the sources below"
+  — a claim the code can honor. Both the reject and accept paths are pinned end to end.
+- The numeric comparator fails closed on malformed values and normalizes absent units; authors get
+  an `assertion.near_identical_value` warning when two pack assertions for the same fact differ by
+  only a few ULPs (the contested check itself stays deliberately exact).
+- Mode toggles rebuild the overlay source catalog for the active pack; the settings→store mode
+  wire re-applies on appear (`initial: true`); the consent API's result can no longer be ignored;
+  users downgraded to offline by the Wave 1 consent migration see an in-app notice until they
+  re-confirm.
+- Classic Knowledge Base indexing hard-excludes the selected KnowledgePack tree (collection-time
+  filter plus cached-chunk filter, symlink-aware), so overlapping folder settings cannot route
+  corpus text through an embedding provider.
+- The screen-share setting's caption carries both the full-display-sharing caveat and the
+  main-window relaunch ratchet; the supervised-alpha protocol gains an end-to-end capture
+  verification step.
+
+Environment and results, captured at completion:
+
+```text
+Sun Aug 17 16:00:47 UTC 2026 (baseline capture)
+macOS 26.3.1 (a), build 25D771280a
+Xcode 26.6, build 17F113
+Apple Swift 6.3.3 (swiftlang-6.3.3.1.3), arm64-apple-macosx26.0
+Branch fix/audit-remediation-wave-2, base 6ec8733, HEAD bf1e086
+
+Authoritative GUI-session suite run (maintainer terminal, 2026-08-17, HEAD bf1e086):
+	 Executed 934 tests, with 0 failures (0 unexpected) in 66.284 (66.337) seconds
+
+PASS: KnowledgePack V1 correctness gate
+Packs: 2/2 passed; outcome probes: 8/8 passed
+Replay: 101/101 passed; cross-pack: 2/2 passed
+
+Both fixture packs validate clean (the near-twin warning and source-file scan are inert on them).
+```
+
+UI smoke: 11/11 passed at `b1cae78` (identical application code to this HEAD — later commits
+touched docs and tests only, plus one settings caption). Two later runs the same day failed with
+app-launch timeouts while Microsoft Teams was active; the whole-branch reviewer independently
+concurred the failures are environmental (no commit in this range touches window, launch, or
+audio paths). Recorded as-is rather than normalized.
