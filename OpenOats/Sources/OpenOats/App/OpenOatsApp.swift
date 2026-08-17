@@ -78,7 +78,7 @@ public struct OpenOatsRootApp: App {
                 .task(id: settings.knowledgePackFolderPath) {
                     await knowledgePackStore.load(fromPath: settings.knowledgePackFolderPath)
                 }
-                .onChange(of: settings.knowledgeNetworkMode) { _, mode in
+                .onChange(of: settings.knowledgeNetworkMode, initial: true) { _, mode in
                     knowledgePackStore.setNetworkMode(mode)
                 }
                 .onOpenURL { url in

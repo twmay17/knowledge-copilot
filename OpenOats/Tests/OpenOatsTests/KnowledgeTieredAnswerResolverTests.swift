@@ -461,6 +461,19 @@ final class KnowledgeTieredAnswerResolverTests: XCTestCase {
   }
 
   @MainActor
+  func testNetworkModeToggleRebuildsOverlaySourceCatalog() async throws {
+    let store = KnowledgePackStore(profileRegistry: registry, networkMode: .externalAllowed)
+    await store.load(fromPath: fixtureURL().path)
+    XCTAssertNotNil(store.overlaySourceCatalog)
+
+    store.setNetworkMode(.offline)
+
+    XCTAssertNotNil(store.overlaySourceCatalog, "mode toggles must not orphan source links")
+    store.clear()
+    XCTAssertNil(store.overlaySourceCatalog)
+  }
+
+  @MainActor
   func testStoreCancelsSupersededWarmWorkAndReplacesTheOldCard() async throws {
     let vectorAdapter = CancellationObservingVectorAdapter()
     let store = KnowledgePackStore(

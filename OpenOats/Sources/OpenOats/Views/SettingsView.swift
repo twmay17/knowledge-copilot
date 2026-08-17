@@ -932,6 +932,15 @@ private struct IntelligenceSettingsTab: View {
                         Text(KnowledgeNetworkMode.externalAllowed.detail)
                     }
 
+                    if settings.knowledgeExternalConsentDowngraded {
+                        Label(
+                            "External adapters were switched off by an update. Choose \"Allow external adapters\" above and re-confirm the disclosure to enable them again.",
+                            systemImage: "info.circle"
+                        )
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                    }
+
                     Text(settings.knowledgeNetworkMode.detail)
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)

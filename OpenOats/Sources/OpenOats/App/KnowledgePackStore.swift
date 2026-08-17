@@ -50,7 +50,7 @@ final class KnowledgePackStore {
   private var requestedPath = ""
   private var liveEventDetector: KnowledgeLiveEventDetector?
   private var answerCardResolver: KnowledgeAnswerCardResolver?
-  private var overlaySourceCatalog: KnowledgeOverlaySourceCatalog?
+  private(set) var overlaySourceCatalog: KnowledgeOverlaySourceCatalog?
   private var tieredAnswerTasks: [String: Task<Void, Never>] = [:]
   private var tieredAnswerTaskTokens: [String: UUID] = [:]
   private var tieredAnswerTaskKeyByStreamID: [String: String] = [:]
@@ -186,6 +186,12 @@ final class KnowledgePackStore {
     guard networkMode != mode else { return }
     networkMode = mode
     resetOverlayPresentation()
+    // resetOverlayPresentation clears the catalog with the rest of the overlay
+    // state; rebuild it for the still-active pack so later cards keep openable
+    // source links without requiring a pack reload.
+    if let pack = selectedPack, let directory = selectedPackDirectory {
+      overlaySourceCatalog = KnowledgeOverlaySourceCatalog(pack: pack, rootDirectory: directory)
+    }
   }
 
   func searchKnowledgePack(

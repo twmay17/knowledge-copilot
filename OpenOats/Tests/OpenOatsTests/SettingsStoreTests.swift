@@ -102,6 +102,28 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertTrue(store.externalKnowledgeConsentRequired)
     }
 
+    func testLegacyDowngradeSetsNoticeFlagAndConfirmClearsIt() {
+        let suiteName = "com.openoats.test.consent-notice.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        defaults.set("external_allowed", forKey: "knowledgeNetworkMode")
+
+        let store = makeStore(defaults: defaults)
+        XCTAssertTrue(store.knowledgeExternalConsentDowngraded)
+        XCTAssertTrue(makeStore(defaults: defaults).knowledgeExternalConsentDowngraded)
+
+        store.confirmExternalKnowledgeAdapters()
+        XCTAssertFalse(store.knowledgeExternalConsentDowngraded)
+        XCTAssertFalse(makeStore(defaults: defaults).knowledgeExternalConsentDowngraded)
+    }
+
+    func testFreshInstallHasNoDowngradeNotice() {
+        let suiteName = "com.openoats.test.consent-fresh.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        XCTAssertFalse(makeStore(defaults: defaults).knowledgeExternalConsentDowngraded)
+    }
+
     func testOpenRouterApiKeyAutoTrimsWhitespace() {
         let store = makeStore()
         store.openRouterApiKey = "  sk-or-v1-abc123  \n"

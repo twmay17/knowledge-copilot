@@ -1455,6 +1455,19 @@ final class SettingsStore {
         }
     }
 
+    @ObservationIgnored nonisolated(unsafe) private var _knowledgeExternalConsentDowngraded: Bool
+    /// True when a stored external choice was reset to offline by the
+    /// versioned-consent migration and the user has not yet re-confirmed.
+    private(set) var knowledgeExternalConsentDowngraded: Bool {
+        get { access(keyPath: \.knowledgeExternalConsentDowngraded); return _knowledgeExternalConsentDowngraded }
+        set {
+            withMutation(keyPath: \.knowledgeExternalConsentDowngraded) {
+                _knowledgeExternalConsentDowngraded = newValue
+                defaults.set(newValue, forKey: "knowledgeExternalConsentDowngraded")
+            }
+        }
+    }
+
     /// True when enabling external adapters requires a fresh full-disclosure
     /// confirmation before it can take effect.
     var externalKnowledgeConsentRequired: Bool {
@@ -1463,7 +1476,6 @@ final class SettingsStore {
 
     /// Applies a requested mode change. Returns true when the change requires
     /// an explicit confirmation first; in that case nothing is persisted.
-    @discardableResult
     func requestKnowledgeNetworkMode(_ mode: KnowledgeNetworkMode) -> Bool {
         if mode == .externalAllowed, externalKnowledgeConsentRequired {
             return true
@@ -1476,6 +1488,7 @@ final class SettingsStore {
     func confirmExternalKnowledgeAdapters() {
         knowledgeExternalConsentVersion = Self.currentKnowledgeExternalConsentVersion
         knowledgeNetworkMode = .externalAllowed
+        knowledgeExternalConsentDowngraded = false
     }
 
     @ObservationIgnored nonisolated(unsafe) private var _hasSeenLaunchAtLoginSuggestion: Bool
@@ -1710,6 +1723,8 @@ final class SettingsStore {
         ) ?? .offline
         self._knowledgeExternalConsentVersion = defaults.integer(
             forKey: "knowledgeExternalConsentVersion")
+        self._knowledgeExternalConsentDowngraded = defaults.bool(
+            forKey: "knowledgeExternalConsentDowngraded")
         // A stored external choice that predates the versioned disclosure does
         // not satisfy the consent requirement; fall back to offline until the
         // user re-confirms against the current disclosure text.
@@ -1717,6 +1732,8 @@ final class SettingsStore {
            self._knowledgeExternalConsentVersion < Self.currentKnowledgeExternalConsentVersion {
             self._knowledgeNetworkMode = .offline
             defaults.set(KnowledgeNetworkMode.offline.rawValue, forKey: "knowledgeNetworkMode")
+            self._knowledgeExternalConsentDowngraded = true
+            defaults.set(true, forKey: "knowledgeExternalConsentDowngraded")
         }
         self._hasSeenLaunchAtLoginSuggestion = defaults.bool(forKey: "hasSeenLaunchAtLoginSuggestion")
 
