@@ -735,12 +735,13 @@ public struct KnowledgeTieredAnswerResolver: Sendable {
   }
 
   /// Every number the model writes must match a number present in the
-  /// admitted evidence (title, text, or qualifier values), allowing
-  /// percent/ratio re-expression (x, x/100, x*100) within the same ULP bound
-  /// used for claim fact-checking. A valid citation set cannot smuggle
-  /// unsupported figures into the prose; failure discards the synthesis and
-  /// leaves the deterministic card visible. Conservative by design: prose
-  /// counts ("all 3 sources agree") not present in evidence also reject.
+  /// admitted evidence (title, text, or qualifier values); percent-marked
+  /// tokens also try ÷100, unmarked tokens match only at face value, within
+  /// the same ULP bound used for claim fact-checking. A valid citation set
+  /// cannot smuggle unsupported figures into the prose; failure discards the
+  /// synthesis and leaves the deterministic card visible. Conservative by
+  /// design: prose counts ("all 3 sources agree") not present in evidence
+  /// also reject.
   static func numericTokensAreSupported(
     in output: KnowledgeConstrainedSynthesisOutput,
     for request: KnowledgeConstrainedSynthesisRequest
@@ -752,16 +753,17 @@ public struct KnowledgeTieredAnswerResolver: Sendable {
     in output: KnowledgeConstrainedSynthesisOutput,
     by records: [KnowledgeSynthesisEvidenceRecord]
   ) -> Bool {
-    let proseNumbers = numericValues(in: output.title + "\n" + output.answer)
-    guard !proseNumbers.isEmpty else { return true }
+    let proseTokens = numericTokens(in: output.title + "\n" + output.answer)
+    guard !proseTokens.isEmpty else { return true }
     let evidenceText = records.map { record in
       ([record.title, record.text] + record.qualifiers.values.sorted()).joined(separator: "\n")
     }.joined(separator: "\n")
     let evidenceNumbers = numericValues(in: evidenceText)
-    return proseNumbers.allSatisfy { candidate in
-      evidenceNumbers.contains { evidence in
-        [1.0, 0.01, 100.0].contains { scale in
-          KnowledgeEvidenceOutcomeEvaluator.ulpDistance(candidate * scale, evidence)
+    return proseTokens.allSatisfy { token in
+      let scales: [Double] = token.isPercent ? [0.01, 1.0] : [1.0]
+      return evidenceNumbers.contains { evidence in
+        scales.contains { scale in
+          KnowledgeEvidenceOutcomeEvaluator.ulpDistance(token.value * scale, evidence)
             .map { $0 <= KnowledgeEvidenceOutcomeEvaluator.maximumEquivalentULPDistance }
             ?? false
         }
@@ -769,15 +771,31 @@ public struct KnowledgeTieredAnswerResolver: Sendable {
     }
   }
 
-  /// Numeric tokens with optional thousands separators and decimals.
-  static func numericValues(in text: String) -> [Double] {
-    let pattern = #"\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?"#
-    guard let expression = try? NSRegularExpression(pattern: pattern) else { return [] }
+  struct NumericToken: Equatable, Sendable {
+    let value: Double
+    let isPercent: Bool
+  }
+
+  private static let numericTokenExpression = try? NSRegularExpression(
+    pattern: #"(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)(\s?(?:%|percent\b))?"#,
+    options: [.caseInsensitive]
+  )
+
+  /// Numeric tokens with optional thousands separators and decimals; a token
+  /// is percent-marked when immediately followed by "%" or "percent".
+  static func numericTokens(in text: String) -> [NumericToken] {
+    guard let expression = numericTokenExpression else { return [] }
     let range = NSRange(text.startIndex..<text.endIndex, in: text)
     return expression.matches(in: text, range: range).compactMap { match in
-      guard let swiftRange = Range(match.range, in: text) else { return nil }
-      return Double(text[swiftRange].replacingOccurrences(of: ",", with: ""))
+      guard let valueRange = Range(match.range(at: 1), in: text),
+        let value = Double(text[valueRange].replacingOccurrences(of: ",", with: ""))
+      else { return nil }
+      return NumericToken(value: value, isPercent: match.range(at: 2).location != NSNotFound)
     }
+  }
+
+  static func numericValues(in text: String) -> [Double] {
+    numericTokens(in: text).map(\.value)
   }
 
   private static func evidenceFingerprint(_ evidence: KnowledgeEvidenceOutcome) -> String {
@@ -843,9 +861,40 @@ private actor KnowledgeTieredAnswerState {
   private var activeByStream: [String: Active] = [:]
   private var visibleByStream: [String: Visible] = [:]
   private var supersededEventIDs: Set<String> = []
+  private var supersededEventOrder: [String] = []
+  private static let maximumSupersededEventCount = 512
+  /// Highest revision retired per stream by an explicit retraction. Unlike the
+  /// bounded superseded-ID set, this floor is never evicted — it is keyed by
+  /// stream, and the app uses a small fixed set of streams — so a stale replay
+  /// on a retract-cleared stream stays rejected even after ID eviction.
+  private var retiredRevisionByStream: [String: Int] = [:]
+
+  private func recordSuperseded(_ eventID: String) {
+    guard supersededEventIDs.insert(eventID).inserted else { return }
+    supersededEventOrder.append(eventID)
+    if supersededEventOrder.count > Self.maximumSupersededEventCount {
+      // Marathon sessions: retire the oldest half. An evicted ID could in
+      // principle be re-resolved by a stale replay, but the per-stream
+      // retired-revision floor below is never evicted, so retract-cleared
+      // streams stay protected even after ID eviction.
+      let retiring = supersededEventOrder.prefix(Self.maximumSupersededEventCount / 2)
+      supersededEventIDs.subtract(retiring)
+      supersededEventOrder.removeFirst(retiring.count)
+    }
+  }
 
   func begin(_ input: KnowledgeTieredAnswerResolver.Input) -> Start {
     guard !supersededEventIDs.contains(input.eventID) else {
+      return Start(accepted: false, retraction: nil)
+    }
+    // Strictly less-than: KnowledgeLiveEventDetector.appendSupersession stamps
+    // the supersession's revisionSequence with the *replacement* event's own
+    // revision (not one past the retired revision), so the replacement itself
+    // always arrives at input.revisionSequence == retired and must be let
+    // through — only genuinely older replays are rejected here.
+    if let retired = retiredRevisionByStream[input.streamID],
+      input.revisionSequence < retired
+    {
       return Start(accepted: false, retraction: nil)
     }
     if let active = activeByStream[input.streamID],
@@ -855,7 +904,7 @@ private actor KnowledgeTieredAnswerState {
     }
     var retraction: KnowledgeTieredAnswerUpdate?
     if let active = activeByStream[input.streamID], active.eventID != input.eventID {
-      supersededEventIDs.insert(active.eventID)
+      recordSuperseded(active.eventID)
       if let visible = visibleByStream.removeValue(forKey: input.streamID) {
         retraction = Self.retraction(
           eventID: active.eventID,
@@ -941,7 +990,11 @@ private actor KnowledgeTieredAnswerState {
       activeByStream[supersession.previousStreamID]?.eventID
         == supersession.previousEventID
     else { return nil }
-    supersededEventIDs.insert(supersession.previousEventID)
+    recordSuperseded(supersession.previousEventID)
+    retiredRevisionByStream[supersession.previousStreamID] = max(
+      retiredRevisionByStream[supersession.previousStreamID] ?? Int.min,
+      supersession.revisionSequence
+    )
     activeByStream.removeValue(forKey: supersession.previousStreamID)
     guard let visible = visibleByStream.removeValue(forKey: supersession.previousStreamID) else {
       return nil

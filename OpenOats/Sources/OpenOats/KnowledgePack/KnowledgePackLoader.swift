@@ -184,7 +184,7 @@ public struct KnowledgePackLoader: Sendable {
       contentsOf: emptyIDIssues(pack.responseCards.map(\.id), recordType: "response_card"))
     issues.append(
       contentsOf: emptyIDIssues(pack.questionFamilies.map(\.id), recordType: "question_family"))
-    issues.append(contentsOf: nearTwinNumericIssues(pack.assertions))
+    issues.append(contentsOf: Self.nearTwinNumericIssues(pack.assertions))
 
     let sourceIDs = Set(pack.sources.map(\.id))
     let sourcesByID = Dictionary(
@@ -700,7 +700,7 @@ public struct KnowledgePackLoader: Sendable {
   /// contested check is deliberately exact) even though the author almost
   /// certainly meant the same fact — reachable via programmatic importers.
   /// Warn so authors align the stored values.
-  private func nearTwinNumericIssues(
+  private static func nearTwinNumericIssues(
     _ assertions: [KnowledgeAssertion]
   ) -> [KnowledgePackValidationIssue] {
     struct GroupKey: Hashable {
@@ -731,9 +731,11 @@ public struct KnowledgePackLoader: Sendable {
             distance <= KnowledgeEvidenceOutcomeEvaluator.maximumEquivalentULPDistance
           else { continue }
           issues.append(
-            warning(
-              "assertion.near_identical_value",
-              "Assertions '\(first.id)' and '\(second.id)' differ by only \(distance) ULP(s) and will register as conflicting. Align the stored values if they describe the same fact."
+            KnowledgePackValidationIssue(
+              severity: .warning,
+              code: "assertion.near_identical_value",
+              message:
+                "Assertions '\(first.id)' and '\(second.id)' differ by only \(distance) ULP(s) and will register as conflicting. Align the stored values if they describe the same fact."
             ))
         }
       }

@@ -390,6 +390,75 @@ final class KnowledgeTieredAnswerResolverTests: XCTestCase {
     XCTAssertTrue(late.isEmpty)
   }
 
+  func testSupersededEventTrackingIsBounded() async throws {
+    let resolver = try makeResolver()
+    for index in 0..<1_200 {
+      // revPARCandidate() returns a fixed ID per stream regardless of
+      // `sequence`, so each iteration is built inline with a distinct ID —
+      // otherwise the very first supersession would permanently block
+      // "remote#1" and every later iteration would be a no-op, never
+      // exercising the cap.
+      let candidate = QuestionCandidate(
+        id: "remote#\(index)",
+        streamID: "remote",
+        revisionSequence: index + 1,
+        questionFamilyID: "question-revpar-period",
+        sourceText: "What was RevPAR for this asset in 2020?",
+        confidence: 1,
+        status: .provisional,
+        bindings: [
+          ResolvedQuestionBinding(key: "period", value: "2020", surfaceText: "2020"),
+          ResolvedQuestionBinding(
+            key: "term",
+            value: "hospitality.revpar",
+            surfaceText: "revpar"
+          ),
+        ]
+      )
+      let supersession = KnowledgeAnswerSupersession(
+        previousEventID: candidate.id,
+        previousStreamID: candidate.streamID,
+        revisionSequence: index + 2,
+        reason: .corrected
+      )
+      _ = await Self.collect(resolver.updates(for: .questionCandidate(candidate)))
+      _ = await Self.collect(resolver.updates(for: .answerSuperseded(supersession)))
+    }
+    // Bounded means the loop completes without unbounded growth; behavior
+    // (retraction of the current event) still works on the final iteration.
+    let final = revPARCandidate(status: .provisional, sequence: 5_000)
+    let shown = await Self.collect(resolver.updates(for: .questionCandidate(final)))
+    XCTAssertFalse(shown.isEmpty)
+  }
+
+  func testStaleRevisionOnRetractedStreamIsRejectedEvenWithUnknownEventID() async throws {
+    let resolver = try makeResolver()
+    let candidate = revPARCandidate(status: .provisional, sequence: 1)
+    _ = await Self.collect(resolver.updates(for: .questionCandidate(candidate)))
+    let supersession = KnowledgeAnswerSupersession(
+      previousEventID: candidate.id,
+      previousStreamID: candidate.streamID,
+      revisionSequence: 2,
+      reason: .corrected
+    )
+    _ = await Self.collect(resolver.updates(for: .answerSuperseded(supersession)))
+
+    // A never-before-seen event ID replaying at a retired revision must be
+    // rejected by the revision floor — the superseded-ID set cannot help here.
+    let ghost = QuestionCandidate(
+      id: "remote#ghost",
+      streamID: candidate.streamID,
+      revisionSequence: 1,
+      questionFamilyID: candidate.questionFamilyID,
+      sourceText: candidate.sourceText,
+      confidence: 1,
+      status: .provisional,
+      bindings: candidate.bindings
+    )
+    let late = await Self.collect(resolver.updates(for: .questionCandidate(ghost)))
+    XCTAssertTrue(late.isEmpty)
+  }
+
   func testNumericValuesParsesPlainThousandsAndDecimalTokens() {
     XCTAssertEqual(
       KnowledgeTieredAnswerResolver.numericValues(in: "RevPAR was $89.50 across 3,266,750 in 2020"),
@@ -440,6 +509,39 @@ final class KnowledgeTieredAnswerResolverTests: XCTestCase {
     )
     XCTAssertTrue(
       KnowledgeTieredAnswerResolver.numericTokensAreSupported(in: zeroProse, by: zeroRecord))
+  }
+
+  func testNumericTokensCarryPercentMarkers() {
+    let tokens = KnowledgeTieredAnswerResolver.numericTokens(
+      in: "Occupancy was 9.05% against 100 rooms and 72 percent capture")
+    XCTAssertEqual(tokens.map(\.value), [9.05, 100, 72])
+    XCTAssertEqual(tokens.map(\.isPercent), [true, false, true])
+  }
+
+  func testEchoGateScalesOnlyPercentMarkedTokens() {
+    let records = [
+      KnowledgeSynthesisEvidenceRecord(
+        id: "assertion:a1", kind: .assertion, title: "room count",
+        text: "Hotel — room count: 100 room [period=2020]",
+        sourceIDs: ["s1"], qualifiers: ["period": "2020"]
+      )
+    ]
+    // "1%" must NOT be considered supported by the bare number 100 —
+    // the old symmetric ×100 scale admitted exactly this false accept.
+    let falsePercent = KnowledgeConstrainedSynthesisOutput(
+      title: "Rate", answer: "A 1% cancellation rate applies.",
+      citedEvidenceRecordIDs: ["assertion:a1"]
+    )
+    XCTAssertFalse(
+      KnowledgeTieredAnswerResolver.numericTokensAreSupported(in: falsePercent, by: records))
+
+    // Unmarked numbers only match at scale 1.
+    let bareNumber = KnowledgeConstrainedSynthesisOutput(
+      title: "Rooms", answer: "There are 100 rooms.",
+      citedEvidenceRecordIDs: ["assertion:a1"]
+    )
+    XCTAssertTrue(
+      KnowledgeTieredAnswerResolver.numericTokensAreSupported(in: bareNumber, by: records))
   }
 
   func testResolverRejectsEvaluatorFromDifferentPackContent() throws {
