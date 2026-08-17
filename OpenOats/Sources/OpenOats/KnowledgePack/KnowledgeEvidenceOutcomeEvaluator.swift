@@ -552,8 +552,43 @@ public struct KnowledgeEvidenceOutcomeEvaluator: Sendable {
       .sorted { $0.id < $1.id }
   }
 
-  private static func valuesAreEquivalent(_ lhs: KnowledgeValue, _ rhs: KnowledgeValue) -> Bool {
-    fingerprint(lhs) == fingerprint(rhs)
+  /// Live claim literals travel a different parse path than pack-authored
+  /// decimals (for example "8.05%" -> 8.05 / 100), so numeric comparison
+  /// tolerates a tightly bounded rounding difference instead of requiring
+  /// bit-identical doubles. The demonstrated discrepancy is ≤ ~4 ULPs
+  /// (literal decode + divide + scale multiply per side); 8 ULPs covers it
+  /// with margin while staying ~1.8e-15 relative — far below any
+  /// semantically distinct corpus value at every magnitude.
+  static let maximumEquivalentULPDistance: UInt64 = 8
+
+  static func valuesAreEquivalent(_ lhs: KnowledgeValue, _ rhs: KnowledgeValue) -> Bool {
+    if lhs.type == .number, rhs.type == .number,
+      let lhsNumber = lhs.number, let lhsScale = lhs.scale,
+      let rhsNumber = rhs.number, let rhsScale = rhs.scale
+    {
+      guard lhs.unit == rhs.unit else { return false }
+      guard let distance = ulpDistance(lhsNumber * lhsScale, rhsNumber * rhsScale) else {
+        return false
+      }
+      return distance <= Self.maximumEquivalentULPDistance
+    }
+    return fingerprint(lhs) == fingerprint(rhs)
+  }
+
+  /// Distance in representable doubles between two finite, nonzero values of
+  /// the same sign; nil when either value is non-finite, either is zero after
+  /// exact equality has been ruled out (±0 counts as equal), or the signs
+  /// differ.
+  static func ulpDistance(_ lhs: Double, _ rhs: Double) -> UInt64? {
+    guard lhs.isFinite, rhs.isFinite else { return nil }
+    if lhs == rhs { return 0 }
+    // Zero is exactly 1 ULP from Double.leastNonzeroMagnitude; "only zero
+    // matches zero" requires excluding zero operands past this point.
+    guard lhs != 0, rhs != 0 else { return nil }
+    guard (lhs < 0) == (rhs < 0) else { return nil }
+    let lhsBits = abs(lhs).bitPattern
+    let rhsBits = abs(rhs).bitPattern
+    return lhsBits > rhsBits ? lhsBits - rhsBits : rhsBits - lhsBits
   }
 
   private static func fingerprint(_ value: KnowledgeValue) -> String {

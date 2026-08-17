@@ -336,4 +336,42 @@ final class KnowledgeEvidenceOutcomeEvaluatorTests: XCTestCase {
       questionFamilies: pack.questionFamilies
     )
   }
+
+  func testFractionalPercentClaimIsNotFalselyContradictedThroughEvaluatePath() throws {
+    let pack = try loadFixture()
+    let stored = sourcedAssertion(
+      id: "assertion-cancellation-rate-2020",
+      predicate: "generic.cancellation_rate",
+      value: KnowledgeValue(type: .number, number: 0.0805, unit: "ratio", scale: 1),
+      qualifiers: ["period": "2020"]
+    )
+    let expanded = copy(
+      pack,
+      assertions: pack.assertions + [stored.assertion],
+      evidenceLinks: pack.evidenceLinks + [stored.evidence]
+    )
+
+    // Exactly the live parse path for a spoken "8.05%": divide by 100, unit ratio.
+    let spoken = KnowledgeValue(type: .number, number: 8.05 / 100.0, unit: "ratio", scale: 1)
+    let outcome = try makeEvaluator(pack: expanded).evaluate(
+      KnowledgeEvidenceQuery(
+        predicate: "generic.cancellation_rate",
+        qualifiers: ["period": "2020"],
+        proposedValue: spoken
+      )
+    )
+    XCTAssertEqual(outcome.state, .directlySourced)
+
+    // A genuinely different spoken value must still be contradicted.
+    let different = KnowledgeValue(type: .number, number: 9.05 / 100.0, unit: "ratio", scale: 1)
+    let contradicted = try makeEvaluator(pack: expanded).evaluate(
+      KnowledgeEvidenceQuery(
+        predicate: "generic.cancellation_rate",
+        qualifiers: ["period": "2020"],
+        proposedValue: different
+      )
+    )
+    XCTAssertEqual(contradicted.state, .contradictedByCorpus)
+    XCTAssertEqual(contradicted.reason, .claimContradicted)
+  }
 }
