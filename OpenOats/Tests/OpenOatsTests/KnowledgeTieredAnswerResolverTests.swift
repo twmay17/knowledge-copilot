@@ -11,7 +11,8 @@ final class KnowledgeTieredAnswerResolverTests: XCTestCase {
     let updates = await Self.collect(
       resolver.updates(
         for: .questionStable(revPARCandidate(status: .stable, sequence: 2)),
-        synthesizer: synthesizer
+        synthesizer: synthesizer,
+        networkMode: .externalAllowed
       ))
 
     XCTAssertEqual(updates.count, 1)
@@ -138,7 +139,8 @@ final class KnowledgeTieredAnswerResolverTests: XCTestCase {
     let updates = await Self.collect(
       resolver.updates(
         for: .questionStable(roomCountCandidate()),
-        synthesizer: synthesizer
+        synthesizer: synthesizer,
+        networkMode: .externalAllowed
       ))
 
     XCTAssertEqual(updates.map(\.action), [.show, .refine])
@@ -168,12 +170,14 @@ final class KnowledgeTieredAnswerResolverTests: XCTestCase {
     let unknownUpdates = await Self.collect(
       resolver.updates(
         for: .questionStable(roomCountCandidate(streamID: "unknown")),
-        synthesizer: unknown
+        synthesizer: unknown,
+        networkMode: .externalAllowed
       ))
     let incompleteUpdates = await Self.collect(
       resolver.updates(
         for: .questionStable(revPARCandidate(streamID: "incomplete", status: .stable, sequence: 2)),
-        synthesizer: incomplete
+        synthesizer: incomplete,
+        networkMode: .externalAllowed
       ))
 
     XCTAssertFalse(unknownUpdates.contains { $0.lane == .cold })
@@ -196,7 +200,8 @@ final class KnowledgeTieredAnswerResolverTests: XCTestCase {
     let updates = await Self.collect(
       resolver.updates(
         for: .questionStable(roomCountCandidate()),
-        synthesizer: synthesizer
+        synthesizer: synthesizer,
+        networkMode: .externalAllowed
       ))
     let elapsed = start.duration(to: clock.now)
 
@@ -373,7 +378,7 @@ final class KnowledgeTieredAnswerResolverTests: XCTestCase {
 
   @MainActor
   func testStoreAppliesOfflineModeAndClearsExistingOverlayState() async throws {
-    let store = KnowledgePackStore(profileRegistry: registry)
+    let store = KnowledgePackStore(profileRegistry: registry, networkMode: .externalAllowed)
     await store.load(fromPath: fixtureURL().path)
     _ = store.processLiveTranscriptRevision(
       TranscriptRevision(
@@ -399,7 +404,8 @@ final class KnowledgeTieredAnswerResolverTests: XCTestCase {
     let vectorAdapter = CancellationObservingVectorAdapter()
     let store = KnowledgePackStore(
       profileRegistry: registry,
-      vectorAdapter: vectorAdapter
+      vectorAdapter: vectorAdapter,
+      networkMode: .externalAllowed
     )
     await store.load(fromPath: fixtureURL().path)
 

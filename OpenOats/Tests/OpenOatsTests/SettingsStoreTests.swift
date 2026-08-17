@@ -48,16 +48,14 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual(store.llmProvider, .openRouter)
     }
 
-    func testKnowledgeNetworkModeDefaultsAndPersists() {
+    func testKnowledgeNetworkModeDefaultsToOffline() {
         let suiteName = "com.openoats.test.knowledge-network.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defaults.removePersistentDomain(forName: suiteName)
 
         let store = makeStore(defaults: defaults)
-        XCTAssertEqual(store.knowledgeNetworkMode, .externalAllowed)
-
-        store.knowledgeNetworkMode = .offline
-        XCTAssertEqual(defaults.string(forKey: "knowledgeNetworkMode"), "offline")
+        XCTAssertEqual(store.knowledgeNetworkMode, .offline)
+        XCTAssertNil(defaults.string(forKey: "knowledgeNetworkMode"))
         XCTAssertEqual(makeStore(defaults: defaults).knowledgeNetworkMode, .offline)
     }
 

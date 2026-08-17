@@ -76,7 +76,7 @@ final class KnowledgePackStore {
     profileRegistry: KnowledgeDomainProfileRegistry,
     vectorAdapter: (any KnowledgePackVectorSearchAdapter)? = nil,
     synthesizer: (any KnowledgeConstrainedAnswerSynthesizer)? = nil,
-    networkMode: KnowledgeNetworkMode = .externalAllowed
+    networkMode: KnowledgeNetworkMode = .offline
   ) {
     self.profileRegistry = profileRegistry
     tieredVectorAdapter = vectorAdapter

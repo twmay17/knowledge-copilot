@@ -297,7 +297,7 @@ public struct KnowledgeTieredAnswerResolver: Sendable {
     for event: KnowledgeLiveEvent,
     vectorAdapter: (any KnowledgePackVectorSearchAdapter)? = nil,
     synthesizer: (any KnowledgeConstrainedAnswerSynthesizer)? = nil,
-    networkMode: KnowledgeNetworkMode = .externalAllowed
+    networkMode: KnowledgeNetworkMode = .offline
   ) -> AsyncStream<KnowledgeTieredAnswerUpdate> {
     AsyncStream { continuation in
       let task = Task {

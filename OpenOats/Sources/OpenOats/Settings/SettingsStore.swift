@@ -1621,7 +1621,7 @@ final class SettingsStore {
         self._knowledgePackFolderPath = defaults.string(forKey: "knowledgePackFolderPath") ?? ""
         self._knowledgeNetworkMode = KnowledgeNetworkMode(
             rawValue: defaults.string(forKey: "knowledgeNetworkMode") ?? ""
-        ) ?? .externalAllowed
+        ) ?? .offline
         self._hasSeenLaunchAtLoginSuggestion = defaults.bool(forKey: "hasSeenLaunchAtLoginSuggestion")
 
         // Ensure notes folder exists
