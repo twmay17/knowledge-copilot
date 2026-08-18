@@ -176,3 +176,75 @@ touched docs and tests only, plus one settings caption). Two later runs the same
 app-launch timeouts while Microsoft Teams was active; the whole-branch reviewer independently
 concurred the failures are environmental (no commit in this range touches window, launch, or
 audio paths). Recorded as-is rather than normalized.
+
+## Addendum — audit remediation wave 3 (2026-08-17)
+
+Changes on branch `fix/audit-remediation-wave-3` (base `a9aee04`, HEAD `4b9f11b`), twelve task
+commits plus a review-fix commit, each task-reviewed with a final whole-branch review whose
+findings were fixed and re-verified:
+
+- Duplicate record IDs now throw (`KnowledgePackSearchError.duplicateRecordIDs`) at every public
+  construction entry — index inits, `KnowledgePackSearchIndexer.build`,
+  `KnowledgePackDependencyInvalidator.plan`, `KnowledgeEvidenceOutcomeEvaluator.init`, and
+  `KnowledgeStudyReviewGate.approve` — instead of trapping the process.
+- The pack loader enforces injectable byte ceilings (manifest / record files / credential scan);
+  the size gate follows symlinks and fails closed, so a symlink to an oversized file is rejected.
+  Oversized source files skip the credential scan with a warning rather than doubling the read.
+- XLSX relationship targets are contained to the extracted archive; a crafted `.rels` that escapes
+  is rejected.
+- The answer-lane budget is enforced by a once-resumed continuation race: a cancellation-resistant
+  synthesis adapter can no longer stall the stream past its budget, while outer cancellation (mode
+  switch, supersession) is still forwarded to cooperative adapters.
+- Superseded-event tracking is bounded (512, oldest-half eviction) and backed by a never-evicted
+  per-stream retired-revision floor derived from the retired stream's own revision, so an evicted
+  ID cannot resurrect a stale answer and a cross-stream interrupt cannot blackhole another stream.
+  The synthesis numeric-echo gate scales only percent-marked tokens, closing a 1%-vs-100 false
+  accept.
+- Deletion targets are re-validated immediately before removal; existence is probed with
+  lstat semantics so a dangling symlink cannot yield a false "complete" receipt; receipt semantics
+  (path absence, not data absence) are documented.
+- Keychain writes capture and log `SecItem` statuses without values and pin an accessibility
+  attribute; `saveIfMissing` no longer logs the expected duplicate as an error. Validation messages
+  that echo pack-author free text are redacted and UTF-8-byte-bounded; an absolute-path leak in an
+  unreadable-source message was removed.
+- Classic Knowledge Base indexing prunes excluded subtrees during traversal and prunes stale
+  cache entries on the no-files early-return path.
+- Credential patterns match dash-terminal keys (over-matching is the fail-safe direction for a
+  redactor); scan-scope documentation was corrected.
+- `scripts/lint_swift.sh` strictly lints the canonical 2-space source tree (legacy 4-space files
+  explicitly excluded) and fails on a zero-match glob; CI runs it, runs the correctness gate, and
+  uses the documented `swift test --skip MeetingDetectorTests` command.
+- The hospitality underwriting importer taxonomy is firm-neutral (`analysis_*` identifiers, "Deal
+  Analysis" folders) with "JMI Analysis" folders and legacy `jmi_*` qualifier values still accepted,
+  so packs authored before the rename continue to load. `THIRD_PARTY_NOTICES.md` enumerates direct
+  and transitive dependencies with checkout-verified licenses (all MIT or Apache-2.0).
+
+Environment and results, captured at completion:
+
+```text
+macOS 26.3.1 (a), build 25D771280a
+Xcode 26.6, build 17F113
+Apple Swift 6.3.3 (swiftlang-6.3.3.1.3), arm64-apple-macosx26.0
+Branch fix/audit-remediation-wave-3, base a9aee04, HEAD 4b9f11b
+
+Authoritative GUI-session suite run (maintainer terminal — pending; sandbox runner recorded 959/0):
+	 Executed 959 tests, with 0 failures (0 unexpected)
+
+PASS: KnowledgePack V1 correctness gate
+Packs: 2/2 passed; outcome probes: 8/8 passed
+Replay: 101/101 passed; cross-pack: 2/2 passed
+
+./scripts/lint_swift.sh: lint_swift: clean
+Both fixture packs validate clean.
+```
+
+UI smoke failed with app-launch timeouts while Microsoft Teams was active; no commit in this range
+touches window, launch, or audio paths, and the whole-branch reviewer independently judged the
+failure environmental (consistent with Waves 1-2). Recorded as-is.
+
+Deferred to a future wave (out of scope, reviewer-flagged): Keychain data-protection-keychain
+migration (the pinned accessibility attribute is inert on the legacy file keychain; migrating risks
+existing stored keys and needs a deliberate read-old/write-new step); a broad pack-record-ID format
+gate and echo-wrap of the remaining ID interpolation sites (a rejecting ID gate could break
+existing packs); APFS-clone / secure-erase / snapshot residue in the deletion receipt contract; the
+multi-target batch-deletion stale-sort ordering (service remains unwired from any UI).
