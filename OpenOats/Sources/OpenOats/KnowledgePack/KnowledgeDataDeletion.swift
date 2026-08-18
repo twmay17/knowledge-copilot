@@ -92,7 +92,7 @@ public struct KnowledgeDataDeletionService: Sendable {
       // Narrow the validate→delete window: a path component swapped for a
       // symlink after the first validation must fail containment now.
       let recheck = try validate(item.target)
-      let existedBefore = FileManager.default.fileExists(atPath: recheck.canonicalTarget.path)
+      let existedBefore = Self.pathExists(recheck.canonicalTarget)
       if existedBefore {
         do {
           try FileManager.default.removeItem(at: recheck.canonicalTarget)
@@ -100,7 +100,7 @@ public struct KnowledgeDataDeletionService: Sendable {
           throw KnowledgeDataDeletionError.deletionFailed(item.target.kind)
         }
       }
-      let absentAfter = !FileManager.default.fileExists(atPath: recheck.canonicalTarget.path)
+      let absentAfter = !Self.pathExists(recheck.canonicalTarget)
       guard absentAfter else {
         throw KnowledgeDataDeletionError.deletionFailed(item.target.kind)
       }
@@ -124,6 +124,22 @@ public struct KnowledgeDataDeletionService: Sendable {
         < order[ResultKey(kind: $1.kind, url: $1.url.standardizedFileURL), default: .max]
     }
     return KnowledgeDeletionReceipt(results: results)
+  }
+
+  /// `FileManager.fileExists(atPath:)` follows symlinks, so a dangling
+  /// symlink (link present, target absent) reports false — masking the
+  /// dirent's own presence. lstat-positive (a resolvable symlink entry,
+  /// whether or not its target exists) OR a normal exists call catches both
+  /// regular paths and dangling links. A FRESH `URL(fileURLWithPath:)` is
+  /// built per call rather than reusing the caller's URL value: Foundation's
+  /// `URL.resourceValues(forKeys:)` caches on the URL value itself, so
+  /// reusing one URL across a before/after check (as this helper's two call
+  /// sites do) would silently return a stale "exists" answer after deletion
+  /// — verified empirically before relying on this.
+  private static func pathExists(_ url: URL) -> Bool {
+    let freshURL = URL(fileURLWithPath: url.path)
+    return (try? freshURL.resourceValues(forKeys: [.isSymbolicLinkKey])) != nil
+      || FileManager.default.fileExists(atPath: url.path)
   }
 
   private struct ValidatedTarget {

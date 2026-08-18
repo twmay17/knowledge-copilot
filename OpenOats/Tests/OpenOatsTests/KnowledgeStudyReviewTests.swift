@@ -120,6 +120,44 @@ final class KnowledgeStudyReviewTests: XCTestCase {
     XCTAssertTrue(result.rejectedDecisions.isEmpty)
   }
 
+  func testReviewGateThrowsOnDuplicatePackInsteadOfTrapping() throws {
+    // approve() takes a caller-supplied KnowledgePack that reaches
+    // KnowledgeStudyAnalysisValidator.makeReviewQueue's
+    // Dictionary(uniqueKeysWithValues:) — which traps (fatalError,
+    // uncatchable) on duplicate record IDs. Mirrors Task 2's duplicate-pack
+    // construction (KnowledgeDuplicateRecordGuardTests.packDuplicatingFirstAssertion)
+    // against this specific entry point.
+    let pack = try loadPack()
+    let queue = try makeQueue(pack: pack)
+    let decisions = makeDecisions(queue: queue, question: .approve, card: .approve)
+
+    guard let duplicate = pack.assertions.first else {
+      throw XCTSkip("fixture has assertions")
+    }
+    let duplicated = KnowledgePack(
+      manifest: pack.manifest,
+      sources: pack.sources,
+      passages: pack.passages,
+      assertions: pack.assertions + [duplicate],
+      evidenceLinks: pack.evidenceLinks,
+      calculations: pack.calculations,
+      responseCards: pack.responseCards,
+      questionFamilies: pack.questionFamilies
+    )
+
+    // The duplicate-ID guard fires before the queue/pack consistency check,
+    // so the clean-pack-derived queue/decisions above don't need to match
+    // the duplicated pack's content hash.
+    XCTAssertThrowsError(
+      try makeGate().approve(queue: queue, decisions: decisions, pack: duplicated)
+    ) { error in
+      guard case KnowledgePackSearchError.duplicateRecordIDs(let ids) = error else {
+        return XCTFail("expected duplicateRecordIDs, got \(error)")
+      }
+      XCTAssertFalse(ids.isEmpty)
+    }
+  }
+
   func testEveryProposalRequiresAnExplicitDecision() throws {
     let pack = try loadPack()
     let queue = try makeQueue(pack: pack)

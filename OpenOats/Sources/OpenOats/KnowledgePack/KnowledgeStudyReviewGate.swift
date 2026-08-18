@@ -163,6 +163,16 @@ public struct KnowledgeStudyReviewGate: Sendable {
     decisions: KnowledgeStudyReviewDecisionSet,
     pack: KnowledgePack
   ) throws -> KnowledgeStudyApprovedImport {
+    // KnowledgeStudyAnalysisValidator.makeReviewQueue below builds
+    // Dictionary(uniqueKeysWithValues:) from the bundle derived from this
+    // caller-supplied pack, which traps (fatalError, uncatchable) on
+    // duplicate record IDs. Reject those up front with a normal thrown
+    // error instead — same guard Wave-3 Task 2 uses at the other pack entry
+    // points (KnowledgePackSearchIndex, KnowledgeEvidenceOutcomeEvaluator).
+    let duplicates = KnowledgePackSearchIndex.duplicateRecordIDs(in: pack)
+    guard duplicates.isEmpty else {
+      throw KnowledgePackSearchError.duplicateRecordIDs(duplicates)
+    }
     guard decisions.schemaVersion == Self.schemaVersion else {
       throw KnowledgeStudyReviewGateError.unsupportedSchema(
         actual: decisions.schemaVersion,

@@ -887,11 +887,13 @@ private actor KnowledgeTieredAnswerState {
     guard !supersededEventIDs.contains(input.eventID) else {
       return Start(accepted: false, retraction: nil)
     }
-    // Strictly less-than: KnowledgeLiveEventDetector.appendSupersession stamps
-    // the supersession's revisionSequence with the *replacement* event's own
-    // revision (not one past the retired revision), so the replacement itself
-    // always arrives at input.revisionSequence == retired and must be let
-    // through — only genuinely older replays are rejected here.
+    // Strictly less-than: retract() stores one PAST the retired stream's own
+    // last-active revision (retiredActive.revisionSequence + 1 — see
+    // retract(); deliberately never a foreign stream's counter, since
+    // sequence counters are per-stream). A same-or-earlier replay
+    // (revisionSequence <= what was retired) is rejected, while the true
+    // replacement — which always lands at retired+1 or later on this
+    // stream's own counter — is let through.
     if let retired = retiredRevisionByStream[input.streamID],
       input.revisionSequence < retired
     {
@@ -986,14 +988,13 @@ private actor KnowledgeTieredAnswerState {
   }
 
   func retract(_ supersession: KnowledgeAnswerSupersession) -> KnowledgeTieredAnswerUpdate? {
-    guard
-      activeByStream[supersession.previousStreamID]?.eventID
-        == supersession.previousEventID
+    guard let retiredActive = activeByStream[supersession.previousStreamID],
+      retiredActive.eventID == supersession.previousEventID
     else { return nil }
     recordSuperseded(supersession.previousEventID)
     retiredRevisionByStream[supersession.previousStreamID] = max(
       retiredRevisionByStream[supersession.previousStreamID] ?? Int.min,
-      supersession.revisionSequence
+      retiredActive.revisionSequence + 1
     )
     activeByStream.removeValue(forKey: supersession.previousStreamID)
     guard let visible = visibleByStream.removeValue(forKey: supersession.previousStreamID) else {

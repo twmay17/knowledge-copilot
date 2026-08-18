@@ -362,7 +362,7 @@ public struct HospitalityDomainProfile: KnowledgeDomainProfile {
             severity: .error,
             code: "hospitality.incompatible_comparison_basis",
             message:
-              "Assertion '\(assertion.id)' benchmark '\(benchmark!)' is incompatible with comparison basis '\(basis!)'."
+              "Assertion '\(assertion.id)' benchmark '\(SensitiveDataGuard.echoSafe(benchmark!))' is incompatible with comparison basis '\(SensitiveDataGuard.echoSafe(basis!))'."
           ))
       }
     }
@@ -508,6 +508,8 @@ public struct HospitalityDomainProfile: KnowledgeDomainProfile {
           allowedValues: [
             "broker_source", "analysis_extraction", "analysis_model", "analysis_verification",
             "analysis_narrative",
+            // Legacy aliases: packs authored before the firm-neutral rename still load.
+            "jmi_extraction", "jmi_model", "jmi_verification", "jmi_narrative",
           ]
         ),
       ],

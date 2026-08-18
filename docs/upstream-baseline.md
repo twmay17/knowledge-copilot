@@ -55,7 +55,9 @@ swift package resolve
 swift build -c debug
 swift build -c release
 swift run knowledge-pack validate ../fixtures/knowledge-packs/minimal-hospitality
-swift test
+swift test --skip MeetingDetectorTests
 ```
 
-The final `swift test` command uses the selected full Xcode toolchain.
+The final `swift test --skip MeetingDetectorTests` command uses the selected full Xcode
+toolchain; MeetingDetector tests require live meeting-app state and are exercised manually
+(consistent with README.md and CI).

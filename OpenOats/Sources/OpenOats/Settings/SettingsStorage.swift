@@ -88,7 +88,7 @@ enum KeychainHelper {
         ]
 
         let status = SecItemAdd(query as CFDictionary, nil)
-        if status != errSecSuccess {
+        if status != errSecSuccess, status != errSecDuplicateItem {
             keychainLog.error("Keychain saveIfMissing failed for \(key, privacy: .public): \(status)")
         }
     }

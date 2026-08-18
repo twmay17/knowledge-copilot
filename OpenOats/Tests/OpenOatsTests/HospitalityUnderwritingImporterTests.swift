@@ -191,6 +191,56 @@ final class HospitalityUnderwritingImporterTests: XCTestCase {
     XCTAssertNotNil(underwriting.predicates.first { $0.predicate == "hospitality.revpar_index" })
   }
 
+  func testLegacyJMISourceRoleQualifierStillValidates() throws {
+    // Wave-3 renamed source_role's allowed values to firm-neutral labels
+    // (analysis_extraction, etc.), but packs authored before the rename
+    // still carry the old jmi_* values — those must keep validating rather
+    // than hard-failing with profile.invalid_qualifier_value.
+    let result = try importer.ingest(
+      fileAt: fixtureDirectory().appendingPathComponent("Synthetic_PL_2020.csv"),
+      relativePath: "Deal/JMI Analysis/00 Extraction CSVs/Synthetic_PL_2020.csv",
+      assetID: "synthetic-hotel",
+      importedAt: importedAt
+    )
+    let revPAR = try XCTUnwrap(
+      result.assertions.first { $0.predicate == "hospitality.revpar" })
+    XCTAssertEqual(revPAR.qualifiers["source_role"], "analysis_extraction")
+
+    var legacyQualifiers = revPAR.qualifiers
+    legacyQualifiers["source_role"] = "jmi_extraction"
+    let legacyRevPAR = KnowledgeAssertion(
+      id: revPAR.id,
+      subject: revPAR.subject,
+      predicate: revPAR.predicate,
+      value: revPAR.value,
+      qualifiers: legacyQualifiers,
+      kind: revPAR.kind,
+      confidence: revPAR.confidence,
+      evidenceLinkIDs: revPAR.evidenceLinkIDs
+    )
+    let legacyAssertions = result.assertions.map { $0.id == revPAR.id ? legacyRevPAR : $0 }
+    let legacyPack = KnowledgePack(
+      manifest: manifest,
+      sources: [result.source],
+      passages: result.passages,
+      assertions: legacyAssertions,
+      evidenceLinks: result.evidenceLinks,
+      calculations: [],
+      responseCards: [],
+      questionFamilies: []
+    )
+
+    let report = loader.validate(legacyPack)
+    XCTAssertTrue(report.isValid, report.errors.map(\.description).joined(separator: "\n"))
+    XCTAssertFalse(
+      report.issues.contains {
+        $0.code == "profile.invalid_qualifier_value"
+          && $0.message.contains("qualifier 'source_role'")
+      },
+      "legacy jmi_extraction must not be flagged as an invalid source_role value"
+    )
+  }
+
   private var importer: HospitalityUnderwritingCSVImporter {
     HospitalityUnderwritingCSVImporter()
   }

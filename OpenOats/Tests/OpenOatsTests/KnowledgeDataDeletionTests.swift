@@ -138,6 +138,38 @@ final class KnowledgeDataDeletionTests: XCTestCase {
     XCTAssertTrue(FileManager.default.fileExists(atPath: twin.path))
   }
 
+  func testDanglingSymlinkTargetDoesNotFalselyReportComplete() throws {
+    let root = temporaryRoot()
+    defer { try? FileManager.default.removeItem(at: root) }
+    try seedDirectory(root)
+    let missingTarget = root.appendingPathComponent("ghost-target.txt")
+    let link = root.appendingPathComponent("dangling-link.txt")
+    try FileManager.default.createSymbolicLink(at: link, withDestinationURL: missingTarget)
+
+    // FileManager.fileExists(atPath:) follows symlinks, so a dangling link
+    // reports "absent" even though the link dirent itself is still there —
+    // the old existence check would skip removeItem entirely and still
+    // claim isComplete, while the link dirent silently remained on disk.
+    XCTAssertFalse(
+      FileManager.default.fileExists(atPath: link.path),
+      "sanity: fileExists must NOT see the dangling link — that's the trap this test targets")
+
+    let receipt = try KnowledgeDataDeletionService().delete([
+      KnowledgeDeletionTarget(kind: .cache, url: link, allowedRoot: root)
+    ])
+
+    if receipt.isComplete {
+      // A "complete" receipt must be truthful: the link dirent itself must
+      // actually be gone, not merely invisible to a follows-symlinks check.
+      // fileExists can't see a dangling link either way, so check the
+      // directory listing directly for the link's name.
+      let remaining = try FileManager.default.contentsOfDirectory(atPath: root.path)
+      XCTAssertFalse(
+        remaining.contains("dangling-link.txt"),
+        "receipt claimed complete but the dangling link dirent is still present")
+    }
+  }
+
   private func temporaryRoot() -> URL {
     FileManager.default.temporaryDirectory.appendingPathComponent(
       "knowledge-deletion-\(UUID().uuidString)",

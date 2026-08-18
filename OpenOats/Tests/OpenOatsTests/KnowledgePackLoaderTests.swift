@@ -310,6 +310,46 @@ final class KnowledgePackLoaderTests: XCTestCase {
     }
   }
 
+  func testSymlinkToOversizedRecordFileIsRejected() throws {
+    // FileManager.attributesOfItem(atPath:) (the old size-check mechanism)
+    // does NOT follow symlinks, while the actual content read
+    // (String(contentsOf:)) does — a symlink to a huge file bypassed the
+    // ceiling. The fix must read the size through the same follow-the-link
+    // path the content read uses.
+    let temporary = FileManager.default.temporaryDirectory
+      .appendingPathComponent("pack-symlink-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.copyItem(at: fixtureURL(), to: temporary)
+    defer { try? FileManager.default.removeItem(at: temporary) }
+
+    // sources.jsonl (772 B) and passages.jsonl (1,247 B) decode before
+    // assertions.jsonl and must stay under the limit untouched, so only the
+    // symlinked file is what trips the ceiling below.
+    let recordFile = temporary.appendingPathComponent("assertions.jsonl")
+    try FileManager.default.removeItem(at: recordFile)
+
+    let oversizedBacking = temporary.appendingPathComponent("oversized-backing.txt")
+    let payload = String(repeating: "x", count: 5_000)
+    try payload.write(to: oversizedBacking, atomically: true, encoding: .utf8)
+    try FileManager.default.createSymbolicLink(
+      at: recordFile, withDestinationURL: oversizedBacking)
+
+    let tiny = KnowledgePackLoader(
+      profileRegistry: KnowledgeDomainProfileRegistry(profiles: [HospitalityDomainProfile()]),
+      limits: KnowledgePackLoader.Limits(recordFileBytes: 2_000)
+    )
+    XCTAssertThrowsError(try tiny.load(from: temporary)) { error in
+      guard
+        case KnowledgePackLoadingError.fileTooLarge(let name, let byteCount, let limit) = error
+      else {
+        return XCTFail("expected fileTooLarge, got \(error)")
+      }
+      XCTAssertEqual(name, "assertions.jsonl")
+      XCTAssertEqual(limit, 2_000)
+      XCTAssertEqual(
+        byteCount, 5_000, "size must be read through the symlink, not the link entry itself")
+    }
+  }
+
   func testOversizedSourceFileSkipsSecretScanWithWarning() throws {
     let scanCapped = KnowledgePackLoader(
       profileRegistry: KnowledgeDomainProfileRegistry(profiles: [HospitalityDomainProfile()]),
@@ -418,6 +458,46 @@ final class KnowledgePackLoaderTests: XCTestCase {
     for issue in echoing {
       XCTAssertFalse(issue.message.contains(String(repeating: "Z", count: 100)))
       XCTAssertTrue(issue.message.contains("<redacted:") || issue.message.count < 250)
+    }
+  }
+
+  func testEchoSafeBoundsCombiningScalarRuns() throws {
+    let pack = try makeLoader().load(from: fixtureURL())
+    guard let template = pack.assertions.first else { return XCTFail("fixture has assertions") }
+    // A single Character can carry unbounded combining scalars: Swift's
+    // Character-based `.count`/`.prefix(80)` sees this whole run as ONE
+    // extended grapheme cluster (.count == 1), so a naive bound would pass
+    // the entire ~10KB string through untruncated. This key is
+    // SensitiveDataGuard-inert (no secret-shaped substring), isolating the
+    // truncation bound from redaction behavior.
+    let combiningBomb = "a" + String(repeating: "\u{0301}", count: 5_000)
+    let poisoned = KnowledgeAssertion(
+      id: "assertion-echo-scalar-probe",
+      subject: template.subject,
+      predicate: template.predicate,
+      value: template.value,
+      qualifiers: [combiningBomb: "x"],
+      kind: template.kind,
+      confidence: template.confidence,
+      evidenceLinkIDs: template.evidenceLinkIDs
+    )
+    let mutated = KnowledgePack(
+      manifest: pack.manifest,
+      sources: pack.sources,
+      passages: pack.passages,
+      assertions: pack.assertions + [poisoned],
+      evidenceLinks: pack.evidenceLinks,
+      calculations: pack.calculations,
+      responseCards: pack.responseCards,
+      questionFamilies: pack.questionFamilies
+    )
+    let report = makeLoader().validate(mutated)
+    let echoing = report.issues.filter { $0.code == "assertion.invalid_qualifier_key" }
+    XCTAssertFalse(echoing.isEmpty)
+    for issue in echoing {
+      XCTAssertLessThanOrEqual(
+        issue.message.utf8.count, 200,
+        "echoed qualifier key must be bounded on UTF-8 bytes, not Character count")
     }
   }
 

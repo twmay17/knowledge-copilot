@@ -872,23 +872,34 @@ public struct KnowledgePackLoader: Sendable {
               "Source '\(source.id)' SHA-256 does not match its manifest record."))
         }
         issues.append(contentsOf: sourceContentSecretIssues(source: source, data: data))
-      } catch let readError {
+      } catch _ {
+        // Do not interpolate the underlying error: NSError's
+        // localizedDescription embeds the absolute on-disk path, leaking the
+        // user's local filesystem layout — inconsistent with the
+        // echoSafe'd relativePath used elsewhere in this method. (A bare
+        // `catch {}` would also implicitly bind `error`, shadowing this
+        // type's own `error(_:_:)` issue-builder helper used below.)
         issues.append(
           error(
             "source.file_unreadable",
-            "Source '\(source.id)' file could not be read: \(readError.localizedDescription)"))
+            "Source '\(source.id)' file could not be read."))
       }
     }
     return issues
   }
 
   private func enforceSizeLimit(_ fileURL: URL, fileName: String, limitBytes: Int) throws {
+    // `fileURL.resourceValues(forKeys: [.fileSizeKey])` does NOT follow
+    // symlinks on this toolchain (verified empirically: it reports the
+    // symlink entry's own size, i.e. lstat semantics) — resolve the path
+    // first so the size read follows the same path Data/String(contentsOf:)
+    // takes when it actually reads the file below.
+    let resolvedURL = fileURL.resolvingSymlinksInPath()
     let byteCount =
-      (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? Int)
-      .flatMap { $0 } ?? 0
-    guard byteCount <= limitBytes else {
+      (try? resolvedURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? nil
+    guard let byteCount, byteCount <= limitBytes else {
       throw KnowledgePackLoadingError.fileTooLarge(
-        fileName, byteCount: byteCount, limitBytes: limitBytes)
+        fileName, byteCount: byteCount ?? -1, limitBytes: limitBytes)
     }
   }
 
@@ -1066,13 +1077,12 @@ public struct KnowledgePackLoader: Sendable {
     return runs.joined(separator: "\n")
   }
 
-  /// Free-form pack text echoed into validation messages is redacted and
-  /// truncated: a field that fails one rule may still contain credential
-  /// material, and messages travel to UI, CLI output, and reports.
+  /// Thin forwarder: the redact+bound implementation lives on
+  /// SensitiveDataGuard (public) so other modules — e.g. domain profiles —
+  /// can echo pack-controlled free-form text safely too. Kept here so this
+  /// file's ~10 existing `Self.echoSafe(...)` call sites are untouched.
   private static func echoSafe(_ value: String) -> String {
-    let redacted = SensitiveDataGuard.redacted(value)
-    guard redacted.count > 80 else { return redacted }
-    return redacted.prefix(80) + "…"
+    SensitiveDataGuard.echoSafe(value)
   }
 
   private func error(_ code: String, _ message: String) -> KnowledgePackValidationIssue {

@@ -459,6 +459,45 @@ final class KnowledgeTieredAnswerResolverTests: XCTestCase {
     XCTAssertTrue(late.isEmpty)
   }
 
+  func testCrossStreamInterruptDoesNotBlackholeAnotherStream() async throws {
+    let resolver = try makeResolver()
+    let micCandidate = revPARCandidate(streamID: "mic", status: .provisional, sequence: 1)
+    _ = await Self.collect(resolver.updates(for: .questionCandidate(micCandidate)))
+
+    // Mirrors KnowledgeLiveEventDetector.appendSupersession's `.interrupted`
+    // stamping: previousStreamID is the retired stream ("mic"), but
+    // revisionSequence is the INTERRUPTING stream's own counter — sequence
+    // counters are per-stream, so this number has nothing to do with "mic"'s
+    // own revisions and must not become "mic"'s retirement floor.
+    let crossStreamSupersession = KnowledgeAnswerSupersession(
+      previousEventID: micCandidate.id,
+      previousStreamID: "mic",
+      revisionSequence: 9_999,
+      reason: .interrupted,
+      replacementEventID: "remote#1"
+    )
+    _ = await Self.collect(resolver.updates(for: .answerSuperseded(crossStreamSupersession)))
+
+    // A genuinely fresh candidate on "mic" — new event ID, since a replay of
+    // the SAME ID would be masked by the (correct, unrelated) superseded-ID
+    // set rather than exercising the revision floor under test here; see the
+    // "ghost" pattern in testStaleRevisionOnRetractedStreamIsRejectedEvenWithUnknownEventID —
+    // at "mic"'s own next revision (2) must still be accepted: it must not
+    // be compared against the interrupting stream's 9,999.
+    let micNext = QuestionCandidate(
+      id: "mic#2",
+      streamID: micCandidate.streamID,
+      revisionSequence: 2,
+      questionFamilyID: micCandidate.questionFamilyID,
+      sourceText: micCandidate.sourceText,
+      confidence: 1,
+      status: .provisional,
+      bindings: micCandidate.bindings
+    )
+    let shown = await Self.collect(resolver.updates(for: .questionCandidate(micNext)))
+    XCTAssertFalse(shown.isEmpty)
+  }
+
   func testNumericValuesParsesPlainThousandsAndDecimalTokens() {
     XCTAssertEqual(
       KnowledgeTieredAnswerResolver.numericValues(in: "RevPAR was $89.50 across 3,266,750 in 2020"),

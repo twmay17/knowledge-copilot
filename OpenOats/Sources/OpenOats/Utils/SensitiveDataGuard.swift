@@ -41,6 +41,28 @@ public enum SensitiveDataGuard {
     return result
   }
 
+  /// Free-form pack-controlled text echoed into validation/error messages is
+  /// redacted and length-bounded before display: a field that fails one rule
+  /// may still contain credential material, and messages travel to UI, CLI
+  /// output, and reports. Bounded on UTF-8 bytes, not Character count — one
+  /// Character can carry unbounded combining scalars, so a Character-based
+  /// bound would pass an arbitrarily large string through untruncated.
+  public static func echoSafe(_ value: String) -> String {
+    let redacted = redacted(value)
+    let limit = 80
+    guard redacted.utf8.count > limit else { return redacted }
+    // Truncate on a scalar boundary within the byte budget, then mark elision.
+    var scalars = String.UnicodeScalarView()
+    var bytes = 0
+    for scalar in redacted.unicodeScalars {
+      let width = String(scalar).utf8.count
+      if bytes + width > limit { break }
+      scalars.append(scalar)
+      bytes += width
+    }
+    return String(scalars) + "…"
+  }
+
   private static var patterns: [Pattern] {
     [
       Pattern(
