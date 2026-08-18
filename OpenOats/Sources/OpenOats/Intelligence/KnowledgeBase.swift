@@ -250,6 +250,13 @@ final class KnowledgeBase {
         }.value
 
         guard !scanResult.fileURLs.isEmpty else {
+            let prunedEntries = Self.prunedEntries(
+                cacheSnapshot.entries, folderURL: folderURL, excludedFolderPath: excludedFolderPath)
+            if prunedEntries.count != cacheSnapshot.entries.count {
+                var prunedCache = cacheSnapshot
+                prunedCache.entries = prunedEntries
+                saveCache(prunedCache)
+            }
             indexingStatus = .idle
             isIndexed = true
             return
@@ -524,6 +531,7 @@ final class KnowledgeBase {
     /// and resolving symlinks. Used to keep the selected KnowledgePack tree
     /// out of classic KB indexing, whose chunks can reach an external
     /// embedding provider regardless of the Knowledge network mode.
+    // Weaker canonicalization than SettingsStore.foldersOverlap is deliberate: a nonexistent excluded path has no content to protect, so no ancestor-walk is needed here.
     nonisolated static func isExcluded(fileURL: URL, excludedFolderPath: String) -> Bool {
         let trimmed = excludedFolderPath.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
@@ -533,16 +541,38 @@ final class KnowledgeBase {
         return candidate == excluded || candidate.hasPrefix(excluded + "/")
     }
 
+    /// Drops any cache entry whose chunk list contains a chunk resolving under the excluded
+    /// folder. Used to keep a cache built before an exclusion was configured (or before the
+    /// excluded folder existed) from resurrecting pack chunks into the classic KB.
+    nonisolated static func prunedEntries(
+        _ entries: [String: [KBChunk]], folderURL: URL, excludedFolderPath: String
+    ) -> [String: [KBChunk]] {
+        entries.filter { _, chunkList in
+            !chunkList.contains { chunk in
+                Self.isExcluded(
+                    fileURL: folderURL.appendingPathComponent(chunk.relativePath),
+                    excludedFolderPath: excludedFolderPath
+                )
+            }
+        }
+    }
+
     nonisolated static func collectFilesStatic(in folderURL: URL, excludingFolderAt excludedFolderPath: String) -> [URL] {
         let fm = FileManager.default
         guard let enumerator = fm.enumerator(
             at: folderURL,
-            includingPropertiesForKeys: [.isRegularFileKey],
+            includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey],
             options: [.skipsHiddenFiles]
         ) else { return [] }
 
         var urls: [URL] = []
         for case let fileURL as URL in enumerator {
+            if (try? fileURL.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true {
+                if Self.isExcluded(fileURL: fileURL, excludedFolderPath: excludedFolderPath) {
+                    enumerator.skipDescendants()
+                }
+                continue
+            }
             let ext = fileURL.pathExtension.lowercased()
             if ext == "md" || ext == "txt" {
                 if Self.isExcluded(fileURL: fileURL, excludedFolderPath: excludedFolderPath) {
