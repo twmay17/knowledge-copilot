@@ -604,7 +604,8 @@ public struct KnowledgePackDependencyInvalidator: Sendable {
     from previousPack: KnowledgePack,
     to currentPack: KnowledgePack
   ) throws -> KnowledgePackDependencyInvalidationPlan {
-    let duplicates = KnowledgePackSearchIndex.duplicateRecordIDs(in: previousPack)
+    let duplicates =
+      KnowledgePackSearchIndex.duplicateRecordIDs(in: previousPack)
       + KnowledgePackSearchIndex.duplicateRecordIDs(in: currentPack)
     guard duplicates.isEmpty else {
       throw KnowledgePackSearchError.duplicateRecordIDs(duplicates.sorted())

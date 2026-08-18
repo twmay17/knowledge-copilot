@@ -40,5 +40,11 @@ jobs:
       - name: Validate the KnowledgePack contract fixture
         run: swift run knowledge-pack validate ../fixtures/knowledge-packs/minimal-hospitality
 
+      - name: Run the correctness gate
+        run: swift run knowledge-pack audit-correctness ../fixtures/correctness-gate-v1.json
+
+      - name: Lint canonical Swift sources
+        run: bash "${{ github.workspace }}/scripts/lint_swift.sh"
+
       - name: Run Swift tests
-        run: swift test
+        run: swift test --skip MeetingDetectorTests

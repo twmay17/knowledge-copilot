@@ -293,6 +293,9 @@ cd OpenOats && swift build -c debug
 
 Optional env vars for code signing and notarization: `CODESIGN_IDENTITY`, `APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_APP_PASSWORD`.
 
+Run the test suite with `swift test --skip MeetingDetectorTests` from `OpenOats/` — the skipped
+MeetingDetector tests require live meeting-app state and are exercised manually.
+
 ## Repo layout
 
 ```
