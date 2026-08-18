@@ -227,8 +227,8 @@ Xcode 26.6, build 17F113
 Apple Swift 6.3.3 (swiftlang-6.3.3.1.3), arm64-apple-macosx26.0
 Branch fix/audit-remediation-wave-3, base a9aee04, HEAD 4b9f11b
 
-Authoritative GUI-session suite run (maintainer terminal — pending; sandbox runner recorded 959/0):
-	 Executed 959 tests, with 0 failures (0 unexpected)
+Authoritative GUI-session suite run (maintainer terminal, 2026-08-17, HEAD 381742d):
+	 Executed 959 tests, with 0 failures (0 unexpected) in 64.873 (64.924) seconds
 
 PASS: KnowledgePack V1 correctness gate
 Packs: 2/2 passed; outcome probes: 8/8 passed
