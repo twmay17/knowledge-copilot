@@ -88,4 +88,3 @@ back instead of showing a partial calculation.
 
 Calculated cards must claim the output assertion of every calculation they display. This prevents
 a reviewed answer string from attaching an unrelated formula.
-

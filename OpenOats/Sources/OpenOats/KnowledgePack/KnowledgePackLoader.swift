@@ -1014,10 +1014,11 @@ public struct KnowledgePackLoader: Sendable {
   }
 
   /// Scans a source file's bytes for credential-like material. Text files are
-  /// scanned whole; binary files are scanned via their printable-ASCII runs so
-  /// embedded keys in PDFs or archives are still caught without decoding the
-  /// container format. One issue per credential kind per file; values are
-  /// never retained or echoed.
+  /// scanned whole; binary files are scanned via their printable-ASCII runs,
+  /// which catches keys in uncompressed binary containers; compressed archive
+  /// contents (XLSX, most PDF streams) are covered by the structured-field scan
+  /// of their extracted records instead. One issue per credential kind per file;
+  /// values are never retained or echoed.
   private func sourceContentSecretIssues(
     source: KnowledgeSource,
     data: Data

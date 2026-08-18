@@ -40,7 +40,7 @@ or loopback destination.
 
 Application API keys and webhook secrets use the macOS Keychain-backed secret store and are not
 written to `UserDefaults`. Pack validation rejects common private-key, provider-token, bearer-token,
-and credential-assignment patterns across the pack's structured text fields. Validation findings
+and credential-assignment patterns across the pack's structured text fields and the raw bytes of every source file (up to the scan ceiling). Validation findings
 identify only the record location and credential class; they never echo the detected value.
 
 Diagnostic breadcrumbs are redacted before they are written. Diagnostics exports apply the same

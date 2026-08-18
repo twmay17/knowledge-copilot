@@ -57,7 +57,7 @@ public enum SensitiveDataGuard {
       ),
       Pattern(
         kind: .providerCredential,
-        expression: #"\bAIza[0-9A-Za-z_-]{35}\b"#,
+        expression: #"\bAIza[0-9A-Za-z_-]{35}"#,
         options: []
       ),
       Pattern(

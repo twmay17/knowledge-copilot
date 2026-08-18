@@ -132,5 +132,21 @@ final class KnowledgeSecurityBoundaryTests: XCTestCase {
     let redacted = SensitiveDataGuard.redacted(source)
     XCTAssertFalse(redacted.contains(googleKey))
     XCTAssertFalse(redacted.contains(jwt))
+
+    // A key whose final character is '-' must still match before a delimiter.
+    let dashTerminalKey = "AIza" + String(repeating: "A", count: 34) + "-"
+    XCTAssertTrue(
+      SensitiveDataGuard.findings(in: "x \(dashTerminalKey) y").contains {
+        $0.kind == .providerCredential
+      })
+
+    // A dash-terminal key abutted by more valid-charset junk must still be
+    // caught and its 39 key characters redacted (over-matching is fail-safe).
+    let abutted = dashTerminalKey + "BBBBB"
+    XCTAssertTrue(
+      SensitiveDataGuard.findings(in: "x \(abutted) y").contains {
+        $0.kind == .providerCredential
+      })
+    XCTAssertFalse(SensitiveDataGuard.redacted("x \(abutted) y").contains(dashTerminalKey))
   }
 }
