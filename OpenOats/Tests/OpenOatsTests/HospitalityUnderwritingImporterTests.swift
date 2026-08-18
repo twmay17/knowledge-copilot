@@ -15,7 +15,7 @@ final class HospitalityUnderwritingImporterTests: XCTestCase {
         for: "Deal/JMI Analysis/00 Extraction CSVs/Hotel_PL_2024_canonical.csv"
       ),
       HospitalityUnderwritingSourceLabels(
-        role: .jmiExtraction,
+        role: .analysisExtraction,
         documentType: .profitAndLoss,
         valueStage: .canonical
       )
@@ -23,7 +23,7 @@ final class HospitalityUnderwritingImporterTests: XCTestCase {
     XCTAssertEqual(
       classifier.labels(for: "Deal/JMI Analysis/04 Flags & Verification/FLAGS_REGISTER.md")
         .role,
-      .jmiVerification
+      .analysisVerification
     )
     XCTAssertEqual(
       classifier.labels(for: "Deal/08 Market/Hotel_Markets_Monthly.xlsx"),
@@ -40,6 +40,30 @@ final class HospitalityUnderwritingImporterTests: XCTestCase {
     )
   }
 
+  func testGenericDealAnalysisPathsClassifyLikeLegacyJMIPaths() {
+    let classifier = HospitalityUnderwritingPathClassifier()
+    XCTAssertEqual(
+      classifier.labels(for: "Deal/Deal Analysis/00 Extraction CSVs/Hotel_PL_2024_canonical.csv")
+        .role,
+      .analysisExtraction
+    )
+    XCTAssertEqual(
+      classifier.labels(for: "Deal/Deal Analysis/04 Flags & Verification/FLAGS_REGISTER.md").role,
+      .analysisVerification
+    )
+    // Legacy folders keep working.
+    XCTAssertEqual(
+      classifier.labels(for: "Deal/JMI Analysis/00 Extraction CSVs/Synthetic_PL_2020.csv").role,
+      .analysisExtraction
+    )
+  }
+
+  func testRoleIdentifiersAreFirmNeutral() {
+    for role in HospitalityUnderwritingSourceRole.allCases {
+      XCTAssertFalse(role.rawValue.lowercased().contains("jmi"), role.rawValue)
+    }
+  }
+
   func testProfitAndLossImportPromotesMappedFactsWithProvenanceAndFailClosedWarnings() throws {
     let result = try importer.ingest(
       fileAt: fixtureDirectory().appendingPathComponent("Synthetic_PL_2020.csv"),
@@ -49,7 +73,7 @@ final class HospitalityUnderwritingImporterTests: XCTestCase {
     )
 
     XCTAssertEqual(result.profileVersion, "0.2.0")
-    XCTAssertEqual(result.labels.role, .jmiExtraction)
+    XCTAssertEqual(result.labels.role, .analysisExtraction)
     XCTAssertEqual(result.labels.documentType, .profitAndLoss)
     XCTAssertEqual(result.labels.valueStage, .exactTranscription)
     XCTAssertEqual(
@@ -70,7 +94,7 @@ final class HospitalityUnderwritingImporterTests: XCTestCase {
     XCTAssertEqual(revPAR.qualifiers["status"], "actual")
     XCTAssertEqual(revPAR.qualifiers["benchmark"], "subject")
     XCTAssertEqual(revPAR.qualifiers["comparison_basis"], "direct_asset")
-    XCTAssertEqual(revPAR.qualifiers["source_role"], "jmi_extraction")
+    XCTAssertEqual(revPAR.qualifiers["source_role"], "analysis_extraction")
 
     let occupancy = try XCTUnwrap(
       result.assertions.first { $0.predicate == "hospitality.occupancy" })

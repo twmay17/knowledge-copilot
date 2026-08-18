@@ -307,3 +307,5 @@ assets/               Screenshot and app icon source
 ## License
 
 MIT
+
+Third-party components are listed in THIRD_PARTY_NOTICES.md.

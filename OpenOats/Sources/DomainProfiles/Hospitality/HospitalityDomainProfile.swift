@@ -506,8 +506,8 @@ public struct HospitalityDomainProfile: KnowledgeDomainProfile {
           label: "Source role",
           valueType: .text,
           allowedValues: [
-            "broker_source", "jmi_extraction", "jmi_model", "jmi_verification",
-            "jmi_narrative",
+            "broker_source", "analysis_extraction", "analysis_model", "analysis_verification",
+            "analysis_narrative",
           ]
         ),
       ],

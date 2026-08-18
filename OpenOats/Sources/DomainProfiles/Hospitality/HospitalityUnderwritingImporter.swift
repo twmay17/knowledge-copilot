@@ -2,12 +2,12 @@ import CryptoKit
 import Foundation
 import OpenOatsKit
 
-public enum HospitalityUnderwritingSourceRole: String, Codable, Equatable, Sendable {
+public enum HospitalityUnderwritingSourceRole: String, Codable, Equatable, Sendable, CaseIterable {
   case brokerSource = "broker_source"
-  case jmiExtraction = "jmi_extraction"
-  case jmiModel = "jmi_model"
-  case jmiVerification = "jmi_verification"
-  case jmiNarrative = "jmi_narrative"
+  case analysisExtraction = "analysis_extraction"
+  case analysisModel = "analysis_model"
+  case analysisVerification = "analysis_verification"
+  case analysisNarrative = "analysis_narrative"
 }
 
 public enum HospitalityUnderwritingDocumentType: String, Codable, Equatable, Sendable {
@@ -62,18 +62,20 @@ public struct HospitalityUnderwritingPathClassifier: Sendable {
     let path = relativePath.lowercased().replacingOccurrences(of: "\\", with: "/")
     let boundedPath = "/" + path.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + "/"
     let filename = URL(fileURLWithPath: path).lastPathComponent
+    let analysisPath = boundedPath.replacingOccurrences(
+      of: "/jmi analysis/", with: "/deal analysis/")
 
     let role: HospitalityUnderwritingSourceRole
-    if boundedPath.contains("/jmi analysis/00 extraction csvs/") {
-      role = .jmiExtraction
-    } else if boundedPath.contains("/jmi analysis/01 boe/")
-      || boundedPath.contains("/jmi analysis/06 full model/")
+    if analysisPath.contains("/deal analysis/00 extraction csvs/") {
+      role = .analysisExtraction
+    } else if analysisPath.contains("/deal analysis/01 boe/")
+      || analysisPath.contains("/deal analysis/06 full model/")
     {
-      role = .jmiModel
-    } else if boundedPath.contains("/jmi analysis/04 flags & verification/") {
-      role = .jmiVerification
-    } else if boundedPath.contains("/jmi analysis/") {
-      role = .jmiNarrative
+      role = .analysisModel
+    } else if analysisPath.contains("/deal analysis/04 flags & verification/") {
+      role = .analysisVerification
+    } else if analysisPath.contains("/deal analysis/") {
+      role = .analysisNarrative
     } else {
       role = .brokerSource
     }
@@ -120,7 +122,7 @@ public struct HospitalityUnderwritingPathClassifier: Sendable {
     }
 
     let valueStage: HospitalityUnderwritingValueStage
-    if role == .jmiModel {
+    if role == .analysisModel {
       valueStage = .modeled
     } else if filename.contains("_canonical") {
       valueStage = .canonical
@@ -193,7 +195,7 @@ public enum HospitalityUnderwritingImportError: Error, CustomStringConvertible {
   public var description: String {
     switch self {
     case .unsupportedCSVSchema:
-      return "Unsupported underwriting CSV schema; expected the JMI P&L or STAR columns."
+      return "Unsupported underwriting CSV schema; expected the canonical P&L or STAR columns."
     case .missingReportingPeriod(let filename):
       return
         "No reporting period was supplied or inferable from '\(filename)'; pass --period using YYYY, YYYY-MM, TTM:YYYY-MM, or YTD:YYYY-MM."

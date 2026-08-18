@@ -17,10 +17,12 @@ The source tree and analysis tree remain distinct:
 | Folder or artifact | Source role | KnowledgePack treatment |
 |---|---|---|
 | Broker `01 OM` through `08 Market` | `broker_source` | Original evidence and citations |
-| `JMI Analysis/00 Extraction CSVs` | `jmi_extraction` | Exact or canonical structured assertions |
-| `01 BOE` and `06 Full Model` | `jmi_model` | Modeled values; never relabeled as direct facts |
-| `04 Flags & Verification` | `jmi_verification` | Contradictions, gaps, tie-outs, and review evidence |
-| Business plan, IC memo, and thesis | `jmi_narrative` | Interpretive conclusions and prepared talking points |
+| `Deal Analysis/00 Extraction CSVs` | `analysis_extraction` | Exact or canonical structured assertions |
+| `01 BOE` and `06 Full Model` | `analysis_model` | Modeled values; never relabeled as direct facts |
+| `04 Flags & Verification` | `analysis_verification` | Contradictions, gaps, tie-outs, and review evidence |
+| Business plan, IC memo, and thesis | `analysis_narrative` | Interpretive conclusions and prepared talking points |
+
+Folders named "JMI Analysis" (the layout's original name) are recognized as a legacy alias.
 
 The current executable importer promotes P&L and STAR extraction CSVs. The path classifier already
 labels common CoStar exports, BOEs, PIP matrices, mix lists, flags, tie-outs, business plans, full
@@ -116,7 +118,7 @@ From `OpenOats/`:
 ```bash
 swift run knowledge-pack import-underwriting-csv \
   ../fixtures/hospitality-underwriting/Synthetic_PL_2020.csv \
-  --relative-path "Deal/JMI Analysis/00 Extraction CSVs/Synthetic_PL_2020.csv" \
+  --relative-path "Deal/Deal Analysis/00 Extraction CSVs/Synthetic_PL_2020.csv" \
   --asset-id synthetic-hotel \
   --output ../tmp/hospitality-import.json
 ```
