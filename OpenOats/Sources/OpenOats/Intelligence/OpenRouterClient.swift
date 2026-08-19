@@ -194,6 +194,30 @@ actor OpenRouterClient {
         return markers.contains { lowered.contains($0) }
     }
 
+    /// Delay before the single retry on a 429 from the structured-output path.
+    static let rateLimitRetryDelay: TimeInterval = 2.5
+
+    /// Retries once after `delay` when a schema-enforced request (`hasSchema`) comes
+    /// back HTTP 429 — shared-quota models 429 transiently in live use, and a single
+    /// quiet retry converts that into a normal success rather than a failed turn.
+    /// Scoped to the structured-output path only: when `hasSchema` is false the first
+    /// response is returned as-is, so plain callers (SuggestionEngine, NotesEngine,
+    /// etc.) keep today's exact behavior — no retry.
+    ///
+    /// If the retry also comes back 429, that response is likewise returned as-is —
+    /// no second retry, no infinite loop — and the caller's existing status-code guard
+    /// surfaces the same `OpenRouterError.httpError` it always has.
+    static func sendRetryingRateLimit(
+        hasSchema: Bool,
+        delay: TimeInterval,
+        send: () async throws -> (Data, HTTPURLResponse)
+    ) async throws -> (Data, HTTPURLResponse) {
+        let response = try await send()
+        guard hasSchema, response.1.statusCode == 429 else { return response }
+        try await Task.sleep(nanoseconds: UInt64(max(0, delay) * 1_000_000_000))
+        return try await send()
+    }
+
     private static func schemaAwareEncoder() -> JSONEncoder {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
@@ -378,7 +402,12 @@ actor OpenRouterClient {
             return (data, httpResponse)
         }
 
-        var (data, httpResponse) = try await send(makeRequest(withSchema: jsonSchema != nil))
+        var (data, httpResponse) = try await Self.sendRetryingRateLimit(
+            hasSchema: jsonSchema != nil,
+            delay: Self.rateLimitRetryDelay
+        ) {
+            try await send(makeRequest(withSchema: jsonSchema != nil))
+        }
 
         // Not every model supports constrained decoding. Degrade to prompt-only
         // JSON rather than failing the whole generation.
@@ -513,7 +542,12 @@ actor OpenRouterClient {
             return (data, httpResponse)
         }
 
-        var (data, httpResponse) = try await send(makeRequest(withSchema: jsonSchema != nil))
+        var (data, httpResponse) = try await Self.sendRetryingRateLimit(
+            hasSchema: jsonSchema != nil,
+            delay: Self.rateLimitRetryDelay
+        ) {
+            try await send(makeRequest(withSchema: jsonSchema != nil))
+        }
 
         // Structured outputs are only on newer Claude models — degrade rather than fail.
         if jsonSchema != nil, !(200...299).contains(httpResponse.statusCode) {
