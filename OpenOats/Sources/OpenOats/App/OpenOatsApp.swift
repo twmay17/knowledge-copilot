@@ -23,6 +23,11 @@ public struct OpenOatsRootApp: App {
     @State private var container: AppContainer
     @State private var whatsNewController: WhatsNewController
     @State private var knowledgePackStore: KnowledgePackStore
+    // Created eagerly (not lazily on first "Whiteboard" click): the window
+    // controller sets sharingType = .none in its own init, so the window is
+    // share-protected from app launch onward rather than only from its
+    // first showing. See SidecastWhiteboardWindowController's doc comment.
+    @State private var whiteboardWindowController = SidecastWhiteboardWindowController()
     private let updaterController: AppUpdaterController
     private let defaults: UserDefaults
 
@@ -139,6 +144,11 @@ public struct OpenOatsRootApp: App {
                     openKnowledgeReviewWindow()
                 }
                 .keyboardShortcut("r", modifiers: [.command, .shift])
+
+                Button("Whiteboard") {
+                    whiteboardWindowController.show()
+                }
+                .keyboardShortcut("w", modifiers: [.command, .shift])
 
                 Button("Import Meeting Recording...") {
                     importMeetingRecording()
