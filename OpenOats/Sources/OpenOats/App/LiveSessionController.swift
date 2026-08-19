@@ -543,6 +543,14 @@ final class LiveSessionController {
     // MARK: - Utterance Ingestion (migrated from ContentView)
 
     private func handleNewUtterance(_ last: Utterance, settings: AppSettings) {
+        // WB-0 live-smoke aid: debug level only (not persisted, invisible unless a
+        // maintainer runs `log stream --level debug`), so transcript text at this
+        // one seam is an acceptable, opt-in-only exposure. See
+        // .superpowers/sdd/wb0-smoke-procedure.md.
+        Log.diagnostics.debug(
+            "WB-0 live smoke: speaker=\(last.speaker.storageKey, privacy: .public) chars=\(last.text.count, privacy: .public) text=\(last.text.prefix(160), privacy: .public)"
+        )
+
         container.detectionController?.noteUtterance()
 
         if settings.enableLiveTranscriptCleanup, let engine = coordinator.liveTranscriptCleaner {
