@@ -91,7 +91,7 @@ actor OpenRouterClient {
         static let `default` = WebSearchPlugin(id: "web", max_results: 5)
     }
 
-    struct ChatRequest: Codable {
+    struct ChatRequest: Encodable {
         let model: String
         let messages: [Message]
         let stream: Bool
@@ -99,6 +99,105 @@ actor OpenRouterClient {
         let max_completion_tokens: Int?
         let temperature: Double?
         let plugins: [WebSearchPlugin]?
+        let response_format: ResponseFormat?
+    }
+
+    // MARK: - Structured Output
+
+    /// Minimal JSON tree for embedding a hand-written JSON Schema in a Codable
+    /// request body. Encoded with `.sortedKeys` so the same schema always
+    /// serializes to the same bytes.
+    enum JSONValue: Encodable {
+        case string(String)
+        case bool(Bool)
+        case array([JSONValue])
+        case object([String: JSONValue])
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.singleValueContainer()
+            switch self {
+            case .string(let value): try container.encode(value)
+            case .bool(let value): try container.encode(value)
+            case .array(let value): try container.encode(value)
+            case .object(let value): try container.encode(value)
+            }
+        }
+
+        /// Nullable scalar. Expressed as `anyOf` rather than a `["number","null"]`
+        /// type union because Anthropic's schema subset accepts `anyOf` but not
+        /// type arrays; OpenAI-compatible providers accept both.
+        static func nullable(_ type: String) -> JSONValue {
+            .object(["anyOf": .array([
+                .object(["type": .string(type)]),
+                .object(["type": .string("null")]),
+            ])])
+        }
+    }
+
+    /// A schema the caller wants the model's response constrained to.
+    /// `name` is required by the OpenAI-compatible shape and ignored by Anthropic.
+    struct JSONSchemaSpec: Sendable {
+        let name: String
+        let schema: JSONValue
+
+        init(name: String, schema: JSONValue) {
+            self.name = name
+            self.schema = schema
+        }
+    }
+
+    /// OpenAI-compatible shape: `response_format.json_schema`.
+    struct ResponseFormat: Encodable {
+        let type: String
+        let json_schema: Payload
+
+        struct Payload: Encodable {
+            let name: String
+            let strict: Bool?
+            let schema: JSONValue
+        }
+    }
+
+    /// Anthropic Messages shape: `output_config.format`. Carries no `name` and no
+    /// `strict` — that is the OpenAI spelling, and sending it here is rejected.
+    /// (The older top-level `output_format` parameter is deprecated; this is the
+    /// current one.)
+    struct OutputConfig: Encodable {
+        let format: Format
+
+        struct Format: Encodable {
+            let type: String
+            let schema: JSONValue
+        }
+    }
+
+    /// Ollama's OpenAI-compat layer accepts `json_schema` but rejects `strict`.
+    private static func responseFormat(for spec: JSONSchemaSpec, url: URL) -> ResponseFormat {
+        let acceptsStrict = !Self.isLocalHost(url)
+        return ResponseFormat(
+            type: "json_schema",
+            json_schema: .init(
+                name: spec.name,
+                strict: acceptsStrict ? true : nil,
+                schema: spec.schema
+            )
+        )
+    }
+
+    /// A 4xx naming the schema field means this model/provider can't constrain
+    /// decoding — Anthropic supports it only on newer models, and not every
+    /// OpenRouter model does either.
+    static func isSchemaRejection(_ statusCode: Int, body: String) -> Bool {
+        guard [400, 404, 422].contains(statusCode) else { return false }
+        let markers = ["response_format", "json_schema", "output_config", "schema", "structured"]
+        let lowered = body.lowercased()
+        return markers.contains { lowered.contains($0) }
+    }
+
+    private static func schemaAwareEncoder() -> JSONEncoder {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return encoder
     }
 
     /// Whether a URL points to a host that supports the `max_completion_tokens`
@@ -156,7 +255,8 @@ actor OpenRouterClient {
                         max_tokens: useNewParam ? nil : maxTokens,
                         max_completion_tokens: useNewParam ? maxTokens : nil,
                         temperature: nil,
-                        plugins: nil
+                        plugins: nil,
+                        response_format: nil
                     )
 
                     var urlRequest = URLRequest(url: targetURL)
@@ -220,7 +320,8 @@ actor OpenRouterClient {
         baseURL: URL? = nil,
         webSearch: Bool = false,
         transport: CompletionTransport = .chatCompletions,
-        requestTimeout: TimeInterval = 300
+        requestTimeout: TimeInterval = 300,
+        jsonSchema: JSONSchemaSpec? = nil
     ) async throws -> String {
         if transport == .anthropicMessages {
             return try await completeAnthropic(
@@ -230,7 +331,8 @@ actor OpenRouterClient {
                 maxTokens: maxTokens,
                 temperature: temperature,
                 baseURL: baseURL,
-                requestTimeout: requestTimeout
+                requestTimeout: requestTimeout,
+                jsonSchema: jsonSchema
             )
         }
 
@@ -239,35 +341,59 @@ actor OpenRouterClient {
             throw preflightError
         }
         let useNewParam = Self.usesMaxCompletionTokens(targetURL)
-        let request = ChatRequest(
-            model: model,
-            messages: messages,
-            stream: false,
-            max_tokens: useNewParam ? nil : maxTokens,
-            max_completion_tokens: useNewParam ? maxTokens : nil,
-            temperature: temperature,
-            plugins: webSearch ? [.default] : nil
-        )
-        var urlRequest = URLRequest(url: targetURL)
-        urlRequest.httpMethod = "POST"
-        // Total request timeout — covers gate / judge / structured-JSON calls that may hit
-        // slow local models or reasoning models. Default 60s is too aggressive in practice.
-        urlRequest.timeoutInterval = requestTimeout
-        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if let apiKey, !apiKey.isEmpty {
-            urlRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        }
-        if targetURL.host?.contains("openrouter.ai") == true {
-            urlRequest.setValue("OpenOats/2.0", forHTTPHeaderField: "HTTP-Referer")
-        }
-        urlRequest.httpBody = try JSONEncoder().encode(request)
 
-        let (data, response) = try await URLSession.shared.data(for: urlRequest)
+        func makeRequest(withSchema: Bool) -> ChatRequest {
+            ChatRequest(
+                model: model,
+                messages: messages,
+                stream: false,
+                max_tokens: useNewParam ? nil : maxTokens,
+                max_completion_tokens: useNewParam ? maxTokens : nil,
+                temperature: temperature,
+                plugins: webSearch ? [.default] : nil,
+                response_format: withSchema
+                    ? jsonSchema.map { Self.responseFormat(for: $0, url: targetURL) }
+                    : nil
+            )
+        }
 
-        guard let httpResponse = response as? HTTPURLResponse,
-              (200...299).contains(httpResponse.statusCode) else {
-            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-            throw OpenRouterError.httpError(statusCode, host: targetURL.host)
+        func send(_ request: ChatRequest) async throws -> (Data, HTTPURLResponse) {
+            var urlRequest = URLRequest(url: targetURL)
+            urlRequest.httpMethod = "POST"
+            // Total request timeout — covers gate / judge / structured-JSON calls that may hit
+            // slow local models or reasoning models. Default 60s is too aggressive in practice.
+            urlRequest.timeoutInterval = requestTimeout
+            urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            if let apiKey, !apiKey.isEmpty {
+                urlRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+            }
+            if targetURL.host?.contains("openrouter.ai") == true {
+                urlRequest.setValue("OpenOats/2.0", forHTTPHeaderField: "HTTP-Referer")
+            }
+            urlRequest.httpBody = try Self.schemaAwareEncoder().encode(request)
+
+            let (data, response) = try await URLSession.shared.data(for: urlRequest)
+            let httpResponse = response as? HTTPURLResponse
+                ?? HTTPURLResponse(url: targetURL, statusCode: -1, httpVersion: nil, headerFields: nil)!
+            return (data, httpResponse)
+        }
+
+        var (data, httpResponse) = try await send(makeRequest(withSchema: jsonSchema != nil))
+
+        // Not every model supports constrained decoding. Degrade to prompt-only
+        // JSON rather than failing the whole generation.
+        if jsonSchema != nil, !(200...299).contains(httpResponse.statusCode) {
+            let body = String(data: data, encoding: .utf8) ?? ""
+            if Self.isSchemaRejection(httpResponse.statusCode, body: body) {
+                Log.sidecast.warning(
+                    "\(model, privacy: .public) rejected response_format — retrying without schema enforcement"
+                )
+                (data, httpResponse) = try await send(makeRequest(withSchema: false))
+            }
+        }
+
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw OpenRouterError.httpError(httpResponse.statusCode, host: targetURL.host)
         }
 
         let completionResponse = try JSONDecoder().decode(CompletionResponse.self, from: data)
@@ -296,7 +422,8 @@ actor OpenRouterClient {
                         messages: Self.anthropicMessages(from: messages),
                         stream: true,
                         temperature: nil,
-                        system: Self.anthropicSystemPrompt(from: messages)
+                        system: Self.anthropicSystemPrompt(from: messages),
+                        output_config: nil
                     )
 
                     var urlRequest = URLRequest(url: targetURL)
@@ -349,35 +476,58 @@ actor OpenRouterClient {
         maxTokens: Int,
         temperature: Double?,
         baseURL: URL?,
-        requestTimeout: TimeInterval
+        requestTimeout: TimeInterval,
+        jsonSchema: JSONSchemaSpec? = nil
     ) async throws -> String {
         let targetURL = baseURL ?? Self.anthropicMessagesURL(from: "https://api.anthropic.com")!
         guard let apiKey, !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw OpenRouterError.missingAPIKey(host: targetURL.host)
         }
 
-        let request = AnthropicRequest(
-            model: model,
-            max_tokens: maxTokens,
-            messages: Self.anthropicMessages(from: messages),
-            stream: false,
-            temperature: temperature,
-            system: Self.anthropicSystemPrompt(from: messages)
-        )
+        func makeRequest(withSchema: Bool) -> AnthropicRequest {
+            AnthropicRequest(
+                model: model,
+                max_tokens: maxTokens,
+                messages: Self.anthropicMessages(from: messages),
+                stream: false,
+                temperature: temperature,
+                system: Self.anthropicSystemPrompt(from: messages),
+                output_config: withSchema
+                    ? jsonSchema.map { OutputConfig(format: .init(type: "json_schema", schema: $0.schema)) }
+                    : nil
+            )
+        }
 
-        var urlRequest = URLRequest(url: targetURL)
-        urlRequest.httpMethod = "POST"
-        urlRequest.timeoutInterval = requestTimeout
-        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        urlRequest.setValue(apiKey, forHTTPHeaderField: "x-api-key")
-        urlRequest.setValue(Self.anthropicVersion, forHTTPHeaderField: "anthropic-version")
-        urlRequest.httpBody = try JSONEncoder().encode(request)
+        func send(_ request: AnthropicRequest) async throws -> (Data, HTTPURLResponse) {
+            var urlRequest = URLRequest(url: targetURL)
+            urlRequest.httpMethod = "POST"
+            urlRequest.timeoutInterval = requestTimeout
+            urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            urlRequest.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+            urlRequest.setValue(Self.anthropicVersion, forHTTPHeaderField: "anthropic-version")
+            urlRequest.httpBody = try Self.schemaAwareEncoder().encode(request)
 
-        let (data, response) = try await URLSession.shared.data(for: urlRequest)
-        guard let httpResponse = response as? HTTPURLResponse,
-              (200...299).contains(httpResponse.statusCode) else {
-            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-            throw OpenRouterError.httpError(statusCode, host: targetURL.host)
+            let (data, response) = try await URLSession.shared.data(for: urlRequest)
+            let httpResponse = response as? HTTPURLResponse
+                ?? HTTPURLResponse(url: targetURL, statusCode: -1, httpVersion: nil, headerFields: nil)!
+            return (data, httpResponse)
+        }
+
+        var (data, httpResponse) = try await send(makeRequest(withSchema: jsonSchema != nil))
+
+        // Structured outputs are only on newer Claude models — degrade rather than fail.
+        if jsonSchema != nil, !(200...299).contains(httpResponse.statusCode) {
+            let body = String(data: data, encoding: .utf8) ?? ""
+            if Self.isSchemaRejection(httpResponse.statusCode, body: body) {
+                Log.sidecast.warning(
+                    "\(model, privacy: .public) rejected output_config — retrying without schema enforcement"
+                )
+                (data, httpResponse) = try await send(makeRequest(withSchema: false))
+            }
+        }
+
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw OpenRouterError.httpError(httpResponse.statusCode, host: targetURL.host)
         }
 
         let decoded = try JSONDecoder().decode(AnthropicResponse.self, from: data)
@@ -453,13 +603,14 @@ actor OpenRouterClient {
         }
     }
 
-    private struct AnthropicRequest: Codable {
+    private struct AnthropicRequest: Encodable {
         let model: String
         let max_tokens: Int
         let messages: [AnthropicMessage]
         let stream: Bool
         let temperature: Double?
         let system: String?
+        let output_config: OutputConfig?
     }
 
     private struct AnthropicMessage: Codable {
