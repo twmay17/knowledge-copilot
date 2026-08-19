@@ -23,11 +23,17 @@ public struct OpenOatsRootApp: App {
     @State private var container: AppContainer
     @State private var whatsNewController: WhatsNewController
     @State private var knowledgePackStore: KnowledgePackStore
-    // Created eagerly (not lazily on first "Whiteboard" click): the window
-    // controller sets sharingType = .none in its own init, so the window is
-    // share-protected from app launch onward rather than only from its
-    // first showing. See SidecastWhiteboardWindowController's doc comment.
-    @State private var whiteboardWindowController = SidecastWhiteboardWindowController()
+    // Lazy, like MiniBarManager/OverlayManager's panels: constructing the
+    // controller builds a real window-server-backed NSWindow, and its
+    // hosted SwiftUI view's .task (corpus bookmark resolve + a possibly
+    // multi-MB disk read) fires as soon as that content is installed —
+    // building this eagerly at launch would run that on every launch for
+    // every user, whether or not they ever open the whiteboard. Created on
+    // first "Whiteboard" invocation (`showWhiteboardWindow()`), reused
+    // thereafter. Share protection (sharingType = .none) is still set
+    // unconditionally in the controller's own init, so it is in place
+    // before this window is ever shown — see that type's doc comment.
+    @State private var whiteboardWindowController: SidecastWhiteboardWindowController?
     private let updaterController: AppUpdaterController
     private let defaults: UserDefaults
 
@@ -146,7 +152,7 @@ public struct OpenOatsRootApp: App {
                 .keyboardShortcut("r", modifiers: [.command, .shift])
 
                 Button("Whiteboard") {
-                    whiteboardWindowController.show()
+                    showWhiteboardWindow()
                 }
                 .keyboardShortcut("w", modifiers: [.command, .shift])
 
@@ -221,6 +227,17 @@ extension OpenOatsRootApp {
     private func openKnowledgeReviewWindow() {
         openWindow(id: "knowledge-review")
         bringWindowToFront(id: "knowledge-review", title: "Knowledge Review")
+    }
+
+    /// Builds the whiteboard's window controller on first use and reuses it
+    /// thereafter — construction and `show()` always happen back to back,
+    /// right here, so the window (and the corpus bookmark resolve its
+    /// hosted view triggers once shown) never comes into being before the
+    /// user actually asks for it.
+    private func showWhiteboardWindow() {
+        let controller = whiteboardWindowController ?? SidecastWhiteboardWindowController()
+        whiteboardWindowController = controller
+        controller.show()
     }
 
     private func bringWindowToFront(id: String, title: String) {

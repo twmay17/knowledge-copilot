@@ -48,11 +48,11 @@ struct SidecastWhiteboardView: View {
             StatusDot(color: model.statusDotColor.color, isPulsing: model.isStatusPulsing, reduceMotion: reduceMotion)
             Text(model.statusText)
                 .font(.system(size: 12))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color.whiteboardMuted)
             Spacer(minLength: 12)
             Text(model.diagText)
                 .font(.system(size: 12).monospacedDigit())
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color.whiteboardMuted)
                 .lineLimit(1)
         }
         .padding(.horizontal, 14)

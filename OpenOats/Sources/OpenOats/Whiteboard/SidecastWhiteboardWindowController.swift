@@ -16,16 +16,25 @@ import SwiftUI
 /// visible-in-share mode, full stop. Nothing in this type may ever assign
 /// `sharingType` a second time.
 ///
-/// The window and its `NSHostingView` are created once, here, and persist
-/// for the controller's lifetime; `show()`/`hide()` only order it
-/// front/out, so the hosted SwiftUI view's `.task` (the corpus
-/// auto-resolve-on-launch) runs once per app launch rather than on every
-/// reopen.
+/// The window object itself is created in `init` (so `sharingType` can be
+/// set immediately — see above), but its SwiftUI content is deliberately
+/// NOT installed there. `NSHostingView`'s content "appears" (running the
+/// hosted view's `.task`, in this case the corpus bookmark resolve-and-read)
+/// as soon as it is installed as a window's `contentView` — independent of
+/// whether that window is ever ordered front. Installing it eagerly here
+/// would fire that `.task` — and its possibly multi-MB recursive disk read
+/// — the moment this controller is constructed, whether or not the window
+/// is ever shown. `show()` installs the content on its first call instead,
+/// so the trigger is genuinely tied to the window actually being shown, not
+/// merely to the controller existing. (Proven empirically in review: an
+/// instrumented counter plus a wait with no `show()` call showed the `.task`
+/// firing anyway, before this fix.)
 @MainActor
 final class SidecastWhiteboardWindowController {
     let window: NSWindow
     let model: SidecastWhiteboardModel
     let corpusService: SidecastCorpusService
+    private var hasInstalledContent = false
 
     init(
         model: SidecastWhiteboardModel = SidecastWhiteboardModel(),
@@ -49,16 +58,30 @@ final class SidecastWhiteboardWindowController {
         // see the type-level doc above. Do not add another assignment.
         newWindow.sharingType = .none
 
-        newWindow.setFrameAutosaveName("SidecastWhiteboardWindow")
+        // The board's palette (warm-white, ported from the bench's fixed
+        // CSS custom properties) is deliberately not dark-mode-aware —
+        // locking the window to the light appearance keeps every dynamic
+        // system color used anywhere in its content (SwiftUI `.secondary`
+        // and friends included) resolving against a light backdrop, rather
+        // than depending on every current and future use in the hosted view
+        // being manually pinned to the fixed palette.
+        newWindow.appearance = NSAppearance(named: .aqua)
 
-        newWindow.contentView = NSHostingView(
-            rootView: SidecastWhiteboardView(model: model, corpusService: corpusService)
-        )
+        newWindow.setFrameAutosaveName("SidecastWhiteboardWindow")
 
         self.window = newWindow
     }
 
+    /// Installs the SwiftUI content on first call (see the type doc for
+    /// why that installation is deferred rather than done in `init`), then
+    /// orders the window front.
     func show() {
+        if !hasInstalledContent {
+            hasInstalledContent = true
+            window.contentView = NSHostingView(
+                rootView: SidecastWhiteboardView(model: model, corpusService: corpusService)
+            )
+        }
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
