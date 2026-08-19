@@ -1457,12 +1457,32 @@ struct MeetingDetailPane<SessionFolderMenuItems: View>: View {
         detailViewMode = session.hasNotes ? .notes : .transcript
     }
 
+    /// Whether `startRecording` should proceed to actually start a session,
+    /// given the current consent state — matches the established call-site
+    /// gating pattern (`ContentView.startSession()`, `MenuBarPopoverView`,
+    /// `AppDelegate.toggleMeeting()`): recording must not start until the
+    /// user has acknowledged the consent notice. Pulled out as a pure,
+    /// directly testable static function since `startRecording` itself (a
+    /// SwiftUI view's private method, with `NSApp`/`openWindow` side
+    /// effects) has no view-level test harness in this codebase.
+    static func shouldStartRecording(settings: AppSettings) -> Bool {
+        settings.hasAcknowledgedRecordingConsent
+    }
+
     private func startRecording(for event: CalendarEvent, selectedTemplate: MeetingTemplate?) {
         coordinator.selectedTemplate = selectedTemplate
         let prepNotes = settings.meetingPrepNotes(for: event)
         let scratchpad = prepNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : prepNotes
+        // Surface the window regardless of consent — this is also the
+        // recovery path when consent is missing (see the guard below):
+        // the user acknowledges it and starts manually from here.
         NSApp.activate(ignoringOtherApps: true)
         openWindow(id: OpenOatsRootApp.mainWindowID)
+        // Post-review fix: this was the second of two paths found to
+        // bypass the recording-consent gate entirely. Do not start —
+        // neither directly nor via the external-command fallback below —
+        // until consent has been acknowledged.
+        guard Self.shouldStartRecording(settings: settings) else { return }
         if let controller = coordinator.liveSessionController {
             container.ensureMeetingServicesInitialized(settings: settings, coordinator: coordinator)
             controller.startSession(settings: settings, calendarEventOverride: event, initialScratchpad: scratchpad)

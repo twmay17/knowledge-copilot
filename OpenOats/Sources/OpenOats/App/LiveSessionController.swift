@@ -508,12 +508,40 @@ final class LiveSessionController {
 
     // MARK: - External Commands
 
-    func handlePendingExternalCommandIfPossible(settings: AppSettings, openNotesWindow: (() -> Void)?) {
+    func handlePendingExternalCommandIfPossible(
+        settings: AppSettings,
+        openNotesWindow: (() -> Void)?,
+        showMainWindow: (() -> Void)? = nil
+    ) {
         guard let request = coordinator.pendingExternalCommand else { return }
         let handled: Bool
 
         switch request.command {
         case .startSession(let calendarEvent, let scratchpadSeed):
+            // Post-review fix: this was the first of two paths found to
+            // bypass the recording-consent gate entirely (the
+            // `openoats://start` deep link). Call-site gating, matching
+            // ContentView.startSession()/MenuBarPopoverView/AppDelegate.
+            // toggleMeeting() — deliberately not a check inside
+            // LiveSessionController.startSession itself, which would
+            // silently change semantics for every caller.
+            //
+            // This function only ever runs once (ContentView's one-shot
+            // `.task`), so there is no later retry that would resume a
+            // command left "not handled" — the richer UX the safe sites use
+            // (ContentView's own showConsentSheet, auto-retried via its
+            // `.onChange(of: showConsentSheet)`) isn't reachable from here
+            // without restructuring how external commands reach the view
+            // layer, which is out of scope for this fix. Minimum correct
+            // behavior instead: do not start, consume the command (so it
+            // doesn't linger unprocessed), and surface the app window so
+            // the user can acknowledge consent and start manually through
+            // the already-established, already-tested ContentView flow.
+            guard settings.hasAcknowledgedRecordingConsent else {
+                showMainWindow?()
+                handled = true
+                break
+            }
             container.ensureMeetingServicesInitialized(settings: settings, coordinator: coordinator)
             guard coordinator.transcriptionEngine != nil,
                   (coordinator.suggestionEngine != nil || coordinator.sidecastEngine != nil) else { return }

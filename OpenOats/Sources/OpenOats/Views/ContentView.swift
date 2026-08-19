@@ -355,9 +355,16 @@ struct ContentView: View {
 
             await container.seedIfNeeded(coordinator: coordinator)
             await coordinator.loadHistory()
-            controller.handlePendingExternalCommandIfPossible(settings: settings) {
-                openWindow(id: "notes")
-            }
+            controller.handlePendingExternalCommandIfPossible(
+                settings: settings,
+                openNotesWindow: { openWindow(id: "notes") },
+                showMainWindow: {
+                    NSApp.activate(ignoringOtherApps: true)
+                    if let window = NSApp.windows.first(where: { $0.identifier?.rawValue == OpenOatsRootApp.mainWindowID }) {
+                        window.makeKeyAndOrderFront(nil)
+                    }
+                }
+            )
 
             await controller.performInitialSetup()
 

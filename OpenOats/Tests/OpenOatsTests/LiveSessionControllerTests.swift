@@ -593,6 +593,46 @@ final class LiveSessionControllerTests: XCTestCase {
         XCTAssertNil(coordinator.pendingExternalCommand)
     }
 
+    // MARK: - Post-review fix: recording consent gates the deep-link start path too
+
+    /// `testExternalStartSessionSeedsCalendarEventAndScratchpad` above
+    /// already proves consent-acknowledged (its `makeSettings()` pre-sets
+    /// `hasAcknowledgedRecordingConsent`) starts normally; this proves the
+    /// gap the review found — `openoats://start` bypassing consent
+    /// entirely — is closed: unacknowledged consent must not start a
+    /// session, must not even reach service initialization (no
+    /// utterance/dispatch flow is possible with no transcription engine),
+    /// must surface the app window instead, and must still consume the
+    /// command so it doesn't linger unprocessed forever (this function
+    /// only ever runs once, from ContentView's one-shot `.task`).
+    func testExternalStartSessionCommandBlockedWithoutConsentSurfacesMainWindowInstead() async {
+        let dirs = makeTempDirs()
+        let settings = makeSettings(notesDirectory: dirs.notes)
+        settings.hasAcknowledgedRecordingConsent = false
+        let (controller, coordinator) = makeController(root: dirs.root, notesDirectory: dirs.notes, settings: settings)
+
+        coordinator.queueExternalCommand(.startSession(calendarEvent: nil, scratchpadSeed: nil))
+
+        var windowSurfaced = false
+        controller.handlePendingExternalCommandIfPossible(
+            settings: settings,
+            openNotesWindow: nil,
+            showMainWindow: { windowSurfaced = true }
+        )
+
+        XCTAssertTrue(windowSurfaced, "must surface the app window so the user can acknowledge consent")
+        XCTAssertFalse(controller.state.isRunning, "must not start without consent")
+        XCTAssertEqual(coordinator.state, .idle, "the state machine must never transition without consent")
+        // knowledgeBase/suggestionEngine/sidecastEngine/sidecastWhiteboardCoordinator
+        // are only ever constructed together by ensureMeetingServicesInitialized,
+        // which the fix must short-circuit before reaching — makeController's
+        // helper (unlike production) pre-wires transcriptionEngine directly, so
+        // that one isn't a useful signal here, but this quartet is untouched by it.
+        XCTAssertNil(coordinator.knowledgeBase, "must not even initialize meeting services without consent")
+        XCTAssertNil(coordinator.sidecastWhiteboardCoordinator, "the whiteboard pipeline must not spin up either")
+        XCTAssertNil(coordinator.pendingExternalCommand, "the command must be consumed, not left to linger unprocessed")
+    }
+
     func testFinalizeCurrentSessionAppliesMeetingFamilyFolderPreference() async {
         let dirs = makeTempDirs()
         let settings = makeSettings(notesDirectory: dirs.notes)
