@@ -171,6 +171,19 @@ final class AppCoordinator {
     /// Retained reference to the active settings for side effects.
     var activeSettings: AppSettings?
 
+    /// Post-review fix: brings the app's main window forward — reused by
+    /// `startDetectionEventLoop`'s consent guard (see the `.accepted` case
+    /// below) to recover from a blocked auto-start the same way
+    /// `LiveSessionController`'s deep-link fix does. Wired from
+    /// `AppDelegate.configure`, which already receives an equivalent
+    /// closure from `OpenOatsRootApp` for its own `showMainWindowAction` —
+    /// `AppCoordinator` has no reverse reference to `AppDelegate`/the app
+    /// scene to reach that closure any other way, and this class's own
+    /// doc comment ("side effects are delegated... never touches audio or
+    /// disk directly") argues against calling `NSApp`/`AppKit` directly
+    /// from here the way `MeetingDetailPane` does.
+    var showMainWindowAction: (() -> Void)?
+
     /// The live session controller that handles all session side effects.
     weak var liveSessionController: LiveSessionController?
 
@@ -330,6 +343,29 @@ final class AppCoordinator {
                 guard let self, !Task.isCancelled else { break }
                 switch event {
                 case .accepted(let metadata):
+                    // Post-review fix (third of three consent-bypass paths
+                    // found): tapping a meeting-detected notification's body
+                    // — "Start Transcribing" is its DEFAULT action per
+                    // NotificationService.swift, and meetingAutoDetectEnabled
+                    // defaults true — reached this whole case with no consent
+                    // check anywhere in the chain. Same call-site pattern as
+                    // the other two fixes: guard first, before ANY of this
+                    // case's side effects, including the silence/app-exit
+                    // monitoring setup below — an unconsented tap must leave
+                    // nothing running that a session which never started has
+                    // no use for. No state transition happens either way,
+                    // matching exactly what .notAMeeting/.dismissed/.timeout
+                    // already do below (break, no-op) — `pendingSnapshot` is
+                    // also already cleared by `MeetingDetectionController`
+                    // before this event was even yielded, so there is
+                    // nothing further to reset there. The one addition,
+                    // mirroring the other two fixes' "minimum correct
+                    // behavior", is surfacing the app window so the user can
+                    // acknowledge consent and start manually.
+                    guard let activeSettings = self.activeSettings, activeSettings.hasAcknowledgedRecordingConsent else {
+                        self.showMainWindowAction?()
+                        break
+                    }
                     let signal = metadata.detectionContext?.signal
                     if case .appLaunched(let app) = signal {
                         controller.startSilenceMonitoring()

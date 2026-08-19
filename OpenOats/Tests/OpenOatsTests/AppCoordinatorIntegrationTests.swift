@@ -235,4 +235,97 @@ final class AppCoordinatorIntegrationTests: XCTestCase {
         XCTAssertEqual(coordinator.state, .idle)
         XCTAssertNil(coordinator.lastEndedSession)
     }
+
+    // MARK: - Post-review fix: recording consent gates the detection-accepted path too
+
+    private func makeDetectionAcceptedMetadata(appLaunched: Bool) -> MeetingMetadata {
+        let signal: DetectionSignal
+        let app: MeetingApp?
+        if appLaunched {
+            let meetingApp = MeetingApp(bundleID: "us.zoom.xos", name: "Zoom")
+            signal = .appLaunched(meetingApp)
+            app = meetingApp
+        } else {
+            // .audioActivity is handleDetectionAccepted's own fallback signal
+            // when no specific app is identified — a real value the
+            // production chain produces, and one that (unlike .appLaunched/
+            // .cameraActivated) doesn't reach the silence/app-exit monitoring
+            // setup, so this test doesn't need a fully set-up
+            // MeetingDetectionController (meetingDetector/notificationService)
+            // just to exercise the consent-acknowledged path safely.
+            signal = .audioActivity
+            app = nil
+        }
+        return MeetingMetadata(
+            detectionContext: DetectionContext(signal: signal, detectedAt: Date(), meetingApp: app, calendarEvent: nil),
+            calendarEvent: nil,
+            title: "Detected Meeting",
+            startedAt: Date(),
+            endedAt: nil
+        )
+    }
+
+    /// `MeetingDetectionControllerTests` only ever exercises
+    /// `MeetingDetectionController`'s own event stream in isolation, never
+    /// `AppCoordinator.startDetectionEventLoop`'s consumption of it — this is
+    /// the first test to drive the real `.accepted` chain the review traced
+    /// (tapping a meeting-detected notification's default action) through
+    /// `AppCoordinator` itself, using `MeetingDetectionController.yield(_:)`
+    /// (explicitly "Visible for testing") rather than a lower-level proxy.
+    func testDetectionAcceptedWithoutConsentDoesNotStartAndSurfacesMainWindow() async {
+        let dirs = makeTempDirs()
+        let (coordinator, controller, settings, _) = makeTestHarness(root: dirs.root, notesDirectory: dirs.notes, scripted: [])
+        settings.hasAcknowledgedRecordingConsent = false
+
+        let detectionController = MeetingDetectionController()
+        coordinator.startDetectionEventLoop(detectionController)
+        // startDetectionEventLoop copies activeSettings from the detection
+        // controller (nil here — this test never calls its setup(settings:),
+        // deliberately, to avoid constructing a real MeetingDetector/
+        // NotificationService) once, at the top; overwriting afterward is
+        // safe since nothing re-copies it on a later event.
+        coordinator.activeSettings = settings
+
+        var windowSurfaced = false
+        coordinator.showMainWindowAction = { windowSurfaced = true }
+
+        // .appLaunched deliberately: proves the silence/app-exit monitoring
+        // setup is ALSO skipped, not just the session start (the guard sits
+        // before that setup in the .accepted case, not just before
+        // self.handle(.userStarted...)).
+        detectionController.yield(.accepted(makeDetectionAcceptedMetadata(appLaunched: true)))
+        try? await Task.sleep(for: .milliseconds(100))
+
+        XCTAssertTrue(windowSurfaced, "must surface the app window so the user can acknowledge consent")
+        XCTAssertEqual(coordinator.state, .idle, "must not start without consent")
+        XCTAssertFalse(
+            detectionController.isMonitoringSilence,
+            "the monitoring setup that normally accompanies an accepted .appLaunched detection must also be skipped"
+        )
+
+        coordinator.stopDetectionEventLoop()
+        withExtendedLifetime(controller) {}
+    }
+
+    func testDetectionAcceptedWithConsentStartsNormally() async {
+        let dirs = makeTempDirs()
+        let (coordinator, controller, settings, _) = makeTestHarness(root: dirs.root, notesDirectory: dirs.notes, scripted: [])
+        // makeTestHarness's settings already have consent acknowledged.
+
+        let detectionController = MeetingDetectionController()
+        coordinator.startDetectionEventLoop(detectionController)
+        coordinator.activeSettings = settings
+
+        detectionController.yield(.accepted(makeDetectionAcceptedMetadata(appLaunched: false)))
+
+        for _ in 0..<20 {
+            if coordinator.isRecording { break }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+
+        XCTAssertTrue(coordinator.isRecording, "consent acknowledged: an accepted detection must start a session exactly as before this fix")
+
+        coordinator.stopDetectionEventLoop()
+        withExtendedLifetime(controller) {}
+    }
 }

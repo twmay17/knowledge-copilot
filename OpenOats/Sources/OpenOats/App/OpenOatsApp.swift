@@ -431,6 +431,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         self.container = container
         if let showMainWindow {
             showMainWindowAction = showMainWindow
+            // Post-review fix: AppCoordinator.startDetectionEventLoop's
+            // consent guard needs the same window-surfacing recovery the
+            // other two consent fixes use, and has no reverse reference to
+            // this delegate (or the app scene) to reach it any other way.
+            coordinator.showMainWindowAction = showMainWindow
         }
         if let checkForUpdates {
             checkForUpdatesAction = checkForUpdates
