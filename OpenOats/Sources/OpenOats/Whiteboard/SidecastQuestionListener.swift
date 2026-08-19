@@ -21,10 +21,13 @@ actor SidecastQuestionListener {
     // `LISTEN_MIN_INTERVAL_MS` (8_000).
     private static let minUnlistened = 2
     private static let minIntervalSeconds: TimeInterval = 8
-    // Window size for "Recent exchange" — reuses listener.ts's own
-    // RECENT_CAP (20), since the bench's own windowing (5 segments) doesn't
-    // translate: it comes from a separately-computed `widerContext` this
-    // port has no equivalent source for.
+    // Window size for "Recent exchange" — the WB-2 brief specifies ~20
+    // directly; this is NOT listener.ts's RECENT_CAP (that constant caps the
+    // orchestrator's recentQuestions/recentAnswers dedup lists, unrelated to
+    // the prompt window). The bench's actual prompt window was smaller — up
+    // to 5 segments, computed in transcript.ts's buildContextWindow — which
+    // doesn't translate here: it depends on a separately-computed
+    // `widerContext`/running-summary this port has no equivalent source for.
     private static let recentCap = 20
     private static let maxItems = 4
     // Matches main.ts's `context.recentExchange.slice(-300)` retrieval hint

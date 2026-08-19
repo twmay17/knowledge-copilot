@@ -55,20 +55,17 @@ actor SidecastQuestionOrchestrator {
 
     private let llm: any SidecastLLM
     private let corpusService: SidecastCorpusService
-    private let now: @Sendable () -> Date
     private let onNote: @Sendable (SidecastAnsweredNote) -> Void
     private let onActivity: @Sendable (_ inFlight: Int, _ queued: Int) -> Void
 
     init(
         llm: any SidecastLLM,
         corpusService: SidecastCorpusService,
-        now: @escaping @Sendable () -> Date = { Date() },
         onNote: @escaping @Sendable (SidecastAnsweredNote) -> Void,
         onActivity: @escaping @Sendable (_ inFlight: Int, _ queued: Int) -> Void
     ) {
         self.llm = llm
         self.corpusService = corpusService
-        self.now = now
         self.onNote = onNote
         self.onActivity = onActivity
     }

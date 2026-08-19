@@ -259,7 +259,6 @@ final class SidecastListenerOrchestratorTests: XCTestCase {
         SidecastQuestionOrchestrator(
             llm: llm,
             corpusService: corpusService,
-            now: { clock.now() },
             onNote: { note in notes.record(note) },
             onActivity: { inFlight, queued in activity.record(inFlight, queued) }
         )
@@ -373,6 +372,14 @@ final class SidecastListenerOrchestratorTests: XCTestCase {
         await listener.noteUtterance(text: "line one", at: clock.now())
         await listener.noteUtterance(text: "line two", at: clock.now())
         await listenerMock.waitForStarted(1)
+
+        // Satisfy the interval gate up front so it can't independently
+        // explain a blocked second pass — with the mock still suspended,
+        // only `passInFlight` stands between this test and a second
+        // concurrent call. (Without this advance, the ≥8s interval gate
+        // alone blocks a second pass and this test is vacuous — it would
+        // still pass with the `passInFlight` guard deleted.)
+        clock.advance(8)
 
         // Keep feeding utterances while the first pass sits suspended.
         for index in 3...6 {
@@ -601,13 +608,25 @@ final class SidecastListenerOrchestratorTests: XCTestCase {
         let ungroundedNoteLanded = await notes.exceededCount(0, within: .milliseconds(300))
         XCTAssertFalse(ungroundedNoteLanded, "ungrounded answer with corpus present must be dropped")
 
+        // Also covers the orchestrator-path half of outbound redaction (the
+        // listener path is covered separately by test12): the question text
+        // is the one piece of `answer(_:)`'s user prompt that can carry
+        // arbitrary outside content, so planting a credential in it and
+        // checking the mock-captured prompt exercises the same
+        // `SensitiveDataGuard.redacted(_:)` call the listener path does.
+        let secretQuestion = "\(question(1)) — my access key is AKIAIOSFODNN7EXAMPLE"
         await answerMock.enqueueResponse(answerJSON(answer: "a grounded answer", grounded: true, value: 0.9))
-        await orchestrator.enqueue(question: question(1), timestamp: clock.now(), retrievalHint: nil)
+        await orchestrator.enqueue(question: secretQuestion, timestamp: clock.now(), retrievalHint: nil)
         await notes.waitForCount(1)
         let snapshot = notes.snapshot()
         XCTAssertEqual(snapshot.count, 1)
-        XCTAssertEqual(snapshot.first?.question, question(1))
+        XCTAssertEqual(snapshot.first?.question, secretQuestion)
         XCTAssertEqual(snapshot.first?.answer, "a grounded answer")
+
+        let calls = await answerMock.calls
+        let secretCall = try XCTUnwrap(calls.last)
+        XCTAssertTrue(secretCall.user.contains("<redacted:"), "expected the orchestrator's outbound answer prompt to redact the credential")
+        XCTAssertFalse(secretCall.user.contains("AKIAIOSFODNN7EXAMPLE"), "raw credential must never reach the llm closure via the answer path")
     }
 
     // MARK: - 10. Value gate
