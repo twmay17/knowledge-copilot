@@ -121,7 +121,30 @@ final class SidecastWhiteboardCoordinator {
             }
         )
         self.orchestrator = orchestrator
-        self.listener = SidecastQuestionListener(orchestrator: orchestrator, llm: gatedLLM, now: now)
+        self.listener = SidecastQuestionListener(
+            orchestrator: orchestrator,
+            llm: gatedLLM,
+            now: now,
+            onPassCompleted: Self.makeOnPassCompleted(model: model)
+        )
+    }
+
+    /// Shared `onPassCompleted` closure for both places a
+    /// `SidecastQuestionListener` gets constructed (`init`, `sessionStarted`)
+    /// — a `static` helper rather than an instance method so it's callable
+    /// from `init` before `self` is fully initialized (it closes over the
+    /// `model` parameter directly, the same trick `onNote`/`onActivity`
+    /// above use). Bumps both counters `receive`/`onNote` leave untouched:
+    /// `listensCount` (a pass ran, whether or not it found anything) and
+    /// `questionsCount` (by however many it found — 0 is a harmless no-op
+    /// accumulation on an empty or failed pass).
+    private static func makeOnPassCompleted(model: SidecastWhiteboardModel) -> @Sendable (Int) -> Void {
+        { questionCount in
+            Task { @MainActor in
+                model.noteDiagListen()
+                model.noteDiagQuestions(questionCount)
+            }
+        }
     }
 
     // MARK: - Session lifecycle
@@ -148,7 +171,12 @@ final class SidecastWhiteboardCoordinator {
         lastCorpusRefreshAt = .distantPast
         model.sessionStart = date
         model.status = .live
-        listener = SidecastQuestionListener(orchestrator: orchestrator, llm: gatedLLM, now: now)
+        listener = SidecastQuestionListener(
+            orchestrator: orchestrator,
+            llm: gatedLLM,
+            now: now,
+            onPassCompleted: Self.makeOnPassCompleted(model: model)
+        )
         Task { [orchestrator] in await orchestrator.clear() }
     }
 

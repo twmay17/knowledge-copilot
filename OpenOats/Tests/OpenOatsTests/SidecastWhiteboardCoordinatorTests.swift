@@ -241,6 +241,15 @@ final class SidecastWhiteboardCoordinatorTests: XCTestCase {
         XCTAssertEqual(model.answersCount, 1)
         XCTAssertEqual(model.heardCount, 2, "bumped once per utterance received, independent of listen/answer outcome")
         XCTAssertTrue(model.diagText.contains("answers 1"))
+
+        // Post-review addition: the listener's onPassCompleted hook and the
+        // note landing (via onNote) are two independently-scheduled
+        // unstructured tasks with no ordering guarantee between them, even
+        // though the note landing implies the pass that found this question
+        // has already run — so this polls rather than asserting immediately
+        // after `landed`.
+        let diagCountersMoved = await eventually { model.listensCount == 1 && model.questionsCount == 1 }
+        XCTAssertTrue(diagCountersMoved, "one completed pass that found one question should bump both counters exactly once")
     }
 
     // MARK: - c. Session end: status ended, board retained, in-flight answer still lands

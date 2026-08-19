@@ -1657,8 +1657,17 @@ final class LiveSessionControllerTests: XCTestCase {
         let settings = makeSettings(notesDirectory: dirs.notes)
         settings.sidebarMode = .sidecast
         settings.sidecastWhiteboardEnabled = whiteboardEnabled
-        settings.llmProvider = .openRouter
-        settings.openRouterApiKey = "test-key-not-real"
+        // Deliberately NOT OpenRouter: SidecastWhiteboardCoordinator's own
+        // egress gate only ever opens for .openRouter (see its doc
+        // comment), so Anthropic credentials satisfy the legacy engine's
+        // canCallLLM guard (this probe's actual target) while leaving the
+        // coordinator's gate closed. Previously this used .openRouter with
+        // a fake key, which was safe only by accident: this probe's single
+        // scripted utterance never reaches the listener's 2-utterance
+        // cadence threshold, so no real call was ever attempted — but nothing
+        // stopped one from firing had the scenario changed.
+        settings.llmProvider = .anthropic
+        settings.anthropicApiKey = "test-key-not-real"
 
         let (controller, coordinator) = makeController(
             root: dirs.root,

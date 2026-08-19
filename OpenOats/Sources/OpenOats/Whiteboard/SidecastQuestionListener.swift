@@ -46,15 +46,25 @@ actor SidecastQuestionListener {
     private let orchestrator: SidecastQuestionOrchestrator
     private let llm: any SidecastLLM
     private let now: @Sendable () -> Date
+    // Post-review addition (additive, default nil — no other listener
+    // behavior changes): fired once at the end of every completed pass,
+    // with however many questions that pass turned up (0 on an empty
+    // result or a caught error). WB-4's coordinator has no other way to
+    // observe "a pass ran" — this is private actor state with no signal
+    // out otherwise — and needed it to wire the listens/questions diag
+    // counters it previously left at zero.
+    private let onPassCompleted: (@Sendable (Int) -> Void)?
 
     init(
         orchestrator: SidecastQuestionOrchestrator,
         llm: any SidecastLLM,
-        now: @escaping @Sendable () -> Date = { Date() }
+        now: @escaping @Sendable () -> Date = { Date() },
+        onPassCompleted: (@Sendable (Int) -> Void)? = nil
     ) {
         self.orchestrator = orchestrator
         self.llm = llm
         self.now = now
+        self.onPassCompleted = onPassCompleted
     }
 
     /// Records one utterance's text and triggers a listen pass if the
@@ -93,7 +103,11 @@ actor SidecastQuestionListener {
     }
 
     private func runPass(windowTexts: [String], latestText: String, latestAt: Date) async {
-        defer { passInFlight = false }
+        var questionCount = 0
+        defer {
+            passInFlight = false
+            onPassCompleted?(questionCount)
+        }
         do {
             let covered = await orchestrator.recentQuestionList()
 
@@ -111,6 +125,7 @@ actor SidecastQuestionListener {
                 .map { ($0.question ?? "").trimmingCharacters(in: .whitespacesAndNewlines) }
                 .filter { !$0.isEmpty }
                 .prefix(Self.maxItems)
+            questionCount = items.count
 
             guard !items.isEmpty else { return }
 
