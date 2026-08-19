@@ -27,7 +27,7 @@ final class SidecastCorpusServiceTests: XCTestCase {
 
     // MARK: - 1. Recursive read; skip unsupported extensions and dotfiles
 
-    func testReadRecursesAndSkipsUnsupportedAndDotfiles() throws {
+    func testReadRecursesAndSkipsUnsupportedAndDotfiles() async throws {
         let root = makeTempFolder("basic")
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -42,7 +42,7 @@ final class SidecastCorpusServiceTests: XCTestCase {
         try write("hidden content", to: root.appendingPathComponent(".hidden.md"))
 
         let service = SidecastCorpusService()
-        let state = try service.read(folder: root)
+        let state = try await service.read(folder: root)
 
         XCTAssertEqual(state.files.map(\.name), ["a.md", "c.csv", "sub/b.txt"])
         XCTAssertEqual(state.skipped, ["notes.pdf"])
@@ -56,7 +56,7 @@ final class SidecastCorpusServiceTests: XCTestCase {
 
     // MARK: - 2. Whole-corpus injection under the 10k limit
 
-    func testRetrieveEvidenceReturnsWholeCorpusUnderLimit() throws {
+    func testRetrieveEvidenceReturnsWholeCorpusUnderLimit() async throws {
         let root = makeTempFolder("whole")
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -64,9 +64,9 @@ final class SidecastCorpusServiceTests: XCTestCase {
         try write("Beta content here.", to: root.appendingPathComponent("b.txt"))
 
         let service = SidecastCorpusService()
-        _ = try service.read(folder: root)
+        _ = try await service.read(folder: root)
 
-        let evidence = service.retrieveEvidence(query: "")
+        let evidence = await service.retrieveEvidence(query: "")
         XCTAssertEqual(
             evidence,
             "--- a.md ---\nAlpha content here.\n\n--- b.txt ---\nBeta content here."
@@ -75,7 +75,7 @@ final class SidecastCorpusServiceTests: XCTestCase {
 
     // MARK: - 3. Over the limit: only matching chunks come back; no match is nil
 
-    func testRetrieveEvidenceOverLimitReturnsOnlyMatchingChunks() throws {
+    func testRetrieveEvidenceOverLimitReturnsOnlyMatchingChunks() async throws {
         let root = makeTempFolder("chunked")
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -90,9 +90,9 @@ final class SidecastCorpusServiceTests: XCTestCase {
         try write(signal, to: root.appendingPathComponent("signal.txt"))
 
         let service = SidecastCorpusService()
-        _ = try service.read(folder: root)
+        _ = try await service.read(folder: root)
 
-        guard let matched = service.retrieveEvidence(query: "uniquexyzterm") else {
+        guard let matched = await service.retrieveEvidence(query: "uniquexyzterm") else {
             XCTFail("expected matching evidence")
             return
         }
@@ -100,12 +100,13 @@ final class SidecastCorpusServiceTests: XCTestCase {
         XCTAssertTrue(matched.contains("signal.txt"))
         XCTAssertFalse(matched.contains("filler.txt"))
 
-        XCTAssertNil(service.retrieveEvidence(query: "zzznomatchqqq"))
+        let noMatch = await service.retrieveEvidence(query: "zzznomatchqqq")
+        XCTAssertNil(noMatch)
     }
 
     // MARK: - 4. Digit-bearing tokens score double and rank first
 
-    func testDigitBearingTokenOutranksWordToken() throws {
+    func testDigitBearingTokenOutranksWordToken() async throws {
         let root = makeTempFolder("digits")
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -126,9 +127,9 @@ final class SidecastCorpusServiceTests: XCTestCase {
         try write("Unit price hit 89.50 today.", to: root.appendingPathComponent("zzz-numeric.txt"))
 
         let service = SidecastCorpusService()
-        _ = try service.read(folder: root)
+        _ = try await service.read(folder: root)
 
-        guard let evidence = service.retrieveEvidence(query: "revenue 89.50") else {
+        guard let evidence = await service.retrieveEvidence(query: "revenue 89.50") else {
             XCTFail("expected evidence")
             return
         }
@@ -149,7 +150,7 @@ final class SidecastCorpusServiceTests: XCTestCase {
 
     // MARK: - 5. CSV chunk continuation carries the header line
 
-    func testCSVChunksCarryHeaderLine() throws {
+    func testCSVChunksCarryHeaderLine() async throws {
         let root = makeTempFolder("csv")
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -167,9 +168,9 @@ final class SidecastCorpusServiceTests: XCTestCase {
         try write(csv, to: root.appendingPathComponent("data.csv"))
 
         let service = SidecastCorpusService()
-        _ = try service.read(folder: root)
+        _ = try await service.read(folder: root)
 
-        guard let evidence = service.retrieveEvidence(query: "zzzqueryrowmarker") else {
+        guard let evidence = await service.retrieveEvidence(query: "zzzqueryrowmarker") else {
             XCTFail("expected evidence")
             return
         }
@@ -185,7 +186,7 @@ final class SidecastCorpusServiceTests: XCTestCase {
 
     // MARK: - 6. Per-file cap and total cap
 
-    func testOversizedFileIsSkippedWithReason() throws {
+    func testOversizedFileIsSkippedWithReason() async throws {
         let root = makeTempFolder("perfilecap")
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -193,13 +194,13 @@ final class SidecastCorpusServiceTests: XCTestCase {
         try writeBytes(count: 2 * 1024 * 1024 + 10, to: root.appendingPathComponent("big.txt"))
 
         let service = SidecastCorpusService()
-        let state = try service.read(folder: root)
+        let state = try await service.read(folder: root)
 
         XCTAssertEqual(state.files.map(\.name), ["ok.txt"])
         XCTAssertEqual(state.skipped, ["big.txt (over per-file cap)"])
     }
 
-    func testTotalCapSkipsFilesOnceCumulativeExceeds6MB() throws {
+    func testTotalCapSkipsFilesOnceCumulativeExceeds6MB() async throws {
         let root = makeTempFolder("totalcap")
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -220,7 +221,7 @@ final class SidecastCorpusServiceTests: XCTestCase {
         try writeBytes(count: 200_000, to: root.appendingPathComponent("big-d.txt"))
 
         let service = SidecastCorpusService()
-        let state = try service.read(folder: root)
+        let state = try await service.read(folder: root)
 
         XCTAssertEqual(
             state.files.map(\.name), ["big-a.txt", "big-b.txt", "big-c.txt"],
@@ -230,7 +231,7 @@ final class SidecastCorpusServiceTests: XCTestCase {
 
     // MARK: - 7. Evidence char cap keeps output bounded and keeps the best chunks
 
-    func testEvidenceStaysUnderCapAndKeepsHighestScoringChunks() throws {
+    func testEvidenceStaysUnderCapAndKeepsHighestScoringChunks() async throws {
         let root = makeTempFolder("evidencecap")
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -243,9 +244,9 @@ final class SidecastCorpusServiceTests: XCTestCase {
         }
 
         let service = SidecastCorpusService()
-        _ = try service.read(folder: root)
+        _ = try await service.read(folder: root)
 
-        guard let evidence = service.retrieveEvidence(query: "marker") else {
+        guard let evidence = await service.retrieveEvidence(query: "marker") else {
             XCTFail("expected evidence")
             return
         }
@@ -259,25 +260,28 @@ final class SidecastCorpusServiceTests: XCTestCase {
 
     // MARK: - 8. clear()
 
-    func testClearEmptiesStateAndEvidence() throws {
+    func testClearEmptiesStateAndEvidence() async throws {
         let root = makeTempFolder("clear")
         defer { try? FileManager.default.removeItem(at: root) }
 
         try write("Some content.", to: root.appendingPathComponent("a.md"))
 
         let service = SidecastCorpusService()
-        _ = try service.read(folder: root)
-        XCTAssertNotNil(service.state)
+        _ = try await service.read(folder: root)
+        let stateAfterRead = await service.state
+        XCTAssertNotNil(stateAfterRead)
 
-        service.clear()
+        await service.clear()
 
-        XCTAssertNil(service.state)
-        XCTAssertNil(service.retrieveEvidence(query: "content"))
+        let stateAfterClear = await service.state
+        XCTAssertNil(stateAfterClear)
+        let evidenceAfterClear = await service.retrieveEvidence(query: "content")
+        XCTAssertNil(evidenceAfterClear)
     }
 
     // MARK: - 9. Invalid UTF-8 decodes lossily instead of aborting the read
 
-    func testInvalidUTF8BytesAreDecodedLossilyWithoutAbortingTheRead() throws {
+    func testInvalidUTF8BytesAreDecodedLossilyWithoutAbortingTheRead() async throws {
         let root = makeTempFolder("badutf8")
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -286,7 +290,7 @@ final class SidecastCorpusServiceTests: XCTestCase {
         try invalidData.write(to: root.appendingPathComponent("bad.txt"))
 
         let service = SidecastCorpusService()
-        let state = try service.read(folder: root)
+        let state = try await service.read(folder: root)
 
         XCTAssertEqual(state.files.map(\.name), ["bad.txt", "ok.txt"])
         XCTAssertTrue(state.skipped.isEmpty, "invalid UTF-8 should not be skipped, nor abort the read")
@@ -301,9 +305,67 @@ final class SidecastCorpusServiceTests: XCTestCase {
         // lossily decoded text regardless of query — matching the bench's
         // fs.readFile(path, "utf-8"), which substitutes U+FFFD for invalid
         // byte sequences and never throws.
-        let evidence = service.retrieveEvidence(query: "irrelevant")
+        let evidence = await service.retrieveEvidence(query: "irrelevant")
         XCTAssertTrue(
             evidence?.contains("\u{FFFD}") ?? false,
             "invalid bytes should surface as the U+FFFD replacement character")
+    }
+
+    // MARK: - 10. Concurrency smoke: read(folder:) racing 10 parallel retrieveEvidence calls
+
+    /// `SidecastCorpusService` is now an `actor` (see WB-3's review-debt
+    /// cleanup — the class used to carry an `@unchecked Sendable` opt-out).
+    /// This does not assert a specific interleaving — actor scheduling order
+    /// is not something a test should pin — it asserts the two things actor
+    /// isolation actually promises: nothing crashes/traps under concurrent
+    /// access, and every observed result is a fully-formed value (never a
+    /// torn read), leaving the corpus in one consistent final state once
+    /// every task has completed.
+    func testConcurrentReadRacesRetrieveEvidenceWithoutCrashingAndLeavesConsistentState() async throws {
+        let root = makeTempFolder("concurrent")
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let content = "Alpha marker content for the concurrency race probe."
+        try write(content, to: root.appendingPathComponent("a.md"))
+
+        let service = SidecastCorpusService()
+
+        // One task performs the mutating read; ten more hammer the read-only
+        // retrieval concurrently via the same TaskGroup. Every task's result
+        // funnels through the same `String?` stream so the group can be
+        // drained with a single `for await`, whether that task raced ahead
+        // of the read (nil — no corpus loaded yet) or landed after it (the
+        // one well-formed whole-corpus string; the fixture stays under the
+        // 10k whole-corpus threshold, so the query text is irrelevant to
+        // which branch fires).
+        let results: [String?] = await withTaskGroup(of: String?.self) { group in
+            group.addTask {
+                _ = try? await service.read(folder: root)
+                return nil
+            }
+            for _ in 0..<10 {
+                group.addTask {
+                    await service.retrieveEvidence(query: "marker")
+                }
+            }
+            var collected: [String?] = []
+            for await value in group {
+                collected.append(value)
+            }
+            return collected
+        }
+
+        XCTAssertEqual(results.count, 11, "all 11 tasks (1 read + 10 retrieveEvidence) must complete")
+
+        let expectedEvidence = "--- a.md ---\n\(content)"
+        for value in results where value != nil {
+            XCTAssertEqual(
+                value, expectedEvidence,
+                "a non-nil retrieveEvidence result must be the real, fully-formed evidence — never a torn read")
+        }
+
+        let finalState = await service.state
+        XCTAssertEqual(finalState?.files.map(\.name), ["a.md"])
+        XCTAssertEqual(finalState?.totalChars, content.utf16.count)
     }
 }

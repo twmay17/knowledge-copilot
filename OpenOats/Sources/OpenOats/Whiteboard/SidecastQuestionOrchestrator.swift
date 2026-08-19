@@ -1,18 +1,5 @@
 import Foundation
 
-/// `SidecastCorpusService` (WB-1) is a plain, non-actor class: `read`/`clear`
-/// mutate its state, `retrieveEvidence` only reads it. The orchestrator below
-/// only ever calls `retrieveEvidence`/`state` concurrently with itself, never
-/// with a concurrent `read`/`clear` — mutation and the orchestrator's
-/// concurrent read-only lookups don't overlap in the actor's own usage
-/// pattern, so a retroactive `@unchecked Sendable` here is safe in practice
-/// even though the compiler can't prove it. This keeps the corpus dependency
-/// as the concrete WB-1 type (no protocol) — the orchestrator is the sole
-/// consumer, and using the real class lets tests exercise a real corpus via
-/// `read(folder:)` against a temp fixture, exactly like `SidecastCorpusServiceTests`,
-/// rather than hand-rolling a fake that could drift from the real semantics.
-extension SidecastCorpusService: @unchecked Sendable {}
-
 /// Answers questions the listener spots, one async task per question, so
 /// listening never blocks on answering — answers land whenever they finish.
 ///
@@ -113,11 +100,11 @@ actor SidecastQuestionOrchestrator {
     }
 
     private func answer(_ item: PendingItem) async {
-        let hasCorpus = corpusService.state != nil
+        let hasCorpus = await corpusService.state != nil
         // The raw speech rides along so ASR-garbled names ("DART" for Decart)
         // still land near the right corpus vocabulary.
         let query = item.retrievalHint.map { "\(item.question)\n\($0)" } ?? item.question
-        let evidence = corpusService.retrieveEvidence(query: query)
+        let evidence = await corpusService.retrieveEvidence(query: query)
 
         if hasCorpus && evidence == nil {
             Log.sidecast.debug("[orchestrator] no corpus match, dropped: \(item.question, privacy: .public)")

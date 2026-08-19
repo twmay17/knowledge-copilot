@@ -236,7 +236,7 @@ final class SidecastListenerOrchestratorTests: XCTestCase {
     /// returns the same non-nil evidence for every query regardless of its
     /// content — lets answer-gate tests focus purely on the mock's response
     /// (grounded/value/answer) rather than on corpus matching.
-    private func makeCorpusService() throws -> SidecastCorpusService {
+    private func makeCorpusService() async throws -> SidecastCorpusService {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("sidecast-listener-orchestrator-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -245,7 +245,7 @@ final class SidecastListenerOrchestratorTests: XCTestCase {
         addTeardownBlock { try? FileManager.default.removeItem(at: root) }
 
         let service = SidecastCorpusService()
-        _ = try service.read(folder: root)
+        _ = try await service.read(folder: root)
         return service
     }
 
@@ -324,7 +324,7 @@ final class SidecastListenerOrchestratorTests: XCTestCase {
         let clock = TestClock(Date(timeIntervalSince1970: 1_700_000_000))
         let listenerMock = MockLLM()
         let answerMock = MockLLM()
-        let corpus = try makeCorpusService()
+        let corpus = try await makeCorpusService()
         let orchestrator = makeOrchestrator(llm: answerMock, corpusService: corpus, clock: clock)
         let listener = SidecastQuestionListener(orchestrator: orchestrator, llm: listenerMock, now: { clock.now() })
 
@@ -365,7 +365,7 @@ final class SidecastListenerOrchestratorTests: XCTestCase {
         let listenerMock = MockLLM()
         await listenerMock.setSuspend(true)
         let answerMock = MockLLM()
-        let corpus = try makeCorpusService()
+        let corpus = try await makeCorpusService()
         let orchestrator = makeOrchestrator(llm: answerMock, corpusService: corpus, clock: clock)
         let listener = SidecastQuestionListener(orchestrator: orchestrator, llm: listenerMock, now: { clock.now() })
 
@@ -399,7 +399,7 @@ final class SidecastListenerOrchestratorTests: XCTestCase {
         let clock = TestClock(Date())
         let listenerMock = MockLLM()
         let answerMock = MockLLM()
-        let corpus = try makeCorpusService()
+        let corpus = try await makeCorpusService()
         let orchestrator = makeOrchestrator(llm: answerMock, corpusService: corpus, clock: clock)
         let listener = SidecastQuestionListener(orchestrator: orchestrator, llm: listenerMock, now: { clock.now() })
 
@@ -429,7 +429,7 @@ final class SidecastListenerOrchestratorTests: XCTestCase {
         let clock = TestClock(Date())
         let listenerMock = MockLLM()
         let answerMock = MockLLM()
-        let corpus = try makeCorpusService()
+        let corpus = try await makeCorpusService()
         let orchestrator = makeOrchestrator(llm: answerMock, corpusService: corpus, clock: clock)
         let listener = SidecastQuestionListener(orchestrator: orchestrator, llm: listenerMock, now: { clock.now() })
 
@@ -471,7 +471,7 @@ final class SidecastListenerOrchestratorTests: XCTestCase {
     func test05_QuestionDedupDropsIdenticalAdmitsDifferent() async throws {
         let clock = TestClock(Date())
         let answerMock = MockLLM()
-        let corpus = try makeCorpusService()
+        let corpus = try await makeCorpusService()
         let orchestrator = makeOrchestrator(llm: answerMock, corpusService: corpus, clock: clock)
 
         let original = "What was total revenue for the hotel last year"
@@ -497,7 +497,7 @@ final class SidecastListenerOrchestratorTests: XCTestCase {
         let clock = TestClock(Date())
         let answerMock = MockLLM()
         await answerMock.setSuspend(true)
-        let corpus = try makeCorpusService()
+        let corpus = try await makeCorpusService()
         let orchestrator = makeOrchestrator(llm: answerMock, corpusService: corpus, clock: clock)
 
         // 3 immediately go in flight and stay suspended, holding inFlight at 3.
@@ -536,7 +536,7 @@ final class SidecastListenerOrchestratorTests: XCTestCase {
         let clock = TestClock(Date())
         let answerMock = MockLLM()
         await answerMock.setSuspend(true)
-        let corpus = try makeCorpusService()
+        let corpus = try await makeCorpusService()
         let orchestrator = makeOrchestrator(llm: answerMock, corpusService: corpus, clock: clock)
 
         for index in 0..<4 {
@@ -562,7 +562,7 @@ final class SidecastListenerOrchestratorTests: XCTestCase {
         let clock = TestClock(Date())
         let answerMock = MockLLM()
         await answerMock.setSuspend(true)
-        let corpus = try makeCorpusService()
+        let corpus = try await makeCorpusService()
         let notes = NoteRecorder()
         let activity = ActivityRecorder()
         let orchestrator = makeOrchestrator(llm: answerMock, corpusService: corpus, clock: clock, notes: notes, activity: activity)
@@ -598,7 +598,7 @@ final class SidecastListenerOrchestratorTests: XCTestCase {
     func test09_GroundedGateWithCorpusPresent() async throws {
         let clock = TestClock(Date())
         let answerMock = MockLLM()
-        let corpus = try makeCorpusService()
+        let corpus = try await makeCorpusService()
         let notes = NoteRecorder()
         let orchestrator = makeOrchestrator(llm: answerMock, corpusService: corpus, clock: clock, notes: notes)
 
@@ -634,7 +634,7 @@ final class SidecastListenerOrchestratorTests: XCTestCase {
     func test10_ValueGateDropsBelowThresholdEmitsAtOrAboveIt() async throws {
         let clock = TestClock(Date())
         let answerMock = MockLLM()
-        let corpus = try makeCorpusService()
+        let corpus = try await makeCorpusService()
         let notes = NoteRecorder()
         let orchestrator = makeOrchestrator(llm: answerMock, corpusService: corpus, clock: clock, notes: notes)
 
@@ -657,7 +657,7 @@ final class SidecastListenerOrchestratorTests: XCTestCase {
     func test11_AnswerDedupDropsNearIdenticalAnswerToDifferentQuestion() async throws {
         let clock = TestClock(Date())
         let answerMock = MockLLM()
-        let corpus = try makeCorpusService()
+        let corpus = try await makeCorpusService()
         let notes = NoteRecorder()
         let orchestrator = makeOrchestrator(llm: answerMock, corpusService: corpus, clock: clock, notes: notes)
 
@@ -683,7 +683,7 @@ final class SidecastListenerOrchestratorTests: XCTestCase {
         let clock = TestClock(Date())
         let listenerMock = MockLLM()
         let answerMock = MockLLM()
-        let corpus = try makeCorpusService()
+        let corpus = try await makeCorpusService()
         let orchestrator = makeOrchestrator(llm: answerMock, corpusService: corpus, clock: clock)
         let listener = SidecastQuestionListener(orchestrator: orchestrator, llm: listenerMock, now: { clock.now() })
 

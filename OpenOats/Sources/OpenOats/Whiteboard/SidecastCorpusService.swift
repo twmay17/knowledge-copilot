@@ -35,7 +35,7 @@ enum SidecastCorpusError: LocalizedError {
 /// including treating string length as UTF-16 code units (`.utf16.count`)
 /// everywhere corpus.ts uses JavaScript's `String.length`, so the character
 /// math (chunk sizes, caps) lines up exactly with the reference.
-final class SidecastCorpusService {
+actor SidecastCorpusService {
     private struct LoadedFile {
         let name: String
         let text: String
