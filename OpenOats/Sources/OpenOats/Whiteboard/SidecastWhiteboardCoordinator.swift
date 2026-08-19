@@ -81,6 +81,20 @@ final class SidecastWhiteboardCoordinator {
     private var listener: SidecastQuestionListener
     private var lastCorpusRefreshAt: Date = .distantPast
 
+    /// True from `sessionStarted` until `sessionEnded`, checked by
+    /// `receive`. WB-5/I1 fix: `LiveSessionController.finalizeCurrentSession`
+    /// calls `sessionEnded()` (status only) and only afterward drains its
+    /// own transcription buffers (`finalize()`) — so utterances already
+    /// queued there keep reaching `receive` after the user pressed Stop.
+    /// Without this flag `receive` only guarded the feature flag, so those
+    /// late utterances could drive a brand-new listen pass, and even a
+    /// brand-new answer LLM call, after end — a cross-boundary pass could
+    /// also enqueue a previous session's question into the new epoch.
+    /// Deliberately NOT consulted by `onNote` (`init`'s orchestrator
+    /// callback): an answer already in flight when the session ends must
+    /// still land — see `sessionEnded()`'s doc comment, unchanged intent.
+    private var isSessionActive = false
+
     init(
         model: SidecastWhiteboardModel = SidecastWhiteboardModel(),
         corpusService: SidecastCorpusService = SidecastCorpusService(),
@@ -167,6 +181,21 @@ final class SidecastWhiteboardCoordinator {
     /// `SidecastQuestionOrchestrator.finish(_:)`/`answer(_:)`.
     func sessionStarted(at date: Date) {
         guard settings.sidecastWhiteboardEnabled else { return }
+        isSessionActive = true
+        // WB-5/I2 fix: a fresh session must start from a fresh board.
+        // Without this, a second session's notes append onto the first
+        // session's leftover ones, and — since `sessionRelativeTime`
+        // clamps at 0 for a timestamp before `sessionStart` — the first
+        // session's notes re-render stamped `0:00` once `sessionStart`
+        // below is overwritten, corrupting both the live view and any
+        // later export. Mirrors `LiveSessionController.startSession`'s own
+        // engine-clear convention (`coordinator.suggestionEngine?.clear()`
+        // / `coordinator.sidecastEngine?.clear()`). Called first, before
+        // the assignments below, precisely because `model.clear()` itself
+        // unconditionally resets `sessionStart`/`status` to `nil`/`.ready`
+        // — the two lines right after it are what turn that back into a
+        // correctly-fresh *live* board rather than leaving it `.ready`.
+        model.clear()
         gate.isOpen = isEgressAllowed
         lastCorpusRefreshAt = .distantPast
         model.sessionStart = date
@@ -191,7 +220,48 @@ final class SidecastWhiteboardCoordinator {
     /// "Answering" once ended, no matter what stale activity follows.
     func sessionEnded() {
         guard settings.sidecastWhiteboardEnabled else { return }
+        isSessionActive = false
         model.status = .ended
+    }
+
+    /// Call when the user presses the whiteboard's Clear button (wired in
+    /// via `SidecastWhiteboardWindowController`'s `onClear`, ultimately
+    /// reaching here through `AppCoordinator.sidecastWhiteboardCoordinator`).
+    ///
+    /// WB-5/I6 fix: unlike `sessionStarted`/`sessionEnded`, this is not a
+    /// feature-flag-gated lifecycle transition — the pre-fix Clear button
+    /// always called `model.clear()` unconditionally regardless of the
+    /// flag, and this preserves that. What it fixes: `model.clear()` alone
+    /// wiped only the board, leaving the orchestrator's queue/in-flight
+    /// work untouched, so an answer already in flight (or still queued)
+    /// would silently repopulate the board the user had just asked to be
+    /// emptied. This also bumps the orchestrator's epoch (the same
+    /// discard mechanism `sessionStarted` already uses), so any such
+    /// stale completion no-ops instead.
+    ///
+    /// `model.clear()` unconditionally resets `status` to `.ready`, which
+    /// on its own would be wrong two ways: mid-session, the board is still
+    /// live and must keep saying so, not visibly detour through `.ready`;
+    /// and once the session has ended, resetting to `.ready` would defeat
+    /// the `onActivity` callback's `.ended` guard above (`model.status !=
+    /// .ended`) the instant any of the just-discarded work's stale
+    /// completion still lands — that guard checks `model.status` itself,
+    /// so once this clear has already moved it off `.ended`, the guard no
+    /// longer protects anything, and a late completion would resurrect
+    /// "Live". `isSessionActive` (a WB-5/I1 addition, immune to whatever
+    /// `model.clear()` does to `model.status`) is the durable signal used
+    /// to restore the correct status — both corrections applied
+    /// synchronously, right after `model.clear()`, so no observer ever
+    /// sees the transient `.ready`.
+    func clear() {
+        let wasEnded = model.status == .ended
+        model.clear()
+        if isSessionActive {
+            model.status = .live
+        } else if wasEnded {
+            model.status = .ended
+        }
+        Task { [orchestrator] in await orchestrator.clear() }
     }
 
     /// Feed one utterance from the live seam — called for EVERY utterance
@@ -201,6 +271,10 @@ final class SidecastWhiteboardCoordinator {
     /// view-model mutation, matching `sessionStarted`/`sessionEnded`.
     func receive(utteranceText: String, speaker: Speaker, at date: Date) {
         guard settings.sidecastWhiteboardEnabled else { return }
+        // WB-5/I1 fix: see `isSessionActive`'s doc comment. Utterances that
+        // arrive after `sessionEnded()` (the finalize-drains-after-end
+        // race) must produce zero listener/LLM activity.
+        guard isSessionActive else { return }
         gate.isOpen = isEgressAllowed
         model.noteDiagHeard()
         maybeRefreshCorpus()
@@ -232,17 +306,34 @@ final class SidecastWhiteboardCoordinator {
         let nowValue = now()
         guard nowValue.timeIntervalSince(lastCorpusRefreshAt) >= Self.corpusRefreshMinInterval else { return }
         lastCorpusRefreshAt = nowValue
-        guard let folder = resolveCorpusBookmark() else { return }
+        guard let folder = resolveCorpusBookmark() else {
+            // WB-5/I3 fix: this used to silently return, setting nothing —
+            // `model.corpusStatusLine` stayed whatever it was (most often
+            // `nil`) for the rest of the session, even though every
+            // throttled attempt from here on was quietly failing to even
+            // resolve a folder to read. Surface it, same as the read
+            // failure below.
+            let message = "Corpus refresh failed: no corpus folder bookmark could be resolved."
+            model.corpusStatusLine = message
+            model.corpusStatusLineIsError = true
+            return
+        }
 
         let corpusService = corpusService
         Task { [weak self] in
             do {
                 _ = try await corpusService.read(folder: folder)
-                await MainActor.run { self?.model.corpusStatusLine = nil }
+                await MainActor.run {
+                    self?.model.corpusStatusLine = nil
+                    self?.model.corpusStatusLineIsError = false
+                }
             } catch {
                 let message = "Corpus refresh failed: \(error.localizedDescription)"
                 Log.sidecast.error("[whiteboard-coordinator] \(message, privacy: .public)")
-                await MainActor.run { self?.model.corpusStatusLine = message }
+                await MainActor.run {
+                    self?.model.corpusStatusLine = message
+                    self?.model.corpusStatusLineIsError = true
+                }
             }
         }
     }

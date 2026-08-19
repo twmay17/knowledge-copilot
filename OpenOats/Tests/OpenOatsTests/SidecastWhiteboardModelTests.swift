@@ -202,7 +202,7 @@ final class SidecastWhiteboardModelTests: XCTestCase {
         model.receive(note: note("What year did the acquisition close", "2019.", at: sessionStart.addingTimeInterval(5)))
 
         let now = Date(timeIntervalSince1970: 1_700_010_000)
-        let data = model.exportJSON(now: now)
+        let data = try model.exportJSON(now: now)
         let decoded = try JSONDecoder().decode(DecodedExportPayload.self, from: data)
 
         XCTAssertEqual(decoded.exportedAt, ISO8601DateFormatter().string(from: now))
@@ -217,7 +217,7 @@ final class SidecastWhiteboardModelTests: XCTestCase {
     @MainActor
     func testExportJSONOmitsModelKeyEntirelyWhenNotConfigured() throws {
         let model = SidecastWhiteboardModel()
-        let data = model.exportJSON(now: Date())
+        let data = try model.exportJSON(now: Date())
 
         let raw = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
         XCTAssertFalse(raw.keys.contains("model"), "model must be omitted entirely, not encoded as null, when unconfigured")
@@ -226,6 +226,37 @@ final class SidecastWhiteboardModelTests: XCTestCase {
         XCTAssertNil(decoded.model)
         XCTAssertEqual(decoded.totalNotes, 0)
         XCTAssertEqual(decoded.notes, [])
+    }
+
+    // MARK: - 5b. WB-5/I4: write failures propagate instead of vanishing silently
+    //
+    // `SidecastWhiteboardView`'s export actions drive a modal `NSSavePanel`
+    // with no test harness in this codebase (same as `SidecastCorpusBookmark
+    // .pick()` — maintainer-verified only, per that type's own doc comment).
+    // These two tests exercise the identical throwing write path
+    // (`writeExportText(to:)`/`writeExportJSON(to:)`, which the view now
+    // calls) one level down, at the model, with a URL guaranteed to fail to
+    // write (a parent directory that does not exist) — the level this repo
+    // achieves for a save-panel-gated action.
+
+    @MainActor
+    func testWriteExportTextThrowsWhenTheDestinationIsUnwritable() {
+        let model = SidecastWhiteboardModel()
+        model.receive(note: note("Q", "A", at: Date()))
+        let unwritableURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sidecast-whiteboard-model-missing-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("whiteboard.txt")
+        XCTAssertThrowsError(try model.writeExportText(to: unwritableURL))
+    }
+
+    @MainActor
+    func testWriteExportJSONThrowsWhenTheDestinationIsUnwritable() {
+        let model = SidecastWhiteboardModel()
+        model.receive(note: note("Q", "A", at: Date()))
+        let unwritableURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sidecast-whiteboard-model-missing-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("whiteboard.json")
+        XCTAssertThrowsError(try model.writeExportJSON(to: unwritableURL))
     }
 
     // MARK: - 6. Auto-scroll flag transitions

@@ -571,14 +571,6 @@ final class LiveSessionController {
     // MARK: - Utterance Ingestion (migrated from ContentView)
 
     private func handleNewUtterance(_ last: Utterance, settings: AppSettings) {
-        // WB-0 live-smoke aid: debug level only (not persisted, invisible unless a
-        // maintainer runs `log stream --level debug`), so transcript text at this
-        // one seam is an acceptable, opt-in-only exposure. See
-        // .superpowers/sdd/wb0-smoke-procedure.md.
-        Log.diagnostics.debug(
-            "WB-0 live smoke: speaker=\(last.speaker.storageKey, privacy: .public) chars=\(last.text.count, privacy: .public) text=\(last.text.prefix(160), privacy: .public)"
-        )
-
         // WB-4: every utterance that reaches this seam feeds the whiteboard
         // — both .you and system-audio speakers, the board hears the whole
         // call — regardless of the echo guard below (that guard only scopes

@@ -14,6 +14,13 @@ import UniformTypeIdentifiers
 struct SidecastWhiteboardView: View {
     let model: SidecastWhiteboardModel
     let corpusService: SidecastCorpusService
+    /// WB-5/I6: the Clear button's action, injected by
+    /// `SidecastWhiteboardWindowController` rather than this view calling
+    /// `model.clear()` directly — clearing must also discard whatever the
+    /// live coordinator's orchestrator has queued or in flight, which this
+    /// view has no reference to. See the window controller's `onClear`
+    /// doc comment for what the production closure actually does.
+    let onClear: () -> Void
 
     @State private var corpusStatusText = SidecastWhiteboardView.noCorpusMessage
     @State private var corpusStatusIsError = false
@@ -66,7 +73,7 @@ struct SidecastWhiteboardView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 Button("Choose Corpus…") { pickCorpus() }
-                Button("Clear") { model.clear() }
+                Button("Clear") { onClear() }
                 Spacer()
                 Button("Export .txt") { exportText() }
                 Button("Export .json") { exportJSON() }
@@ -81,6 +88,19 @@ struct SidecastWhiteboardView: View {
                 .foregroundStyle(corpusStatusIsError ? Color.whiteboardError : Color.whiteboardMuted)
                 .lineLimit(1)
                 .truncationMode(.middle)
+
+            // The live coordinator's own periodic corpus-refresh status
+            // (WB-4/WB-5) — distinct from `corpusStatusText` above, which
+            // only covers this view's own interactive picker/initial-load
+            // flow. `nil` (nothing rendered) whenever the coordinator has
+            // nothing to report, e.g. the feature flag is off.
+            if let corpusStatusLine = model.corpusStatusLine {
+                Text(corpusStatusLine)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(model.corpusStatusLineIsError ? Color.whiteboardError : Color.whiteboardMuted)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
@@ -222,7 +242,16 @@ struct SidecastWhiteboardView: View {
         panel.nameFieldStringValue = "whiteboard-\(Self.filenameTimestamp()).txt"
         panel.allowedContentTypes = [.plainText]
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        try? model.exportText().write(to: url, atomically: true, encoding: .utf8)
+        do {
+            try model.writeExportText(to: url)
+        } catch {
+            // WB-5/I4 fix: this used to be a bare `try?` — a failed export
+            // (disk full, permission denied, …) silently vanished with no
+            // sign anything went wrong. Reuses this view's own visible
+            // status line/error flag rather than a separate mechanism.
+            corpusStatusIsError = true
+            corpusStatusText = "Export failed — \(error.localizedDescription)"
+        }
     }
 
     private func exportJSON() {
@@ -230,7 +259,12 @@ struct SidecastWhiteboardView: View {
         panel.nameFieldStringValue = "whiteboard-\(Self.filenameTimestamp()).json"
         panel.allowedContentTypes = [.json]
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        try? model.exportJSON().write(to: url)
+        do {
+            try model.writeExportJSON(to: url)
+        } catch {
+            corpusStatusIsError = true
+            corpusStatusText = "Export failed — \(error.localizedDescription)"
+        }
     }
 
     private static func filenameTimestamp() -> String {

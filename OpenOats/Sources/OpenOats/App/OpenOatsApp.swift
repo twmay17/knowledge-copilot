@@ -261,7 +261,11 @@ extension OpenOatsRootApp {
         container.ensureViewServicesInitialized(settings: settings, coordinator: coordinator)
         let controller = whiteboardWindowController ?? SidecastWhiteboardWindowController(
             model: coordinator.sidecastWhiteboardCoordinator?.model ?? SidecastWhiteboardModel(),
-            corpusService: coordinator.sidecastWhiteboardCoordinator?.corpusService ?? SidecastCorpusService()
+            corpusService: coordinator.sidecastWhiteboardCoordinator?.corpusService ?? SidecastCorpusService(),
+            // WB-5/I6: Clear must also discard the coordinator's
+            // orchestrator queue/in-flight work, not just the board — see
+            // `SidecastWhiteboardCoordinator.clear()`.
+            onClear: { coordinator.sidecastWhiteboardCoordinator?.clear() }
         )
         whiteboardWindowController = controller
         controller.show()

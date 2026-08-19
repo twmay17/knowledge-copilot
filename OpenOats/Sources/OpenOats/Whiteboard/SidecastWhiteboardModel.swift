@@ -80,6 +80,13 @@ final class SidecastWhiteboardModel {
     /// initial-load flow rather than the coordinator's periodic refresh.
     var corpusStatusLine: String?
 
+    /// True when `corpusStatusLine` describes a failure rather than
+    /// purely-informational text — lets the view render it in the same
+    /// error red as its own (unrelated) `corpusStatusText`/
+    /// `corpusStatusIsError` pair. Meaningless while `corpusStatusLine`
+    /// is `nil`; always `false` there (see `clear()`).
+    var corpusStatusLineIsError = false
+
     private(set) var heardCount = 0
     private(set) var listensCount = 0
     private(set) var questionsCount = 0
@@ -120,6 +127,7 @@ final class SidecastWhiteboardModel {
         questionsCount = 0
         answersCount = 0
         corpusStatusLine = nil
+        corpusStatusLineIsError = false
     }
 
     // MARK: - Session-relative time
@@ -237,6 +245,17 @@ final class SidecastWhiteboardModel {
         return lines.joined(separator: "\n")
     }
 
+    /// Writes the plain-text export straight to `url`. The write is the
+    /// only part of this path that can actually fail — `exportText` itself
+    /// is pure string building — so this throwing wrapper is what
+    /// `SidecastWhiteboardView`'s Export button now calls (WB-5/I4 fix,
+    /// replacing a bare `try?` that dropped the error on the floor), and
+    /// what a test with no `NSSavePanel` in reach can drive directly to
+    /// prove the failure path actually surfaces something.
+    func writeExportText(to url: URL, now: Date = Date()) throws {
+        try exportText(now: now).write(to: url, atomically: true, encoding: .utf8)
+    }
+
     private struct ExportNote: Encodable {
         let timestamp: String
         let question: String
@@ -255,7 +274,12 @@ final class SidecastWhiteboardModel {
     /// text}]` / `totalNotes`. `model`'s synthesized `Encodable` conformance
     /// uses `encodeIfPresent`, so the key is omitted entirely (not written
     /// as `null`) when `configuredModel` is unset.
-    func exportJSON(now: Date = Date()) -> Data {
+    ///
+    /// WB-5/I4 fix: throws rather than swallowing an encode failure into
+    /// an empty `Data()` — an export button that "succeeds" silently with
+    /// a zero-byte file on disk was worse than surfacing the real error to
+    /// the caller.
+    func exportJSON(now: Date = Date()) throws -> Data {
         let payload = ExportPayload(
             exportedAt: Self.exportedAtFormatter.string(from: now),
             model: configuredModel,
@@ -266,6 +290,12 @@ final class SidecastWhiteboardModel {
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .withoutEscapingSlashes]
-        return (try? encoder.encode(payload)) ?? Data()
+        return try encoder.encode(payload)
+    }
+
+    /// Writes the JSON export straight to `url` — see
+    /// `writeExportText(to:)`.
+    func writeExportJSON(to url: URL, now: Date = Date()) throws {
+        try exportJSON(now: now).write(to: url)
     }
 }

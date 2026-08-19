@@ -1470,7 +1470,6 @@ struct MeetingDetailPane<SessionFolderMenuItems: View>: View {
     }
 
     private func startRecording(for event: CalendarEvent, selectedTemplate: MeetingTemplate?) {
-        coordinator.selectedTemplate = selectedTemplate
         let prepNotes = settings.meetingPrepNotes(for: event)
         let scratchpad = prepNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : prepNotes
         // Surface the window regardless of consent — this is also the
@@ -1483,6 +1482,14 @@ struct MeetingDetailPane<SessionFolderMenuItems: View>: View {
         // neither directly nor via the external-command fallback below —
         // until consent has been acknowledged.
         guard Self.shouldStartRecording(settings: settings) else { return }
+        // WB-5/M3 fix: this assignment used to run before the consent
+        // guard above, so a consent-blocked click still latched its
+        // template choice onto `coordinator.selectedTemplate` — silently
+        // applied to whatever session the user actually started later,
+        // possibly with a different (or no) template in mind. Moved below
+        // the guard so it only ever takes effect on the session this call
+        // is actually about to start.
+        coordinator.selectedTemplate = selectedTemplate
         if let controller = coordinator.liveSessionController {
             container.ensureMeetingServicesInitialized(settings: settings, coordinator: coordinator)
             controller.startSession(settings: settings, calendarEventOverride: event, initialScratchpad: scratchpad)

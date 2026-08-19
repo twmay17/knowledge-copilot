@@ -34,14 +34,26 @@ final class SidecastWhiteboardWindowController {
     let window: NSWindow
     let model: SidecastWhiteboardModel
     let corpusService: SidecastCorpusService
+    /// WB-5/I6: the hosted view's Clear button action. Defaults to a
+    /// model-only clear (the pre-fix behavior) when no richer closure is
+    /// supplied — production always supplies one (see
+    /// `OpenOatsRootApp.showWhiteboardWindow`, which wires
+    /// `coordinator.sidecastWhiteboardCoordinator?.clear()` so the
+    /// orchestrator's queued/in-flight work is discarded too, not just the
+    /// board); callers with no coordinator to reach (this type's own
+    /// parameterless test construction, `SidecastWhiteboardSharingTests`)
+    /// get the harmless fallback instead.
+    private let onClear: () -> Void
     private var hasInstalledContent = false
 
     init(
         model: SidecastWhiteboardModel = SidecastWhiteboardModel(),
-        corpusService: SidecastCorpusService = SidecastCorpusService()
+        corpusService: SidecastCorpusService = SidecastCorpusService(),
+        onClear: (() -> Void)? = nil
     ) {
         self.model = model
         self.corpusService = corpusService
+        self.onClear = onClear ?? { model.clear() }
 
         let newWindow = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 780, height: 640),
@@ -79,7 +91,7 @@ final class SidecastWhiteboardWindowController {
         if !hasInstalledContent {
             hasInstalledContent = true
             window.contentView = NSHostingView(
-                rootView: SidecastWhiteboardView(model: model, corpusService: corpusService)
+                rootView: SidecastWhiteboardView(model: model, corpusService: corpusService, onClear: onClear)
             )
         }
         window.makeKeyAndOrderFront(nil)

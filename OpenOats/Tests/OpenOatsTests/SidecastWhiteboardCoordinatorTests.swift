@@ -291,6 +291,71 @@ final class SidecastWhiteboardCoordinatorTests: XCTestCase {
         )
     }
 
+    // MARK: - c2. WB-5/I1: receive() after sessionEnded produces zero new listener activity,
+    // while an answer already in flight before the end still lands.
+
+    /// Regression test for the cross-boundary bug the WB-5 review caught:
+    /// `LiveSessionController.finalizeCurrentSession` calls `sessionEnded()`
+    /// (status only) and only *afterward* drains its own transcription
+    /// buffers (`finalize()`), so utterances already queued there keep
+    /// reaching `receive()` after the user pressed Stop. Pre-fix, `receive`
+    /// only guarded the feature flag — none of those late utterances were
+    /// rejected, so they could drive a brand-new listen pass and even a
+    /// brand-new answer LLM call after end. This proves the fix
+    /// (`isSessionActive`, checked in `receive`) closes that: no new mock
+    /// LLM calls, and `heardCount` itself never moves, for anything
+    /// received after `sessionEnded()` — while the answer that was already
+    /// in flight *before* the end (WB-4's documented, unchanged intent)
+    /// still lands.
+    func testReceiveAfterSessionEndedProducesNoNewListenerActivityWhileInFlightAnswerStillLands() async {
+        let clock = TestClock(Date(timeIntervalSince1970: 1_700_000_000))
+        let llm = MockLLM()
+        let model = SidecastWhiteboardModel()
+        let settings = makeSettings()
+        let coordinator = makeCoordinator(settings: settings, llm: llm, clock: clock, model: model)
+
+        coordinator.sessionStarted(at: clock.now())
+        await llm.setListenResponse(listenJSON(["What is the pricing?"]))
+        await llm.setAnswerResponse(answerJSON(answer: "It's $10 per month."))
+        await llm.setSuspendAnswers(true)
+
+        coordinator.receive(utteranceText: "What is the pricing?", speaker: .them, at: clock.now())
+        await settle()
+        coordinator.receive(utteranceText: "Let me check that.", speaker: .you, at: clock.now())
+
+        // Both the listen call and the (now-suspended) answer call have
+        // genuinely started before end — same happens-before idiom as
+        // test c above.
+        await llm.waitForCallCount(2)
+        await settle()
+
+        coordinator.sessionEnded()
+        let callCountAtEnd = await llm.callCount()
+        XCTAssertEqual(model.heardCount, 2, "sanity: both pre-end utterances were heard")
+
+        // Utterances that keep arriving after Stop (the exact
+        // finalize()-drains-after-sessionEnded race the review found) must
+        // produce zero new listener/LLM activity.
+        clock.advance(1)
+        coordinator.receive(utteranceText: "Late utterance 1 after stop", speaker: .them, at: clock.now())
+        clock.advance(1)
+        coordinator.receive(utteranceText: "Late utterance 2 after stop", speaker: .you, at: clock.now())
+        clock.advance(1)
+        coordinator.receive(utteranceText: "Late utterance 3 after stop", speaker: .them, at: clock.now())
+
+        let stayedQuiet = await callCountStaysAtMost(callCountAtEnd, llm: llm)
+        XCTAssertTrue(stayedQuiet, "receive() after sessionEnded must not drive any new listener/LLM activity")
+        XCTAssertEqual(model.heardCount, 2, "heardCount must not move for utterances received after sessionEnded")
+
+        // The answer already in flight *before* the end must still land —
+        // this fix must not regress WB-4's documented in-flight-still-lands
+        // behavior (see test c above).
+        await llm.resumeOneAnswer()
+        let landed = await eventually { model.notes.count == 1 }
+        XCTAssertTrue(landed, "an answer already in flight before sessionEnded must still land")
+        XCTAssertEqual(model.status, .ended)
+    }
+
     // MARK: - d. New session start after a previous one: epoch bumped, stale in-flight discarded
 
     func testNewSessionStartBumpsEpochAndDiscardsStaleInFlightAnswer() async {
@@ -328,6 +393,79 @@ final class SidecastWhiteboardCoordinatorTests: XCTestCase {
         XCTAssertTrue(model.notes.isEmpty, "the stale first-session answer must be discarded, not appear in the new session")
     }
 
+    // MARK: - h. WB-5/I2: a new session clears the board, not just the orchestrator epoch
+
+    /// Regression test: `sessionStarted` previously never cleared
+    /// `model.notes`, so a second session's notes accumulated on top of
+    /// the first session's — and since `sessionRelativeTime` clamps a
+    /// before-`sessionStart` timestamp to `0:00`, the first session's
+    /// leftover notes would re-render (and export) stamped `0:00` once
+    /// `sessionStart` was overwritten for session 2. Proves
+    /// `sessionStarted` now clears the board first, synchronously (no
+    /// polling needed): session 2 starts with zero notes, ends up `.live`
+    /// with the correct `sessionStart`, and both the in-memory board and
+    /// the text/JSON exports after session 2 contain only session 2's note.
+    func testSecondSessionStartClearsFirstSessionsNotesFromBoardAndExports() async throws {
+        let clock = TestClock(Date(timeIntervalSince1970: 1_700_000_000))
+        let llm = MockLLM()
+        let model = SidecastWhiteboardModel()
+        let settings = makeSettings()
+        let coordinator = makeCoordinator(settings: settings, llm: llm, clock: clock, model: model)
+
+        // Session 1: one question lands.
+        coordinator.sessionStarted(at: clock.now())
+        await llm.setListenResponse(listenJSON(["What is the pricing?"]))
+        await llm.setAnswerResponse(answerJSON(answer: "It's $10 per month."))
+        coordinator.receive(utteranceText: "What is the pricing?", speaker: .them, at: clock.now())
+        await settle()
+        coordinator.receive(utteranceText: "Let me check that.", speaker: .you, at: clock.now())
+        await llm.waitForCallCount(2)
+        let firstLanded = await eventually { model.notes.count == 1 }
+        XCTAssertTrue(firstLanded, "sanity: session 1's question landed")
+
+        coordinator.sessionEnded()
+
+        // Session 2 starts later.
+        clock.advance(300)
+        let secondSessionStart = clock.now()
+        coordinator.sessionStarted(at: secondSessionStart)
+
+        // Cleared synchronously — no need to poll.
+        XCTAssertTrue(model.notes.isEmpty, "session 2 must start with an empty board, not session 1's leftover note")
+        XCTAssertEqual(model.sessionStart, secondSessionStart)
+        XCTAssertEqual(model.status, .live, "clear()'s own .ready reset must not leak past sessionStarted")
+
+        // Session 2: a different question lands.
+        await llm.setListenResponse(listenJSON(["Who is the general manager?"]))
+        await llm.setAnswerResponse(answerJSON(answer: "Jordan Alvarez."))
+        coordinator.receive(utteranceText: "Who is the general manager?", speaker: .them, at: clock.now())
+        await settle()
+        coordinator.receive(utteranceText: "One moment.", speaker: .you, at: clock.now())
+        await llm.waitForCallCount(4)
+        let secondLanded = await eventually { model.notes.count == 1 }
+        XCTAssertTrue(secondLanded, "session 2's question landed")
+
+        XCTAssertEqual(model.notes.first?.question, "Who is the general manager?", "only session 2's note is on the board")
+        XCTAssertEqual(model.notes.first?.answer, "Jordan Alvarez.")
+
+        let exportedText = model.exportText()
+        XCTAssertFalse(exportedText.contains("pricing"), "session 1's question must not appear in session 2's export")
+        XCTAssertTrue(exportedText.contains("general manager"), "session 2's question must appear in the export")
+
+        let exportedJSON = try model.exportJSON()
+        guard let jsonObject = (try? JSONSerialization.jsonObject(with: exportedJSON)) as? [String: Any],
+            let notesArray = jsonObject["notes"] as? [[String: Any]]
+        else {
+            XCTFail("failed to decode export JSON")
+            return
+        }
+        XCTAssertEqual(
+            notesArray.compactMap { $0["question"] as? String },
+            ["Who is the general manager?"],
+            "the JSON export's notes array must contain only session 2's note"
+        )
+    }
+
     // MARK: - e. Corpus refresh failure surfaces on VM corpus line, session continues
 
     func testCorpusRefreshFailureSurfacesOnViewModelAndSessionContinues() async {
@@ -349,6 +487,9 @@ final class SidecastWhiteboardCoordinatorTests: XCTestCase {
 
         let surfaced = await eventually { model.corpusStatusLine != nil }
         XCTAssertTrue(surfaced, "a corpus refresh failure must surface on the view model, not disappear silently")
+        // WB-5/I3: the failure must also be flagged as an error, so the
+        // view can render it in red alongside the picker's own status.
+        XCTAssertTrue(model.corpusStatusLineIsError, "a genuine read failure must set the error flag")
         XCTAssertEqual(model.status, .live, "never fatal — the session keeps running")
 
         // Session continues: a second utterance still reaches the listener
@@ -356,6 +497,36 @@ final class SidecastWhiteboardCoordinatorTests: XCTestCase {
         clock.advance(1)
         coordinator.receive(utteranceText: "Let me check that.", speaker: .you, at: clock.now())
         XCTAssertEqual(model.heardCount, 2)
+    }
+
+    /// WB-5/I3: `maybeRefreshCorpus`'s resolve-failure branch (no bookmark
+    /// resolves at all — `resolveCorpusBookmark()` returns `nil`) used to
+    /// silently return, setting nothing: `model.corpusStatusLine` stayed
+    /// whatever it was before, forever, for the rest of the session. Proves
+    /// that branch now surfaces its own status line (flagged as an error)
+    /// instead of going quiet, and that the session still keeps running.
+    func testCorpusResolveFailureBranchSurfacesOnViewModelAndSessionContinues() async {
+        let clock = TestClock(Date(timeIntervalSince1970: 1_700_000_000))
+        let llm = MockLLM()
+        let model = SidecastWhiteboardModel()
+        let settings = makeSettings()
+        let coordinator = makeCoordinator(
+            settings: settings, llm: llm, clock: clock, model: model,
+            resolveCorpusBookmark: { nil }
+        )
+
+        XCTAssertNil(model.corpusStatusLine, "sanity: nothing set before the first refresh attempt")
+
+        coordinator.sessionStarted(at: clock.now())
+        coordinator.receive(utteranceText: "What is the pricing?", speaker: .them, at: clock.now())
+
+        XCTAssertNotNil(model.corpusStatusLine, "a resolve failure must surface a status line, not leave it untouched")
+        XCTAssertTrue(model.corpusStatusLineIsError)
+        XCTAssertEqual(model.status, .live, "never fatal — the session keeps running")
+
+        clock.advance(1)
+        coordinator.receive(utteranceText: "Let me check that.", speaker: .you, at: clock.now())
+        XCTAssertEqual(model.heardCount, 2, "the session keeps counting heard utterances")
     }
 
     // MARK: - f. Egress gate: gate closed, flag ON produces zero llm calls
@@ -388,6 +559,92 @@ final class SidecastWhiteboardCoordinatorTests: XCTestCase {
         coordinator2.receive(utteranceText: "Let me check that.", speaker: .you, at: clock.now())
         let stayedQuiet2 = await callCountStaysAtMost(0, llm: llm2)
         XCTAssertTrue(stayedQuiet2, "an OpenRouter key alone must not open egress when a different provider is active")
+    }
+
+    // MARK: - i. WB-5/I6: user-triggered clear() also clears the orchestrator, coherently
+
+    /// Regression test: the Clear button used to wipe only the board
+    /// (`model.clear()`), leaving the orchestrator's queue/in-flight work
+    /// untouched — a queued or in-flight answer would silently repopulate
+    /// the board the user had just asked to be emptied. Proves
+    /// `coordinator.clear()` (wired to the button via
+    /// `SidecastWhiteboardWindowController`'s `onClear`) discards that work
+    /// (epoch bump — same mechanism `sessionStarted` already uses), keeps
+    /// `status` at `.live` throughout with no visible detour through
+    /// `model.clear()`'s own unconditional `.ready` reset, and that the
+    /// discarded item's later (stale) completion neither repopulates the
+    /// board nor disturbs status.
+    func testClearMidSessionDiscardsQueuedWorkKeepsStatusLiveAndDiscardsLaterStaleCompletion() async {
+        let clock = TestClock(Date(timeIntervalSince1970: 1_700_000_000))
+        let llm = MockLLM()
+        let model = SidecastWhiteboardModel()
+        let settings = makeSettings()
+        let coordinator = makeCoordinator(settings: settings, llm: llm, clock: clock, model: model)
+
+        coordinator.sessionStarted(at: clock.now())
+        await llm.setListenResponse(listenJSON(["What is the pricing?"]))
+        await llm.setAnswerResponse(answerJSON(answer: "It's $10 per month."))
+        await llm.setSuspendAnswers(true)
+
+        coordinator.receive(utteranceText: "What is the pricing?", speaker: .them, at: clock.now())
+        await settle()
+        coordinator.receive(utteranceText: "Let me check that.", speaker: .you, at: clock.now())
+
+        // The answer call has genuinely started (and is now suspended)
+        // before clear() — proving "already in flight", not "enqueued after".
+        await llm.waitForCallCount(2)
+        await settle()
+
+        coordinator.clear()
+
+        // Synchronous: no observer can ever see a transient `.ready`.
+        XCTAssertEqual(model.status, .live, "clearing mid-session must not flip status away from live")
+        XCTAssertTrue(model.notes.isEmpty)
+
+        // The answer already in flight before clear() must be discarded
+        // (epoch bump), not land on the freshly-cleared board.
+        await llm.resumeOneAnswer()
+        await settle(200)
+        XCTAssertTrue(model.notes.isEmpty, "a stale pre-clear answer must be discarded, not repopulate the board")
+        XCTAssertEqual(model.status, .live, "a stale completion must not disturb status either")
+    }
+
+    /// Companion to the mid-session case above: clearing *after* a session
+    /// has ended must not resurrect `.live`/`.answering` — `model.clear()`'s
+    /// own unconditional `.ready` reset would otherwise defeat the
+    /// `onActivity` `.ended` guard the moment any of the just-discarded
+    /// work's stale completion still lands (status no longer reads
+    /// `.ended` by the time that guard runs, so it would no-op-check
+    /// against the wrong thing and resurrect "Live").
+    func testClearAfterSessionEndedDoesNotEnableStatusResurrection() async {
+        let clock = TestClock(Date(timeIntervalSince1970: 1_700_000_000))
+        let llm = MockLLM()
+        let model = SidecastWhiteboardModel()
+        let settings = makeSettings()
+        let coordinator = makeCoordinator(settings: settings, llm: llm, clock: clock, model: model)
+
+        coordinator.sessionStarted(at: clock.now())
+        await llm.setListenResponse(listenJSON(["What is the pricing?"]))
+        await llm.setAnswerResponse(answerJSON(answer: "It's $10 per month."))
+        await llm.setSuspendAnswers(true)
+
+        coordinator.receive(utteranceText: "What is the pricing?", speaker: .them, at: clock.now())
+        await settle()
+        coordinator.receive(utteranceText: "Let me check that.", speaker: .you, at: clock.now())
+        await llm.waitForCallCount(2)
+        await settle()
+
+        coordinator.sessionEnded()
+        XCTAssertEqual(model.status, .ended)
+
+        coordinator.clear()
+        XCTAssertEqual(model.status, .ended, "clearing after end must not resurrect Live/Ready — status must stay ended")
+        XCTAssertTrue(model.notes.isEmpty)
+
+        await llm.resumeOneAnswer()
+        await settle(200)
+        XCTAssertEqual(model.status, .ended, "a stale completion after a post-end clear must not resurrect status")
+        XCTAssertTrue(model.notes.isEmpty, "the stale answer must not repopulate the board either")
     }
 
     // MARK: - g. Diag guard: answers-only nonzero -> diagText visible
