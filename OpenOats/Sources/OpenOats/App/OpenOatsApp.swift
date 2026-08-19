@@ -83,6 +83,17 @@ public struct OpenOatsRootApp: App {
                     DiagnosticsSupport.record(category: "app", message: "Main window appeared")
                     settings.applyScreenShareVisibility()
                 }
+                // WB-4: auto-open the whiteboard window when a session goes
+                // live, through the exact same lazy path the "Whiteboard"
+                // menu command uses (showWhiteboardWindow(), below) — a
+                // window that's already open just gets reordered front, not
+                // duplicated. Gated on the flag here too: with it off this
+                // is a no-op, matching SidecastWhiteboardCoordinator staying
+                // inert for the session itself.
+                .onChange(of: coordinator.isRecording, initial: false) { wasRecording, isRecording in
+                    guard isRecording, !wasRecording, settings.sidecastWhiteboardEnabled else { return }
+                    showWhiteboardWindow()
+                }
                 .task {
                     await whatsNewController.presentPostUpdateReleaseNotesIfNeeded()
                 }
@@ -234,8 +245,24 @@ extension OpenOatsRootApp {
     /// right here, so the window (and the corpus bookmark resolve its
     /// hosted view triggers once shown) never comes into being before the
     /// user actually asks for it.
+    ///
+    /// `ensureViewServicesInitialized` runs first (idempotent, matching
+    /// `startSession`'s own call — cheap and side-effect-free until a
+    /// session actually feeds it) so `coordinator.sidecastWhiteboardCoordinator`
+    /// exists even if this is reached before any session ever started (the
+    /// menu command works that way today). The window is then built to
+    /// share that coordinator's `model`/`corpusService` rather than the
+    /// controller's own parameterless defaults — without this, a session's
+    /// answers would land on a view-model this window was never showing,
+    /// and the corpus this window's picker loads would be invisible to the
+    /// orchestrator's retrieval. Falls back to fresh instances only in the
+    /// unreachable case where services somehow still aren't set.
     private func showWhiteboardWindow() {
-        let controller = whiteboardWindowController ?? SidecastWhiteboardWindowController()
+        container.ensureViewServicesInitialized(settings: settings, coordinator: coordinator)
+        let controller = whiteboardWindowController ?? SidecastWhiteboardWindowController(
+            model: coordinator.sidecastWhiteboardCoordinator?.model ?? SidecastWhiteboardModel(),
+            corpusService: coordinator.sidecastWhiteboardCoordinator?.corpusService ?? SidecastCorpusService()
+        )
         whiteboardWindowController = controller
         controller.show()
     }

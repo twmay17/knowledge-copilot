@@ -17,6 +17,7 @@ struct AppViewServices {
     let knowledgeBase: KnowledgeBase
     let suggestionEngine: SuggestionEngine
     let sidecastEngine: SidecastEngine
+    let sidecastWhiteboardCoordinator: SidecastWhiteboardCoordinator
 }
 
 struct AppRecordingServices {

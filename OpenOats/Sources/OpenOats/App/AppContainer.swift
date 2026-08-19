@@ -1,6 +1,28 @@
 import Foundation
 import Observation
 
+/// Production `SidecastLLM` conformance for `SidecastWhiteboardCoordinator`:
+/// unlike WB-2's `OpenRouterSidecastLLM` (a plain value snapshot — apiKey/
+/// model fixed at construction), this reads `settings.openRouterApiKey`/
+/// `.selectedModel` fresh on every call, matching how the legacy realtime
+/// path (`SidecastEngine`/`SuggestionEngine`) already reads its own
+/// credentials live rather than once at construction — a user who updates
+/// their key mid-session should not need to restart the app for the
+/// whiteboard to notice. `settings` is `@MainActor`-isolated, not `Sendable`
+/// itself; reading it from here (this type conforms to `SidecastLLM: Sendable`
+/// and `call` runs on the listener/orchestrator actors, not the MainActor)
+/// requires the `await MainActor.run` hop below.
+private struct LiveSettingsBackedOpenRouterLLM: SidecastLLM {
+    let client: OpenRouterClient
+    let settings: AppSettings
+
+    func call(system: String, user: String, schema: OpenRouterClient.JSONSchemaSpec) async throws -> String {
+        let (apiKey, model) = await MainActor.run { (settings.openRouterApiKey, settings.selectedModel) }
+        return try await OpenRouterSidecastLLM(client: client, apiKey: apiKey, model: model)
+            .call(system: system, user: user, schema: schema)
+    }
+}
+
 @MainActor
 @Observable
 final class AppContainer {
@@ -90,6 +112,11 @@ final class AppContainer {
             defaults.set(true, forKey: "showLiveTranscript")
             defaults.set(false, forKey: "saveAudioRecording")
             defaults.set(false, forKey: "enableLiveTranscriptCleanup")
+            // Scripted UI-test scenarios don't expect a whiteboard window to
+            // pop open on session start (or any of its own live behavior) —
+            // keep them exactly as they were pre-WB-4 even though the flag
+            // now defaults ON for real launches. See SidecastWhiteboardCoordinator.
+            defaults.set(false, forKey: "sidecastWhiteboardEnabled")
             defaults.set(notesDirectory.path, forKey: "notesFolderPath")
             defaults.set("", forKey: "kbFolderPath")
             defaults.set("", forKey: "knowledgePackFolderPath")
@@ -139,11 +166,17 @@ final class AppContainer {
             knowledgeBase: knowledgeBase,
             settings: settings
         )
+        let sidecastWhiteboardCoordinator = SidecastWhiteboardCoordinator(
+            model: SidecastWhiteboardModel(configuredModel: settings.selectedModel),
+            llm: LiveSettingsBackedOpenRouterLLM(client: OpenRouterClient(), settings: settings),
+            settings: settings
+        )
 
         return AppViewServices(
             knowledgeBase: knowledgeBase,
             suggestionEngine: suggestionEngine,
-            sidecastEngine: sidecastEngine
+            sidecastEngine: sidecastEngine,
+            sidecastWhiteboardCoordinator: sidecastWhiteboardCoordinator
         )
     }
 
@@ -186,7 +219,8 @@ final class AppContainer {
         coordinator.setViewServices(
             knowledgeBase: services.knowledgeBase,
             suggestionEngine: services.suggestionEngine,
-            sidecastEngine: services.sidecastEngine
+            sidecastEngine: services.sidecastEngine,
+            sidecastWhiteboardCoordinator: services.sidecastWhiteboardCoordinator
         )
     }
 

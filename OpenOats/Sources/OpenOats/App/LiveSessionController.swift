@@ -551,6 +551,13 @@ final class LiveSessionController {
             "WB-0 live smoke: speaker=\(last.speaker.storageKey, privacy: .public) chars=\(last.text.count, privacy: .public) text=\(last.text.prefix(160), privacy: .public)"
         )
 
+        // WB-4: every utterance that reaches this seam feeds the whiteboard
+        // — both .you and system-audio speakers, the board hears the whole
+        // call — regardless of the echo guard below (that guard only scopes
+        // the legacy suggestion/sidecast engines). No-ops entirely when the
+        // feature flag is off. See SidecastWhiteboardCoordinator.receive.
+        coordinator.sidecastWhiteboardCoordinator?.receive(utteranceText: last.text, speaker: last.speaker, at: last.timestamp)
+
         container.detectionController?.noteUtterance()
 
         if settings.enableLiveTranscriptCleanup, let engine = coordinator.liveTranscriptCleaner {
@@ -567,7 +574,14 @@ final class LiveSessionController {
             case .classicSuggestions:
                 coordinator.suggestionEngine?.onUtterance(last)
             case .sidecast:
-                coordinator.sidecastEngine?.onUtterance(last)
+                // WB-4: the flag flips the pipeline — legacy SidecastEngine
+                // persona dispatch is skipped only here, only for .sidecast
+                // mode, and only while the flag is on; classic suggestions
+                // above are never touched by this flag. Legacy code stays
+                // compiling and reachable with the flag off.
+                if !settings.sidecastWhiteboardEnabled {
+                    coordinator.sidecastEngine?.onUtterance(last)
+                }
             }
         }
 
@@ -653,6 +667,9 @@ final class LiveSessionController {
         if let settings {
             container.ensureMeetingServicesInitialized(settings: settings, coordinator: coordinator)
         }
+        // WB-4: whiteboard session lifecycle. No-ops entirely when the
+        // feature flag is off (see SidecastWhiteboardCoordinator).
+        coordinator.sidecastWhiteboardCoordinator?.sessionStarted(at: Date())
         if let batchAudioTranscriber = coordinator.batchAudioTranscriber {
             await batchAudioTranscriber.cancel()
         }
@@ -748,6 +765,11 @@ final class LiveSessionController {
     }
 
     func finalizeCurrentSession(settings: AppSettings?) async {
+        // WB-4: whiteboard session lifecycle — status only, board content is
+        // kept for export and an answer already in flight still lands. See
+        // SidecastWhiteboardCoordinator.sessionEnded().
+        coordinator.sidecastWhiteboardCoordinator?.sessionEnded()
+
         // 0. Flush scratchpad
         scratchpadSaveTask?.cancel()
         if let sessionID = _currentSessionID, !state.scratchpadText.isEmpty {

@@ -1597,4 +1597,60 @@ final class LiveSessionControllerTests: XCTestCase {
         XCTAssertNotNil(coordinator.lastEndedSession)
         XCTAssertEqual(coordinator.lastEndedSession?.utteranceCount, 2)
     }
+
+    // MARK: - WB-4: flag-gated legacy SidecastEngine dispatch
+
+    /// `SidecastWhiteboardCoordinatorTests` proves the coordinator's own
+    /// behavior in isolation; this proves the seam in `handleNewUtterance`
+    /// actually wires the flag to the legacy engine as claimed — with the
+    /// flag on, `SidecastEngine.onUtterance` must never run at all; with it
+    /// off, it must run exactly as it did before WB-4 (unchanged).
+    /// `SidecastEngine.onUtterance` has no public "was I called" hook, but
+    /// it flips `isGenerating` true synchronously (before the network call
+    /// it then kicks off in the background) the moment it clears its own
+    /// credential/persona guards — observable proof of "did this run past
+    /// its guards" that doesn't depend on the network call ever succeeding
+    /// (same pattern `testFinalizeCurrentSessionAutoGeneratesNotesWhenConfigured`
+    /// already relies on elsewhere in this file).
+    private func runSidecastDispatchProbe(whiteboardEnabled: Bool) async -> Bool {
+        let dirs = makeTempDirs()
+        let settings = makeSettings(notesDirectory: dirs.notes)
+        settings.sidebarMode = .sidecast
+        settings.sidecastWhiteboardEnabled = whiteboardEnabled
+        settings.llmProvider = .openRouter
+        settings.openRouterApiKey = "test-key-not-real"
+
+        let (controller, coordinator) = makeController(
+            root: dirs.root,
+            notesDirectory: dirs.notes,
+            settings: settings,
+            scripted: [Utterance(text: "What is the pricing?", speaker: .them)]
+        )
+
+        controller.startSession(settings: settings)
+        for _ in 0..<20 {
+            if coordinator.transcriptionEngine?.isRunning == true { break }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+
+        let pollTask = Task { await controller.runPollingLoop(settings: settings) }
+        for _ in 0..<20 {
+            if coordinator.sidecastEngine?.isGenerating == true { break }
+            try? await Task.sleep(for: .milliseconds(25))
+        }
+        let isGenerating = coordinator.sidecastEngine?.isGenerating ?? false
+        pollTask.cancel()
+        controller.stopSession(settings: settings)
+        return isGenerating
+    }
+
+    func testWhiteboardFlagOnSkipsLegacySidecastDispatch() async {
+        let isGenerating = await runSidecastDispatchProbe(whiteboardEnabled: true)
+        XCTAssertFalse(isGenerating, "flag on: legacy SidecastEngine.onUtterance must be skipped, not merely redundant")
+    }
+
+    func testWhiteboardFlagOffLeavesLegacySidecastDispatchUnchanged() async {
+        let isGenerating = await runSidecastDispatchProbe(whiteboardEnabled: false)
+        XCTAssertTrue(isGenerating, "flag off: legacy SidecastEngine.onUtterance must still run exactly as before WB-4")
+    }
 }

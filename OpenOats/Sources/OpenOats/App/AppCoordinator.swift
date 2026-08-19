@@ -136,14 +136,27 @@ final class AppCoordinator {
         get { _sidecastEngine }
     }
 
+    /// WB-4: the native whiteboard pipeline's wiring layer. `nil` until the
+    /// first `setViewServices` call (same lazy-on-first-session-start timing
+    /// as `knowledgeBase`/`suggestionEngine`/`sidecastEngine` above) — every
+    /// caller reaches it via optional chaining, exactly like those three.
+    @ObservationIgnored nonisolated(unsafe) private var _sidecastWhiteboardCoordinator: SidecastWhiteboardCoordinator?
+    nonisolated var sidecastWhiteboardCoordinator: SidecastWhiteboardCoordinator? {
+        get { _sidecastWhiteboardCoordinator }
+    }
+
     func setViewServices(
         knowledgeBase: KnowledgeBase,
         suggestionEngine: SuggestionEngine,
-        sidecastEngine: SidecastEngine
+        sidecastEngine: SidecastEngine,
+        sidecastWhiteboardCoordinator: SidecastWhiteboardCoordinator? = nil
     ) {
         _knowledgeBase = knowledgeBase
         _suggestionEngine = suggestionEngine
         _sidecastEngine = sidecastEngine
+        if let sidecastWhiteboardCoordinator {
+            _sidecastWhiteboardCoordinator = sidecastWhiteboardCoordinator
+        }
     }
 
     /// The template snapshot frozen at session start (not stop).

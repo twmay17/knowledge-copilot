@@ -75,6 +75,11 @@ final class SidecastWhiteboardModelTests: XCTestCase {
         XCTAssertEqual(model.statusText, "Corpus unreadable — permission denied", "error text passes the message through verbatim")
         XCTAssertEqual(model.statusDotColor, .red)
         XCTAssertFalse(model.isStatusPulsing)
+
+        model.status = .ended
+        XCTAssertEqual(model.statusText, "Ended")
+        XCTAssertEqual(model.statusDotColor, .gray)
+        XCTAssertFalse(model.isStatusPulsing, "a stopped session's board is not receiving anything new")
     }
 
     // MARK: - 3. Diagnostic line content
@@ -96,6 +101,21 @@ final class SidecastWhiteboardModelTests: XCTestCase {
 
         model.noteDiagQuestions(3)
         XCTAssertEqual(model.diagText, "heard 2 · listens 1 · questions 5 · answers 1", "noteDiagQuestions accumulates by the given count")
+    }
+
+    /// WB-4 guard fix: `questionsCount`/`answersCount` moving independently
+    /// of `heardCount`/`listensCount` (as they can once a live coordinator —
+    /// rather than this model's own lockstep test helpers — drives them)
+    /// must still flip the strip visible, not just stay silently blank.
+    @MainActor
+    func testDiagLineIsVisibleWhenOnlyQuestionsOrAnswersCounterIsNonzero() {
+        let questionsOnly = SidecastWhiteboardModel()
+        questionsOnly.noteDiagQuestions(1)
+        XCTAssertEqual(questionsOnly.diagText, "heard 0 · listens 0 · questions 1 · answers 0")
+
+        let answersOnly = SidecastWhiteboardModel()
+        answersOnly.receive(note: note("Q", "A", at: Date()))
+        XCTAssertEqual(answersOnly.diagText, "heard 0 · listens 0 · questions 0 · answers 1")
     }
 
     @MainActor

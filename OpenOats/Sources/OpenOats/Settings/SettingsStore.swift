@@ -612,6 +612,23 @@ final class SettingsStore {
         }
     }
 
+    /// Feature flag for the native whiteboard pipeline (WB-4): listener +
+    /// orchestrator + corpus-grounded answers wired into the live session,
+    /// replacing the legacy `SidecastEngine` persona dispatch while ON.
+    /// DEFAULT ON. OFF must leave every existing feature (classic
+    /// suggestions, notes, legacy sidecast) byte-identical — see
+    /// `SidecastWhiteboardCoordinator`.
+    @ObservationIgnored nonisolated(unsafe) private var _sidecastWhiteboardEnabled: Bool
+    var sidecastWhiteboardEnabled: Bool {
+        get { access(keyPath: \.sidecastWhiteboardEnabled); return _sidecastWhiteboardEnabled }
+        set {
+            withMutation(keyPath: \.sidecastWhiteboardEnabled) {
+                _sidecastWhiteboardEnabled = newValue
+                defaults.set(newValue, forKey: "sidecastWhiteboardEnabled")
+            }
+        }
+    }
+
     @ObservationIgnored nonisolated(unsafe) private var _sidecastIntensity: SidecastIntensity
     var sidecastIntensity: SidecastIntensity {
         get { access(keyPath: \.sidecastIntensity); return _sidecastIntensity }
@@ -1579,6 +1596,11 @@ final class SettingsStore {
             self._suggestionsAlwaysOnTop = defaults.bool(forKey: "suggestionsAlwaysOnTop")
         }
         self._sidebarMode = SidebarMode(rawValue: defaults.string(forKey: "sidebarMode") ?? "") ?? .classicSuggestions
+        if defaults.object(forKey: "sidecastWhiteboardEnabled") == nil {
+            self._sidecastWhiteboardEnabled = true
+        } else {
+            self._sidecastWhiteboardEnabled = defaults.bool(forKey: "sidecastWhiteboardEnabled")
+        }
         self._sidecastIntensity = SidecastIntensity(rawValue: defaults.string(forKey: "sidecastIntensity") ?? "") ?? .balanced
         self._sidecastPersonas = Self.decodePersonas(defaults.data(forKey: "sidecastPersonas")) ?? SidecastPersona.starterPack
         self._sidecastTemperature = defaults.object(forKey: "sidecastTemperature") != nil

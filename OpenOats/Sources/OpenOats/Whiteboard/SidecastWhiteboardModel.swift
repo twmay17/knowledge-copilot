@@ -44,6 +44,12 @@ final class SidecastWhiteboardModel {
         case answering(count: Int)
         case paused
         case error(String)
+        /// The live session that was feeding this board has stopped. Distinct
+        /// from `.paused` (a bench video-scrubber concept this app has no
+        /// equivalent of, per WB-3's own doc) — WB-4's session-lifecycle
+        /// mapping needs a state for "nothing more will arrive, but the board
+        /// itself and any answers still in flight are unaffected."
+        case ended
     }
 
     /// Status-dot color — matches the bench's `--ok`/`--warn`/`--err`/
@@ -65,6 +71,14 @@ final class SidecastWhiteboardModel {
     var configuredModel: String?
 
     private(set) var isAutoScroll = true
+
+    /// Set by the live coordinator (WB-4) when a corpus refresh fails —
+    /// never fatal, the session keeps running; this is purely informational.
+    /// `nil` when the most recent refresh (if any) succeeded. Distinct from
+    /// the window's own interactive picker status (`SidecastWhiteboardView`'s
+    /// private `corpusStatusText`), which covers the "Choose Corpus…"/
+    /// initial-load flow rather than the coordinator's periodic refresh.
+    var corpusStatusLine: String?
 
     private(set) var heardCount = 0
     private(set) var listensCount = 0
@@ -105,6 +119,7 @@ final class SidecastWhiteboardModel {
         listensCount = 0
         questionsCount = 0
         answersCount = 0
+        corpusStatusLine = nil
     }
 
     // MARK: - Session-relative time
@@ -140,6 +155,7 @@ final class SidecastWhiteboardModel {
         case .answering(let count): "Answering \(count) question\(count == 1 ? "" : "s")…"
         case .paused: "Paused"
         case .error(let message): message
+        case .ended: "Ended"
         }
     }
 
@@ -150,6 +166,7 @@ final class SidecastWhiteboardModel {
         case .answering: .amber
         case .paused: .green
         case .error: .red
+        case .ended: .gray
         }
     }
 
@@ -161,10 +178,20 @@ final class SidecastWhiteboardModel {
     // MARK: - Diagnostics
 
     /// Mirrors the bench's `renderDiag` (`main.ts`): blank until something
-    /// has actually happened (heard a line, run a listen pass, or gone
-    /// live), then `heard N · listens N · questions N · answers N`.
+    /// has actually happened (heard a line, run a listen pass, gone live, or
+    /// — WB-4 extension — spotted a question or landed an answer), then
+    /// `heard N · listens N · questions N · answers N`. The bench's own
+    /// guard (and WB-3's initial port) only checked heard/listens/live, an
+    /// inherited quirk: a listen pass that already turned up a question or
+    /// an answer would trivially also have bumped `listensCount`, so the
+    /// gap was unreachable UNTIL WB-4 gave the counters an independent
+    /// path to move without going through this model's own diag calls in
+    /// lockstep — worth covering explicitly now that a live coordinator
+    /// drives them.
     var diagText: String {
-        guard heardCount != 0 || listensCount != 0 || isLiveStatus else { return "" }
+        guard heardCount != 0 || listensCount != 0 || questionsCount != 0 || answersCount != 0 || isLiveStatus else {
+            return ""
+        }
         return "heard \(heardCount) · listens \(listensCount) · questions \(questionsCount) · answers \(answersCount)"
     }
 
