@@ -12,6 +12,53 @@ final class SmokeTests: XCTestCase {
 
         XCTAssertTrue(element(in: app, identifier: "app.controlBar.toggle").waitForExistence(timeout: 5))
         XCTAssertTrue(element(in: app, identifier: "app.notesWorkspaceButton").waitForExistence(timeout: 5))
+        let identity = element(in: app, identifier: "app.buildIdentity")
+        XCTAssertTrue(identity.waitForExistence(timeout: 5))
+        XCTAssertEqual(identity.value as? String ?? identity.label, "Knowledge Copilot Dev")
+    }
+
+    func testWhiteboardDisplaysCitedAnswerFromScriptedConversation() {
+        let app = launchApp(scenario: "whiteboardSmoke")
+        let start = element(in: app, identifier: "app.controlBar.toggle")
+        XCTAssertTrue(start.waitForExistence(timeout: 5))
+        start.click()
+        let board = app.windows["Whiteboard"]
+        XCTAssertTrue(board.waitForExistence(timeout: 5))
+        let answer = element(in: app, identifier: "whiteboard.answer")
+        XCTAssertTrue(answer.waitForExistence(timeout: 10))
+        // macOS exposes SwiftUI Text as AXValue, not necessarily AXTitle.
+        let answerText = answer.value as? String ?? answer.label
+        XCTAssertTrue(answerText.contains("modular organizer insert"), answerText)
+        XCTAssertTrue(element(in: app, identifier: "whiteboard.shareWarning").waitForExistence(timeout: 3), board.debugDescription)
+        let evidence = element(in: app, identifier: "whiteboard.evidence")
+        XCTAssertTrue(evidence.exists)
+        evidence.click()
+        let screenshot = XCTAttachment(screenshot: board.screenshot())
+        screenshot.name = "Whiteboard after source disclosure click"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+        XCTAssertTrue(waitForCondition(timeout: 2) {
+            (evidence.value as? String) == "Expanded"
+        }, board.debugDescription)
+        XCTAssertTrue(element(in: app, identifier: "whiteboard.sourceExcerpt").waitForExistence(timeout: 3))
+    }
+
+    func testMicControlIsLabeledAndCanChangeWhilePaused() {
+        let app = launchApp(scenario: "sessionSmoke")
+        let mic = element(in: app, identifier: "app.controlBar.muteToggle")
+        XCTAssertTrue(mic.waitForExistence(timeout: 5))
+        XCTAssertFalse(mic.isEnabled)
+        XCTAssertTrue(mic.label.contains("Inactive"), mic.debugDescription)
+        element(in: app, identifier: "app.controlBar.toggle").click()
+        let pause = element(in: app, identifier: "app.controlBar.pauseToggle")
+        XCTAssertTrue(pause.waitForExistence(timeout: 5))
+        pause.click()
+        XCTAssertTrue(mic.isEnabled)
+        mic.click()
+        XCTAssertTrue(waitForCondition(timeout: 3) { mic.label.contains("Muted") })
+        let status = element(in: app, identifier: "app.controlBar.liveStatus")
+        XCTAssertTrue(status.label.contains("Paused"), status.debugDescription)
+        element(in: app, identifier: "app.controlBar.stop").click()
     }
 
     func testSettingsSmokeShowsCorePickers() {
@@ -195,6 +242,12 @@ final class SmokeTests: XCTestCase {
         app.launchEnvironment["OPENOATS_UI_TEST"] = "1"
         app.launchEnvironment["OPENOATS_UI_SCENARIO"] = scenario
         app.launchEnvironment["OPENOATS_UI_TEST_RUN_ID"] = UUID().uuidString
+        if scenario == "whiteboardSmoke" {
+            let repository = URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            app.launchEnvironment["OPENOATS_UI_TEST_KNOWLEDGE_PACK_PATH"] = repository
+                .appendingPathComponent("fixtures/knowledge-packs/nestarc-product-pitch").path
+        }
         app.launch()
         return app
     }

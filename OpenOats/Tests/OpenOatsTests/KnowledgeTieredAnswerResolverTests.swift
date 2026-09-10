@@ -4,6 +4,29 @@ import XCTest
 @testable import OpenOatsKit
 
 final class KnowledgeTieredAnswerResolverTests: XCTestCase {
+  func testGenericReviewedAbstentionIsNotReplacedByRelatedPassagePreview() async throws {
+    let directory = fixtureURL().deletingLastPathComponent()
+      .appendingPathComponent("aster-history-discussion")
+    let pack = try KnowledgePackLoader(profileRegistry: .empty).load(from: directory)
+    let index = try KnowledgePackSearchIndex(pack: pack)
+    let evaluator = try KnowledgeEvidenceOutcomeEvaluator(
+      pack: pack, searchIndex: index, rootDirectory: directory)
+    let resolver = try KnowledgeTieredAnswerResolver(
+      pack: pack, searchIndex: index, evidenceEvaluator: evaluator,
+      rootDirectory: directory)
+    let candidate = QuestionCandidate(
+      id: "chair", streamID: "remote", revisionSequence: 1,
+      questionFamilyID: "question-chair", sourceText: "Who chaired the Aster council?",
+      confidence: 1, status: .stable, bindings: [])
+    let updates = await Self.collect(resolver.updates(for: .questionStable(candidate)))
+    XCTAssertEqual(updates.count, 1)
+    guard case .reviewedCard(let card) = updates.last?.payload else {
+      return XCTFail("A keyword match is not evidence of the chairperson.")
+    }
+    XCTAssertEqual(card.evidenceState, .notFoundInCorpus)
+    XCTAssertTrue(card.answer.contains("does not identify"))
+  }
+
   func testStableReviewedCardWinsInHotLaneAndSkipsOptionalSynthesis() async throws {
     let synthesizer = RecordingSynthesizer(behavior: .valid)
     let resolver = try makeResolver()

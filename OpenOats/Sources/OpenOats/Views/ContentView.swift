@@ -33,8 +33,10 @@ struct ContentView: View {
         return VStack(spacing: 0) {
             // Compact header
             HStack {
-                Text("OpenOats")
+                Text(AppBuildIdentity.displayName)
                     .font(.system(size: 13, weight: .semibold))
+                    .help("\(AppBuildIdentity.detail)\n\(AppBuildIdentity.location)")
+                    .accessibilityIdentifier("app.buildIdentity")
 
                 Spacer()
 
@@ -322,7 +324,7 @@ struct ContentView: View {
                     }
                     showMiniBar(controller: controller, miniBarManager: miniBarManager)
                     // Start the selected realtime sidebar and show the overlay.
-                    if settings.sidebarMode == .classicSuggestions {
+                    if settings.sidebarMode == .classicSuggestions && !settings.sidecastWhiteboardEnabled {
                         coordinator.suggestionEngine?.startPreFetching()
                     }
                     if settings.suggestionPanelEnabled {
@@ -398,7 +400,7 @@ struct ContentView: View {
             miniBarManager.updateHideFromScreenShare(settings.hideFromScreenShare)
         }
         .onChange(of: settings.sidebarMode) {
-            if settings.sidebarMode == .classicSuggestions {
+            if settings.sidebarMode == .classicSuggestions && !settings.sidecastWhiteboardEnabled {
                 coordinator.suggestionEngine?.startPreFetching()
             } else {
                 coordinator.suggestionEngine?.stopPreFetching()
@@ -406,9 +408,24 @@ struct ContentView: View {
             guard liveSessionController?.state.isRunning == true, settings.suggestionPanelEnabled else { return }
             showSidebarContent()
         }
+        .onChange(of: settings.sidecastWhiteboardEnabled) {
+            coordinator.suggestionEngine?.stopPreFetching()
+            coordinator.suggestionEngine?.clear()
+            coordinator.sidecastEngine?.clear()
+            if !settings.sidecastWhiteboardEnabled,
+               settings.sidebarMode == .classicSuggestions,
+               liveSessionController?.state.isRunning == true {
+                coordinator.suggestionEngine?.startPreFetching()
+            }
+        }
         .onChange(of: coordinator.transcriptStore.volatileThemText) { _, text in
             let partial = text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !partial.isEmpty else { return }
+            guard liveSessionController?.state.isRunning == true else { return }
+            if settings.sidecastWhiteboardEnabled {
+                coordinator.sidecastWhiteboardCoordinator?.receivePartial(text: partial, speaker: .them, at: Date())
+                return
+            }
             knowledgePackStore.processTranscriptText(
                 streamID: "remote",
                 text: partial,
@@ -416,6 +433,7 @@ struct ContentView: View {
             )
         }
         .onChange(of: coordinator.transcriptStore.lastRemoteUtterance?.id) {
+            guard !settings.sidecastWhiteboardEnabled, liveSessionController?.state.isRunning == true else { return }
             guard let utterance = coordinator.transcriptStore.lastRemoteUtterance else { return }
             knowledgePackStore.processTranscriptText(
                 streamID: "remote",
@@ -836,6 +854,7 @@ private struct IsolatedControlBarWrapper: View {
     var body: some View {
         ControlBar(
             isRunning: state.isRunning,
+            capturePhase: state.capturePhase,
             audioLevel: state.audioLevel,
             recordingElapsedSeconds: state.recordingElapsedSeconds,
             isMicMuted: state.isMicMuted,

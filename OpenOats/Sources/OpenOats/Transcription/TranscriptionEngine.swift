@@ -197,6 +197,40 @@ final class TranscriptionEngine {
     }
 
     private var micTask: Task<Void, Never>?
+    /// AVFoundation buffers are consumed off-main and are not mutated by the UI.
+    private struct AudioStreamTransfer: @unchecked Sendable {
+        let stream: AsyncStream<AVAudioPCMBuffer>
+    }
+    private let micStreamGeneration = AudioStreamGeneration()
+    private let systemStreamGeneration = AudioStreamGeneration()
+    private var micWatchdogTask: Task<Void, Never>?
+    private var micRecoveryRetried = false
+    private var pendingMicForceRestart = false
+    private var micRoutingError: String?
+    private var startupGate = CaptureStartupGate()
+    private let permissionCheck: (@MainActor () async -> Bool)?
+    private let backendFactory: (@MainActor (TranscriptionModel) -> any TranscriptionBackend)?
+
+    var captureStartupPhase: CaptureStartupPhase {
+        let snapshot = captureHealthSnapshot
+        let scripted: Bool
+        if case .scripted = mode { scripted = true } else { scripted = false }
+        return CaptureStartupPhase.resolve(
+            stage: startupGate.phase, engineRunning: isRunning, hasError: lastError != nil,
+            micFrames: snapshot.micHasCapturedFrames,
+            systemFrames: snapshot.systemHasCapturedFrames,
+            micMuted: isMicMuted, scripted: scripted
+        )
+    }
+
+    func cancelPendingStartup() {
+        micWatchdogTask?.cancel()
+        micWatchdogTask = nil
+        micCapture.onConfigurationChange = nil
+        pendingMicForceRestart = false
+        if startupGate.attempt != nil { clearDownloadTracking() }
+        startupGate.invalidate()
+    }
     private var sysTask: Task<Void, Never>?
     /// Keeps the mic stream alive for the audio level meter when transcription isn't running.
     private var micKeepAliveTask: Task<Void, Never>?
@@ -239,10 +273,16 @@ final class TranscriptionEngine {
     private var sysAudioWatchdogRetries = 0
     private let sysAudioWatchdogMaxRetries = 2
 
-    init(transcriptStore: TranscriptStore, settings: AppSettings, mode: Mode = .live) {
+    init(
+        transcriptStore: TranscriptStore, settings: AppSettings, mode: Mode = .live,
+        permissionCheck: (@MainActor () async -> Bool)? = nil,
+        backendFactory: (@MainActor (TranscriptionModel) -> any TranscriptionBackend)? = nil
+    ) {
         self.transcriptStore = transcriptStore
         self.settings = settings
         self.mode = mode
+        self.permissionCheck = permissionCheck
+        self.backendFactory = backendFactory
         switch mode {
         case .live:
             self.needsModelDownload = Self.modelNeedsDownload(settings.transcriptionModel)
@@ -380,8 +420,10 @@ final class TranscriptionEngine {
         sessionID: String? = nil
     ) async {
         Log.transcription.info("start() called, isRunning=\(self.isRunning, privacy: .public)")
-        guard !isRunning, downloadProgress == nil else { return }
+        guard !Task.isCancelled, !isRunning, downloadProgress == nil else { return }
+        let startupAttempt = startupGate.begin()
         lastError = nil
+        micRoutingError = nil
         liveCloudTranscriptIssue = nil
         liveCloudTranscriptionIsProcessing = false
         refreshModelAvailability()
@@ -407,6 +449,7 @@ final class TranscriptionEngine {
 
         // Block start if models need downloading and user hasn't confirmed
         if needsModelDownload && !downloadConfirmed {
+            lastError = "Speech model download required. Stop this session and download the model before retrying."
             return
         }
 
@@ -415,13 +458,17 @@ final class TranscriptionEngine {
             transcriptionModel: transcriptionModel
         )
 
-        guard await ensureMicrophonePermission() else {
+        startupGate.advance(.awaitingPermission, for: startupAttempt)
+        let permissionGranted = await ensureMicrophonePermission(startupAttempt: startupAttempt)
+        guard startupGate.accepts(startupAttempt) else { return }
+        guard permissionGranted else {
             activeTranscriptionSession = nil
             return
         }
 
         isRunning = true
 
+        startupGate.advance(.loadingModels, for: startupAttempt)
         // 1. Load transcription models via backend protocol
         let isDownloading = needsModelDownload
         assetStatus = isDownloading
@@ -442,13 +489,14 @@ final class TranscriptionEngine {
                 mic = preparedCloudStartBackend.backend
                 self.preparedCloudStartBackend = nil
             } else {
-                mic = transcriptionModel.makeBackend(
+                mic = backendFactory?(transcriptionModel) ?? transcriptionModel.makeBackend(
                     customVocabulary: vocab,
                     apiKey: apiKey,
                     removeFillerWords: noFiller
                 )
-                try await prepareBackend(mic)
+                try await prepareBackend(mic, startupAttempt: startupAttempt)
             }
+            guard startupGate.accepts(startupAttempt) else { return }
             self.micBackend = mic
 
             // Parakeet needs a separate backend for system audio (mutable decoder state).
@@ -456,14 +504,16 @@ final class TranscriptionEngine {
             if transcriptionModel == .qwen3ASR06B || transcriptionModel.isCloud {
                 self.systemBackend = mic
             } else {
-                let sys = transcriptionModel.makeBackend(customVocabulary: vocab, apiKey: apiKey, removeFillerWords: noFiller)
+                let sys = backendFactory?(transcriptionModel) ?? transcriptionModel.makeBackend(customVocabulary: vocab, apiKey: apiKey, removeFillerWords: noFiller)
                 try await sys.prepare { _ in }
+                guard startupGate.accepts(startupAttempt) else { return }
                 self.systemBackend = sys
             }
 
             assetStatus = "Loading VAD model..."
             Log.transcription.info("Loading VAD model")
             let vad = try await VadManager()
+            guard startupGate.accepts(startupAttempt) else { return }
             self.vadManager = vad
 
             // Optionally load speaker diarization model
@@ -473,6 +523,7 @@ final class TranscriptionEngine {
                 let dm = DiarizationManager()
                 let variant = LSEENDVariant(rawValue: settings.diarizationVariant.rawValue) ?? .dihard3
                 try await dm.load(variant: variant)
+                guard startupGate.accepts(startupAttempt) else { return }
                 self.diarizationManager = dm
                 Log.transcription.info("Diarization model loaded")
             } else {
@@ -485,6 +536,7 @@ final class TranscriptionEngine {
             assetStatus = "Models ready"
             Log.transcription.info("Transcription model loaded")
         } catch {
+            guard startupGate.accepts(startupAttempt) else { return }
             let msg = "Failed to load models: \(error.localizedDescription)"
             Log.transcription.error("Failed to load models: \(error, privacy: .public)")
             lastError = msg
@@ -510,6 +562,8 @@ final class TranscriptionEngine {
             return
         }
 
+        guard startupGate.accepts(startupAttempt) else { return }
+        startupGate.advance(.startingAudio, for: startupAttempt)
         // 2. Start mic capture
         userSelectedDeviceID = inputDeviceID
         guard let targetMicID = resolvedMicDeviceID(for: inputDeviceID) else {
@@ -522,6 +576,7 @@ final class TranscriptionEngine {
             return
         }
         currentMicDeviceID = targetMicID
+        micRecoveryRetried = false
         // AEC (voice processing) conflicts with system audio capture on macOS —
         // both cause CoreAudio aggregate-device reconfiguration that can stall the
         // mic stream. Since system audio capture is always active during recording,
@@ -542,58 +597,13 @@ final class TranscriptionEngine {
         // Check for immediate mic capture failure
         if let micError = micCapture.captureError {
             Log.transcription.error("Mic capture error: \(micError, privacy: .public)")
-            lastError = micError
-        }
-
-        // Health check: if mic produces no audio within 5 seconds, retry once.
-        // This covers first-start device initialization races that users otherwise fix by stopping/restarting.
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(5))
-            guard let self, self.isRunning else { return }
-
-            switch Self.micStartupHealthAction(
-                hasCapturedFrames: self.micCapture.hasCapturedFrames,
-                captureError: self.micCapture.captureError,
-                hasRetried: false
-            ) {
-            case .none:
-                return
-            case .showNoAudioError:
-                Log.transcription.error("No mic audio after 5s")
-                self.lastError = "Microphone is not producing audio. Check your input device in System Settings."
-            case .retryCapture:
-                Log.transcription.error("No mic audio after 5s, retrying mic capture once")
-                self.micCapture.finishStream()
-                await self.micTask?.value
-                self.micTask = nil
-                self.micCapture.stop()
-                self.startMicStream(
-                    locale: locale,
-                    vadManager: vadManager,
-                    deviceID: targetMicID,
-                    echoCancellation: false
-                )
-
-                try? await Task.sleep(for: .seconds(5))
-                guard self.isRunning else { return }
-                if let micError = self.micCapture.captureError {
-                    Log.transcription.error("Mic capture error after retry: \(micError, privacy: .public)")
-                    self.lastError = micError
-                    return
-                }
-                if Self.micStartupHealthAction(
-                    hasCapturedFrames: self.micCapture.hasCapturedFrames,
-                    captureError: self.micCapture.captureError,
-                    hasRetried: true
-                ) == .showNoAudioError {
-                    Log.transcription.error("No mic audio after retry")
-                    self.lastError = "Microphone is not producing audio. Check your input device in System Settings."
-                }
-            }
+            setMicRoutingError(micError)
         }
 
         // 3. Start system audio capture
         await startSystemAudioStream(locale: locale, vadManager: vadManager)
+        guard startupGate.accepts(startupAttempt) else { return }
+        startupGate.advance(.waitingForAudio, for: startupAttempt)
 
         assetStatus = "Transcribing (\(micBackend?.displayName ?? transcriptionModel.displayName))"
         Log.transcription.info("All transcription tasks started")
@@ -605,10 +615,12 @@ final class TranscriptionEngine {
 
     /// Restart only the mic capture with a new device, keeping system audio and models intact.
     /// Pass the raw setting value (0 = system default, or a specific AudioDeviceID).
-    func restartMic(inputDeviceID: AudioDeviceID) {
+    func restartMic(inputDeviceID: AudioDeviceID, force: Bool = false, isRecovery: Bool = false) {
         if case .scripted = mode { return }
-        guard isRunning else { return }
+        guard isRunning, vadManager != nil, let session = startupGate.attempt else { return }
+        if !isRecovery && inputDeviceID != userSelectedDeviceID { micRecoveryRetried = false }
         pendingMicDeviceID = inputDeviceID
+        pendingMicForceRestart = pendingMicForceRestart || force
 
         if micRestartTask != nil {
             Log.transcription.info("Queued mic restart for device \(inputDeviceID, privacy: .public)")
@@ -617,11 +629,13 @@ final class TranscriptionEngine {
 
         micRestartTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            defer { self.micRestartTask = nil }
+            defer { if self.startupGate.accepts(session) { self.micRestartTask = nil } }
 
-            while self.isRunning, let requestedDeviceID = self.pendingMicDeviceID {
+            while self.isRunning, self.startupGate.accepts(session), let requestedDeviceID = self.pendingMicDeviceID {
                 self.pendingMicDeviceID = nil
-                await self.performMicRestart(inputDeviceID: requestedDeviceID)
+                let force = self.pendingMicForceRestart
+                self.pendingMicForceRestart = false
+                await self.performMicRestart(inputDeviceID: requestedDeviceID, force: force, session: session)
             }
         }
     }
@@ -629,49 +643,38 @@ final class TranscriptionEngine {
     // MARK: - Default Device Listener
 
     private func installDefaultDeviceListener() {
-        guard defaultDeviceListenerBlock == nil else { return }
-
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDefaultInputDevice,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
+        guard defaultDeviceListenerBlock == nil, let session = startupGate.attempt else { return }
 
         let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
             guard let self else { return }
             Task { @MainActor in
-                guard self.isRunning, self.userSelectedDeviceID == 0 else { return }
-                self.restartMic(inputDeviceID: 0)
+                guard self.isRunning, self.startupGate.accepts(session) else { return }
+                self.restartMic(inputDeviceID: self.userSelectedDeviceID)
             }
         }
         defaultDeviceListenerBlock = block
 
-        AudioObjectAddPropertyListenerBlock(
-            AudioObjectID(kAudioObjectSystemObject),
-            &address,
-            DispatchQueue.main,
-            block
-        )
+        for selector in [kAudioHardwarePropertyDefaultInputDevice, kAudioHardwarePropertyDevices] {
+            var address = AudioObjectPropertyAddress(mSelector: selector,
+                mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+            AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject),
+                &address, DispatchQueue.main, block)
+        }
     }
 
     private func removeDefaultDeviceListener() {
         guard let block = defaultDeviceListenerBlock else { return }
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDefaultInputDevice,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        AudioObjectRemovePropertyListenerBlock(
-            AudioObjectID(kAudioObjectSystemObject),
-            &address,
-            DispatchQueue.main,
-            block
-        )
+        for selector in [kAudioHardwarePropertyDefaultInputDevice, kAudioHardwarePropertyDevices] {
+            var address = AudioObjectPropertyAddress(mSelector: selector,
+                mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+            AudioObjectRemovePropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject),
+                &address, DispatchQueue.main, block)
+        }
         defaultDeviceListenerBlock = nil
     }
 
     private func installDefaultOutputDeviceListener() {
-        guard defaultOutputDeviceListenerBlock == nil else { return }
+        guard defaultOutputDeviceListenerBlock == nil, let session = startupGate.attempt else { return }
 
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyDefaultOutputDevice,
@@ -682,7 +685,7 @@ final class TranscriptionEngine {
         let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
             guard let self else { return }
             Task { @MainActor in
-                guard self.isRunning else { return }
+                guard self.isRunning, self.startupGate.accepts(session) else { return }
                 // A genuine device-change notification means the OS has an opinion again;
                 // give the watchdog a fresh budget rather than treating this as an auto-retry.
                 self.sysAudioWatchdogRetries = 0
@@ -715,12 +718,19 @@ final class TranscriptionEngine {
         defaultOutputDeviceListenerBlock = nil
     }
 
-    private func ensureMicrophonePermission() async -> Bool {
+    private func ensureMicrophonePermission(startupAttempt: UUID? = nil) async -> Bool {
+        if let permissionCheck {
+            let granted = await permissionCheck()
+            if let startupAttempt, !startupGate.accepts(startupAttempt) { return false }
+            if !granted { lastError = "Microphone access denied." }
+            return granted
+        }
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
         case .authorized:
             return true
         case .notDetermined:
             let granted = await AVCaptureDevice.requestAccess(for: .audio)
+            if let startupAttempt, !startupGate.accepts(startupAttempt) { return false }
             if !granted {
                 lastError = "Microphone access denied. Enable it in System Settings > Privacy & Security > Microphone."
                 assetStatus = "Ready"
@@ -738,6 +748,7 @@ final class TranscriptionEngine {
     }
 
     func finalize() async {
+        cancelPendingStartup()
         if case .scripted = mode {
             isRunning = false
             assetStatus = "Ready"
@@ -768,6 +779,11 @@ final class TranscriptionEngine {
         sysTask?.cancel()
         await micTask?.value
         await sysTask?.value
+        // Let already queued final transcript deliveries run before closing the
+        // stream generations. A new/replaced stream never accepts these callbacks.
+        await Task.yield()
+        micStreamGeneration.invalidate()
+        systemStreamGeneration.invalidate()
 
         micCapture.stop()
         await systemCapture.stop()
@@ -797,6 +813,9 @@ final class TranscriptionEngine {
     }
 
     func stop() {
+        cancelPendingStartup()
+        micStreamGeneration.invalidate()
+        systemStreamGeneration.invalidate()
         if case .scripted = mode {
             isRunning = false
             assetStatus = "Ready"
@@ -840,36 +859,47 @@ final class TranscriptionEngine {
         assetStatus = "Ready"
     }
 
-    private func performMicRestart(inputDeviceID: AudioDeviceID) async {
-        guard isRunning, let vadManager else { return }
+    private func performMicRestart(inputDeviceID: AudioDeviceID, force: Bool, session: UUID) async {
+        guard isRunning, startupGate.accepts(session), let vadManager else { return }
 
         userSelectedDeviceID = inputDeviceID
 
         guard let targetMicID = resolvedMicDeviceID(for: inputDeviceID) else {
             let msg = unavailableMicMessage(for: inputDeviceID)
             Log.transcription.error("Mic swap failed: \(msg, privacy: .public)")
-            lastError = msg
+            micStreamGeneration.invalidate()
+            micTask?.cancel()
+            micCapture.stop()
+            currentMicDeviceID = 0
+            setMicRoutingError(msg)
             return
         }
 
-        guard targetMicID != currentMicDeviceID else {
+        guard force || targetMicID != currentMicDeviceID || micCapture.captureError != nil else {
             Log.transcription.debug("Mic swap skipped, same device \(targetMicID, privacy: .public)")
             return
         }
+        if targetMicID != currentMicDeviceID { micRecoveryRetried = false }
 
         Log.transcription.info("Switching mic from \(self.currentMicDeviceID, privacy: .public) to \(targetMicID, privacy: .public)")
 
+        assetStatus = "Reconnecting microphone…"
+        micStreamGeneration.invalidate()
+        micWatchdogTask?.cancel()
         micCapture.finishStream()
+        micTask?.cancel()
         await micTask?.value
 
-        if Task.isCancelled || !isRunning {
+        if !startupGate.accepts(session) || !isRunning {
             return
         }
 
         micTask = nil
         micCapture.stop()
 
-        guard await ensureMicrophonePermission() else {
+        let permissionGranted = await ensureMicrophonePermission(startupAttempt: session)
+        guard startupGate.accepts(session), isRunning else { return }
+        guard permissionGranted else {
             Log.transcription.error("Mic permission lost during device switch")
             return
         }
@@ -880,13 +910,14 @@ final class TranscriptionEngine {
             deviceID: targetMicID
         )
         currentMicDeviceID = targetMicID
-        lastError = nil
+        setMicRoutingError(micCapture.captureError)
+        assetStatus = "Transcribing (\(micBackend?.displayName ?? "speech model"))"
 
         Log.transcription.info("Mic restarted on device \(targetMicID, privacy: .public)")
     }
 
     private func restartSystemAudio() {
-        guard isRunning else { return }
+        guard isRunning, let session = startupGate.attempt else { return }
         pendingSystemAudioRestart = true
 
         if sysRestartTask != nil {
@@ -896,9 +927,9 @@ final class TranscriptionEngine {
 
         sysRestartTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            defer { self.sysRestartTask = nil }
+            defer { if self.startupGate.accepts(session) { self.sysRestartTask = nil } }
 
-            while self.isRunning, self.pendingSystemAudioRestart {
+            while self.isRunning, self.startupGate.accepts(session), self.pendingSystemAudioRestart {
                 self.pendingSystemAudioRestart = false
                 await self.performSystemAudioRestart()
             }
@@ -906,20 +937,25 @@ final class TranscriptionEngine {
     }
 
     private func performSystemAudioRestart() async {
-        guard isRunning, let vadManager else { return }
+        guard isRunning, let session = startupGate.attempt,
+              startupGate.accepts(session), let vadManager else { return }
 
         Log.transcription.info("Restarting system audio stream")
 
+        systemStreamGeneration.invalidate()
         systemCapture.finishStream()
+        sysTask?.cancel()
         await sysTask?.value
 
-        if Task.isCancelled || !isRunning {
+        if !startupGate.accepts(session) || !isRunning {
             return
         }
 
         sysTask = nil
         await systemCapture.stop()
+        guard startupGate.accepts(session), isRunning else { return }
         await startSystemAudioStream(locale: settings.locale, vadManager: vadManager)
+        guard startupGate.accepts(session), isRunning else { return }
 
         Log.transcription.info("System audio stream restarted")
         scheduleSystemAudioWatchdog()
@@ -931,10 +967,11 @@ final class TranscriptionEngine {
     /// further notification once things settle. If no frames arrive within the window, retry
     /// the restart (bounded) instead of waiting indefinitely for the user to nudge it manually.
     private func scheduleSystemAudioWatchdog() {
+        guard let session = startupGate.attempt else { return }
         sysAudioWatchdogTask?.cancel()
         sysAudioWatchdogTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(4))
-            guard let self, !Task.isCancelled, self.isRunning else { return }
+            guard let self, self.startupGate.accepts(session), self.isRunning else { return }
             guard !self.systemCapture.hasCapturedFrames else {
                 self.sysAudioWatchdogRetries = 0
                 return
@@ -955,10 +992,16 @@ final class TranscriptionEngine {
         deviceID: AudioDeviceID,
         echoCancellation: Bool = false
     ) {
+        let generation = micStreamGeneration
+        let streamID = generation.begin()
+        micCapture.onConfigurationChange = { [weak self] in
+            guard let self, generation.accepts(streamID) else { return }
+            self.restartMic(inputDeviceID: self.userSelectedDeviceID, force: true, isRecovery: true)
+        }
         var micStream = micCapture.bufferStream(deviceID: deviceID, echoCancellation: echoCancellation)
         if let recorder = audioRecorder {
             micStream = Self.tappedStream(micStream) { buffer in
-                recorder.writeMicBuffer(buffer)
+                generation.withCurrent(streamID) { recorder.writeMicBuffer(buffer) }
             }
         }
         let store = transcriptStore
@@ -966,11 +1009,16 @@ final class TranscriptionEngine {
             locale: locale,
             speaker: .you,
             vadManager: vadManager,
+            generation: generation, streamID: streamID,
             onPartial: { text in
-                Task { @MainActor in store.volatileYouText = text }
+                Task { @MainActor in
+                    guard generation.accepts(streamID) else { return }
+                    store.volatileYouText = text
+                }
             },
             onFinal: { segment in
                 Task { @MainActor in
+                    guard generation.accepts(streamID) else { return }
                     store.volatileYouText = ""
                     store.append(Utterance(text: segment.text, speaker: .you))
                 }
@@ -982,8 +1030,38 @@ final class TranscriptionEngine {
             activeTranscriptionSession = nil
             return
         }
+        // AVAudioPCMBuffer lacks Sendable annotations; the existing capture stream
+        // transfers buffers to one consumer, never to the UI/model loader.
+        let capturedMicStream = AudioStreamTransfer(stream: micStream)
         micTask = Task.detached {
-            await micTranscriber.run(stream: micStream)
+            await micTranscriber.run(stream: capturedMicStream.stream)
+        }
+        scheduleMicWatchdog(streamID: streamID)
+    }
+
+    private func setMicRoutingError(_ message: String?) {
+        if lastError == micRoutingError { lastError = nil }
+        micRoutingError = message
+        if let message { lastError = message }
+    }
+
+    private func scheduleMicWatchdog(streamID: UUID) {
+        micWatchdogTask?.cancel()
+        micWatchdogTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(5))
+            guard let self, !Task.isCancelled, self.isRunning,
+                  self.micStreamGeneration.accepts(streamID) else { return }
+            switch MicrophoneRoutePolicy.recoveryAction(
+                hasFrames: self.micCapture.hasCapturedFrames,
+                hasError: self.micCapture.captureError != nil, hasRetried: self.micRecoveryRetried
+            ) {
+            case .none: return
+            case .retry:
+                self.micRecoveryRetried = true
+                self.restartMic(inputDeviceID: self.userSelectedDeviceID, force: true, isRecovery: true)
+            case .needsAttention:
+                self.setMicRoutingError(self.micCapture.captureError ?? "Microphone is not producing audio. Choose an available microphone in Settings > Transcription. System audio is controlled separately.")
+            }
         }
     }
 
@@ -991,6 +1069,9 @@ final class TranscriptionEngine {
         locale: Locale,
         vadManager: VadManager
     ) async {
+        guard let session = startupGate.attempt, startupGate.accepts(session) else { return }
+        let generation = systemStreamGeneration
+        let streamID = generation.begin()
         Log.transcription.info("Starting system audio capture")
 
         let sysStreams: SystemAudioCapture.CaptureStreams
@@ -1005,10 +1086,12 @@ final class TranscriptionEngine {
                 outputID = resolved
             }
             sysStreams = try await systemCapture.bufferStream(outputDeviceID: outputID)
+            guard startupGate.accepts(session), generation.accepts(streamID) else { return }
             Log.transcription.info("System audio capture started")
             clearSystemAudioErrorIfPresent()
         } catch {
             let msg = "Failed to start system audio: \(error.localizedDescription)"
+            guard startupGate.accepts(session), generation.accepts(streamID) else { return }
             Log.transcription.error("Failed to start system audio: \(error, privacy: .public)")
             lastError = msg
             return
@@ -1017,7 +1100,7 @@ final class TranscriptionEngine {
         var sysStream = sysStreams.systemAudio
         if let recorder = audioRecorder {
             sysStream = Self.tappedStream(sysStream) { buffer in
-                recorder.writeSysBuffer(buffer)
+                generation.withCurrent(streamID) { recorder.writeSysBuffer(buffer) }
             }
         }
 
@@ -1031,6 +1114,7 @@ final class TranscriptionEngine {
                 var diarizationRelay = DiarizationFeedRelay()
                 var diarBuf: [Float] = []
                 for await buffer in originalSysStream {
+                    guard generation.accepts(streamID) else { break }
                     nonisolated(unsafe) let b = buffer
                     diarContinuation.yield(b)
                     guard let channelData = buffer.floatChannelData else { continue }
@@ -1051,7 +1135,7 @@ final class TranscriptionEngine {
                     }
                 }
                 // Flush tail
-                if !diarBuf.isEmpty {
+                if !diarBuf.isEmpty && generation.accepts(streamID) {
                     await diarizationRelay.feedAudio(
                         diarBuf,
                         into: { samples in try await safeDm.feedAudio(samples) },
@@ -1072,11 +1156,16 @@ final class TranscriptionEngine {
             locale: locale,
             speaker: .them,
             vadManager: vadManager,
+            generation: generation, streamID: streamID,
             onPartial: { text in
-                Task { @MainActor in store.volatileThemText = text }
+                Task { @MainActor in
+                    guard generation.accepts(streamID) else { return }
+                    store.volatileThemText = text
+                }
             },
             onFinal: { [weak self] segment in
                 Task { @MainActor in
+                    guard generation.accepts(streamID) else { return }
                     store.volatileThemText = ""
                     let speaker: Speaker
                     if let dm = self?.diarizationManager {
@@ -1084,6 +1173,7 @@ final class TranscriptionEngine {
                     } else {
                         speaker = .them
                     }
+                    guard generation.accepts(streamID) else { return }
                     store.append(Utterance(text: segment.text, speaker: speaker))
                 }
             }
@@ -1101,6 +1191,8 @@ final class TranscriptionEngine {
         locale: Locale,
         speaker: Speaker,
         vadManager: VadManager,
+        generation: AudioStreamGeneration,
+        streamID: UUID,
         onPartial: @escaping @Sendable (String) -> Void,
         onFinal: @escaping @Sendable (StreamingTranscriber.FinalSegment) -> Void
     ) -> StreamingTranscriber? {
@@ -1121,28 +1213,30 @@ final class TranscriptionEngine {
             skipPartials: model.isCloud,
             onPartial: onPartial,
             onFinal: onFinal,
-            onCloudSegmentStatus: makeCloudSegmentStatusHandler(for: model),
-            onCloudProcessingChanged: makeCloudProcessingChangedHandler(for: model)
+            onCloudSegmentStatus: makeCloudSegmentStatusHandler(for: model, generation: generation, streamID: streamID),
+            onCloudProcessingChanged: makeCloudProcessingChangedHandler(for: model, generation: generation, streamID: streamID)
         )
     }
 
     private func makeCloudSegmentStatusHandler(
-        for model: TranscriptionModel
+        for model: TranscriptionModel, generation: AudioStreamGeneration, streamID: UUID
     ) -> (@Sendable (StreamingTranscriber.CloudSegmentStatus) -> Void)? {
         guard model.isCloud else { return nil }
         return { [weak self] status in
             Task { @MainActor [weak self] in
+                guard generation.accepts(streamID) else { return }
                 self?.handleCloudSegmentStatus(status)
             }
         }
     }
 
     private func makeCloudProcessingChangedHandler(
-        for model: TranscriptionModel
+        for model: TranscriptionModel, generation: AudioStreamGeneration, streamID: UUID
     ) -> (@Sendable (Bool) -> Void)? {
         guard model.isCloud else { return nil }
         return { [weak self] isProcessing in
             Task { @MainActor [weak self] in
+                guard generation.accepts(streamID) else { return }
                 self?.liveCloudTranscriptionIsProcessing = isProcessing
             }
         }
@@ -1170,28 +1264,23 @@ final class TranscriptionEngine {
     }
 
     private func resolvedMicDeviceID(for inputDeviceID: AudioDeviceID) -> AudioDeviceID? {
-        if inputDeviceID > 0 {
-            let availableDeviceIDs = Set(MicCapture.availableInputDevices().map(\.id))
-            if availableDeviceIDs.contains(inputDeviceID) { return inputDeviceID }
-            // Device ID is stale; try resolving via stable UID.
-            if let uid = settings.inputDeviceUID,
-               let resolved = MicCapture.inputDeviceID(forUID: uid) {
-                // Update the stored ID so future lookups are fast.
-                settings.inputDeviceID = resolved
-                return resolved
-            }
-            return nil
+        let resolved = MicrophoneRoutePolicy.resolve(
+            requestedID: inputDeviceID, savedUID: settings.inputDeviceUID,
+            available: MicCapture.availableInputDevices().map { ($0.id, MicCapture.deviceUID(for: $0.id)) },
+            defaultID: MicCapture.defaultInputDeviceID()
+        )
+        if inputDeviceID > 0, let resolved, resolved != inputDeviceID {
+            settings.inputDeviceID = resolved
         }
-
-        return MicCapture.defaultInputDeviceID()
+        return resolved
     }
 
     private func unavailableMicMessage(for inputDeviceID: AudioDeviceID) -> String {
         if inputDeviceID > 0 {
-            return "The selected microphone is no longer available."
+            return "The selected microphone is no longer available. Reconnect it or explicitly choose another microphone in Settings > Transcription. System audio is controlled separately."
         }
 
-        return "No default microphone is currently available."
+        return "No default microphone is currently available. Choose an available microphone in Settings > Transcription."
     }
 
     private static func modelNeedsDownload(_ model: TranscriptionModel) -> Bool {
@@ -1204,27 +1293,8 @@ final class TranscriptionEngine {
     }
 
     private func validateConfiguredInputDevice() -> StartPreflightIssue? {
-        guard settings.inputDeviceID > 0 else {
-            guard MicCapture.defaultInputDeviceID() != nil else {
-                return StartPreflightIssue(
-                    message: "No default microphone is currently available."
-                )
-            }
-            return nil
-        }
-
-        if MicCapture.availableInputDevices().contains(where: { $0.id == settings.inputDeviceID }) {
-            return nil
-        }
-        if let uid = settings.inputDeviceUID,
-           let resolved = MicCapture.inputDeviceID(forUID: uid) {
-            settings.inputDeviceID = resolved
-            return nil
-        }
-
-        return StartPreflightIssue(
-            message: "The selected microphone is no longer available. Choose another microphone in Settings > Transcription."
-        )
+        resolvedMicDeviceID(for: settings.inputDeviceID) == nil
+            ? StartPreflightIssue(message: unavailableMicMessage(for: settings.inputDeviceID)) : nil
     }
 
     private func validateConfiguredOutputDevice() -> StartPreflightIssue? {
@@ -1329,15 +1399,21 @@ final class TranscriptionEngine {
         downloadTotalBytes = nil
     }
 
-    private func prepareBackend(_ backend: any TranscriptionBackend) async throws {
+    private func prepareBackend(_ backend: any TranscriptionBackend, startupAttempt: UUID? = nil) async throws {
         try await backend.prepare(
             onStatus: { [weak self] status in
-                Task { @MainActor in self?.assetStatus = status }
+                Task { @MainActor in
+                    guard let self else { return }
+                    if let startupAttempt, !self.startupGate.accepts(startupAttempt) { return }
+                    self.assetStatus = status
+                }
             },
             onProgress: { [weak self] fraction in
                 Task { @MainActor in
-                    self?.downloadProgress = fraction
-                    self?.updateDownloadDetail(fraction: fraction)
+                    guard let self else { return }
+                    if let startupAttempt, !self.startupGate.accepts(startupAttempt) { return }
+                    self.downloadProgress = fraction
+                    self.updateDownloadDetail(fraction: fraction)
                 }
             }
         )

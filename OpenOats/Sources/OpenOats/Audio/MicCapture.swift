@@ -19,6 +19,10 @@ final class MicCapture: @unchecked Sendable {
     private let _streamContinuation = OSAllocatedUnfairLock<AsyncStream<AVAudioPCMBuffer>.Continuation?>(uncheckedState: nil)
     private let _muted = SyncBool()
     private let _paused = SyncBool()
+    private let generation = AudioStreamGeneration()
+    /// The coordinator owns restart ordering; never restart hardware on a notification thread.
+    @MainActor var onConfigurationChange: (() -> Void)?
+    @MainActor init() {}
 
     var audioLevel: Float { (_muted.value || _paused.value) ? 0 : _audioLevel.value }
     var hasCapturedFrames: Bool { _hasCapturedFrames.value }
@@ -39,7 +43,10 @@ final class MicCapture: @unchecked Sendable {
     /// Set a specific input device by its AudioDeviceID. Pass nil to use system default.
     func setInputDevice(_ deviceID: AudioDeviceID?) {
         guard let id = deviceID else { return }
-        let audioUnit = engine.inputNode.audioUnit!
+        guard let audioUnit = engine.inputNode.audioUnit else {
+            _error.value = "Microphone audio unit is unavailable."
+            return
+        }
         var deviceID = id
         AudioUnitSetProperty(
             audioUnit,
@@ -51,7 +58,8 @@ final class MicCapture: @unchecked Sendable {
         )
     }
 
-    func bufferStream(deviceID: AudioDeviceID? = nil, echoCancellation: Bool = false) -> AsyncStream<AVAudioPCMBuffer> {
+    @MainActor func bufferStream(deviceID: AudioDeviceID? = nil, echoCancellation: Bool = false) -> AsyncStream<AVAudioPCMBuffer> {
+        let streamID = generation.begin()
         // Defensive cleanup of any prior state
         _streamContinuation.withLock { $0?.finish(); $0 = nil }
         if hasTapInstalled {
@@ -108,6 +116,11 @@ final class MicCapture: @unchecked Sendable {
                     UInt32(MemoryLayout<AudioDeviceID>.size)
                 )
                 Log.mic.info("setInputDevice status=\(inStatus, privacy: .public) (0=ok)")
+                guard inStatus == noErr else {
+                    errorHolder.value = "Could not select the microphone (CoreAudio \(inStatus)). Choose an available device in Settings > Transcription."
+                    continuation.finish()
+                    return
+                }
                 resolvedDeviceID = id
             } else {
                 Log.mic.info("No deviceID, using system default")
@@ -154,22 +167,10 @@ final class MicCapture: @unchecked Sendable {
 
             Log.mic.info("tapFormat: sr=\(tapFormat.sampleRate, privacy: .public) ch=\(tapFormat.channelCount, privacy: .public)")
 
-            let muted = self._muted
-            let paused = self._paused
-            var tapCallCount = 0
-            inputNode.installTap(onBus: 0, bufferSize: 4096, format: tapFormat) { buffer, _ in
-                tapCallCount += 1
-                self._hasCapturedFrames.value = true
-                let rms = Self.normalizedRMS(from: buffer)
-                level.value = min(rms * 25, 1.0)
-
-                if tapCallCount <= 5 || tapCallCount % 100 == 0 {
-                    Log.mic.debug("tap #\(tapCallCount, privacy: .public): frames=\(buffer.frameLength, privacy: .public) rms=\(rms, privacy: .public) level=\(level.value, privacy: .public)")
-                }
-
-                guard !muted.value && !paused.value else { return }
-                continuation.yield(buffer)
-            }
+            inputNode.installTap(onBus: 0, bufferSize: 4096, format: tapFormat,
+                block: Self.makeTapHandler(generation: self.generation, streamID: streamID,
+                    level: level, hasFrames: self._hasCapturedFrames, muted: self._muted,
+                    paused: self._paused, continuation: continuation))
             self.hasTapInstalled = true
 
             Log.mic.info("Tap installed, preparing engine")
@@ -184,13 +185,36 @@ final class MicCapture: @unchecked Sendable {
                 Log.mic.info("Engine prepared, starting")
                 try engine.start()
                 Log.mic.info("Engine started successfully, isRunning=\(engine.isRunning, privacy: .public)")
-                self.observeConfigurationChanges(for: engine)
+                self.observeConfigurationChanges(for: engine, streamID: streamID)
             } catch {
                 let msg = "Mic failed: \(error.localizedDescription)"
                 Log.mic.error("Mic failed: \(error, privacy: .public)")
                 errorHolder.value = msg
+                inputNode.removeTap(onBus: 0)
                 self.hasTapInstalled = false
                 continuation.finish()
+            }
+        }
+    }
+
+    /// Created outside actor isolation and exercised off-main without opening hardware.
+    static func makeTapHandler(
+        generation: AudioStreamGeneration, streamID: UUID, level: AudioLevel,
+        hasFrames: SyncBool, muted: SyncBool, paused: SyncBool,
+        continuation: AsyncStream<AVAudioPCMBuffer>.Continuation
+    ) -> @Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void {
+        let tapCounter = OSAllocatedUnfairLock(initialState: 0)
+        return { @Sendable buffer, _ in
+            generation.withCurrent(streamID) {
+                let count = tapCounter.withLock { count in count += 1; return count }
+                hasFrames.value = true
+                let rms = Self.normalizedRMS(from: buffer)
+                level.value = min(rms * 25, 1.0)
+                if count <= 5 || count % 100 == 0 {
+                    Log.mic.debug("tap #\(count, privacy: .public): frames=\(buffer.frameLength, privacy: .public) rms=\(rms, privacy: .public) level=\(level.value, privacy: .public)")
+                }
+                guard !muted.value && !paused.value else { return }
+                continuation.yield(buffer)
             }
         }
     }
@@ -200,20 +224,19 @@ final class MicCapture: @unchecked Sendable {
     /// exclusive control of the mic or the OS renegotiates the audio graph.
     /// The existing tap stays installed, but no buffers arrive until the engine
     /// is restarted. Observe the notification and restart it automatically.
-    private func observeConfigurationChanges(for engine: AVAudioEngine) {
+    @MainActor private func observeConfigurationChanges(for engine: AVAudioEngine, streamID: UUID) {
         configChangeObserver = NotificationCenter.default.addObserver(
             forName: .AVAudioEngineConfigurationChange,
             object: engine,
             queue: nil
-        ) { [weak self] _ in
-            guard let self, self.engine === engine, self.hasTapInstalled, !engine.isRunning else { return }
-            Log.mic.info("Audio engine configuration changed while stopped, attempting restart")
-            do {
-                try engine.start()
-                Log.mic.info("Engine restarted after configuration change, isRunning=\(engine.isRunning, privacy: .public)")
-            } catch {
-                Log.mic.error("Failed to restart engine after configuration change: \(error, privacy: .public)")
-                self._error.value = "Mic failed after device change: \(error.localizedDescription)"
+        ) { @Sendable [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, self.generation.accepts(streamID),
+                      self.hasTapInstalled, !self.engine.isRunning else { return }
+                self._hasCapturedFrames.value = false
+                self._error.value = "Microphone configuration changed; reconnecting."
+                Log.mic.info("Audio configuration changed; requesting serialized mic restart")
+                self.onConfigurationChange?()
             }
         }
     }
@@ -228,6 +251,9 @@ final class MicCapture: @unchecked Sendable {
     /// Finish the async stream so consumers exit their for-await loop.
     /// Call this before stop() when you need a graceful drain.
     func finishStream() {
+        generation.invalidate()
+        _hasCapturedFrames.value = false
+        _audioLevel.value = 0
         _streamContinuation.withLock { $0?.finish(); $0 = nil }
     }
 
@@ -364,8 +390,14 @@ final class MicCapture: @unchecked Sendable {
             status = AudioObjectGetPropertyDataSize(deviceID, &inputAddress, 0, nil, &bufferListSize)
             guard status == noErr, bufferListSize > 0 else { continue }
 
-            let bufferListPtr = UnsafeMutablePointer<AudioBufferList>.allocate(capacity: 1)
-            defer { bufferListPtr.deallocate() }
+            // AudioBufferList is variable-sized; one struct is insufficient for
+            // devices exposing multiple input buffers (e.g. multichannel interfaces).
+            let storage = UnsafeMutableRawPointer.allocate(
+                byteCount: max(Int(bufferListSize), MemoryLayout<AudioBufferList>.size),
+                alignment: MemoryLayout<AudioBufferList>.alignment
+            )
+            defer { storage.deallocate() }
+            let bufferListPtr = storage.bindMemory(to: AudioBufferList.self, capacity: 1)
             status = AudioObjectGetPropertyData(deviceID, &inputAddress, 0, nil, &bufferListSize, bufferListPtr)
             guard status == noErr else { continue }
 

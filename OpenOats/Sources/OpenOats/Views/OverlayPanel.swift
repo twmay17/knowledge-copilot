@@ -64,6 +64,8 @@ final class OverlayManager: ObservableObject {
     private var globalKeyboardMonitor: Any?
     private var localKeyboardMonitor: Any?
     var defaults: UserDefaults = .standard
+    // Injectable readback keeps the fallback test independent of OS behavior.
+    var captureSharingType: (NSWindow) -> NSWindow.SharingType = { $0.sharingType }
 
     // Classic suggestions panel dimensions
     private static let classicWidth: CGFloat = 320
@@ -185,24 +187,23 @@ final class OverlayManager: ObservableObject {
     }
 
     func updateHideFromScreenShare(_ enabled: Bool) {
-        panel = Self.panelHonoringScreenShare(panel, hidden: enabled, defaults: defaults)
+        panel = Self.panelHonoringScreenShare(panel, hidden: enabled, defaults: defaults, readSharingType: captureSharingType)
         sidecastPanel = Self.panelHonoringScreenShare(
-            sidecastPanel, hidden: enabled, defaults: defaults
+            sidecastPanel, hidden: enabled, defaults: defaults, readSharingType: captureSharingType
         )
     }
 
-    /// Applies the requested capture visibility. macOS refuses to make a
-    /// window capturable again once it has been excluded (`sharingType`
-    /// ratchets one way per window), so re-enabling capture rebuilds the
-    /// panel and transplants its content, frame, and configuration.
+    /// Apply the requested setting; rebuild only if readback refuses it.
+    /// Readback is not proof of actual Teams/Zoom capture behavior.
     private static func panelHonoringScreenShare(
         _ existing: OverlayPanel?,
         hidden: Bool,
-        defaults: UserDefaults
+        defaults: UserDefaults,
+        readSharingType: (NSWindow) -> NSWindow.SharingType
     ) -> OverlayPanel? {
         guard let existing else { return nil }
         existing.applyHideFromScreenShare(hidden)
-        guard !hidden, existing.sharingType != .readOnly else { return existing }
+        guard !hidden, readSharingType(existing) != .readOnly else { return existing }
 
         let frame = existing.frame
         let wasVisible = existing.isVisible

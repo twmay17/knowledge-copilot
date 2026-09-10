@@ -1,0 +1,132 @@
+Captured output excerpts, September 9, 2026.
+Scope: uncommitted working tree on the branch/SHA below; not a release SHA.
+Repository absolute path replaced with <REPOSITORY>. No expected test totals substituted.
+
+Commands:
+  bash scripts/verify_knowledge_copilot.sh
+  swift build -c release (working directory: OpenOats)
+  bash scripts/run_ui_smoke.sh (runtime blocked; not passed)
+
+feat/native-whiteboard-port
+3063012f20e52088cd83e79f994fde44d818497d
+ProductName:		macOS
+ProductVersion:		26.3.1
+ProductVersionExtra:	(a)
+BuildVersion:		25D771280a
+Xcode 26.6
+Build version 17F113
+swift-driver version: 1.148.6 Apple Swift version 6.3.3 (swiftlang-6.3.3.1.3 clang-2100.1.1.101)
+Target: arm64-apple-macosx26.0
+v26.7.0
+	 Executed 19 tests, with 0 failures (0 unexpected) in 0.011 (0.012) seconds
+Test Suite 'OpenOatsPackageTests.xctest' passed at 2026-09-09 15:03:23.080.
+	 Executed 1067 tests, with 0 failures (0 unexpected) in 84.600 (84.674) seconds
+Test Suite 'All tests' passed at 2026-09-09 15:03:23.081.
+	 Executed 1067 tests, with 0 failures (0 unexpected) in 84.600 (84.674) seconds
+WHITEBOARD_LOCAL_REPLAY samples=30 p50_ms=0.892209 p95_ms=1.407125 max_ms=1.625708 answer_model_calls=0
+◇ Test run started.
+  "replayAudit" : {
+    "benchmarkName" : "KC-25 two-domain deterministic replay benchmark",
+    "crossPackScenarioCount" : 2,
+    "failedScenarioIDs" : [
+
+    ],
+    "falseCardCount" : 0,
+    "passedCrossPackScenarioCount" : 2,
+    "passedScenarioCount" : 101,
+    "scenarioCount" : 101,
+    "verdict" : "PASS"
+  },
+  "schemaVersion" : 1,
+  "verdict" : "PASS"
+}
+lint_swift: clean
+✔ invalid values and video IDs fail closed (0.38775ms)
+ℹ tests 9
+ℹ suites 0
+ℹ pass 9
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 103.350166
+Automated checks passed. UI smoke was not run; opt in with RUN_UI_SMOKE=1 on an interactive desktop.
+<REPOSITORY>/OpenOats/Sources/OpenOats/Audio/AudioRecorder.swift:521:16: warning: reference to captured var 'consumed' in concurrently-executing code [#SendableClosureCaptures]
+    |                `- warning: reference to captured var 'consumed' in concurrently-executing code [#SendableClosureCaptures]
+<REPOSITORY>/OpenOats/Sources/OpenOats/Audio/AudioRecorder.swift:522:13: warning: mutation of captured var 'consumed' in concurrently-executing code [#SendableClosureCaptures]
+    |             `- warning: mutation of captured var 'consumed' in concurrently-executing code [#SendableClosureCaptures]
+<REPOSITORY>/OpenOats/Sources/OpenOats/Intelligence/BatchTextCleaner.swift:159:29: warning: no 'async' operations occur within 'await' expression
+    |                             `- warning: no 'async' operations occur within 'await' expression
+<REPOSITORY>/OpenOats/Sources/OpenOats/Intelligence/BatchTextCleaner.swift:182:21: warning: no 'async' operations occur within 'await' expression
+    |                     `- warning: no 'async' operations occur within 'await' expression
+<REPOSITORY>/OpenOats/Sources/OpenOats/Intelligence/BatchTextCleaner.swift:205:17: warning: no 'async' operations occur within 'await' expression
+    |                 `- warning: no 'async' operations occur within 'await' expression
+<REPOSITORY>/OpenOats/Sources/OpenOats/Intelligence/SuggestionEngine.swift:452:19: warning: variable 'existing' was never mutated; consider changing to 'let' constant
+    |                   `- warning: variable 'existing' was never mutated; consider changing to 'let' constant
+<REPOSITORY>/OpenOats/Sources/OpenOats/Transcription/StreamingTranscriber.swift:577:20: warning: reference to captured var 'inputBuffer' in concurrently-executing code [#SendableClosureCaptures]
+    |                    `- warning: reference to captured var 'inputBuffer' in concurrently-executing code [#SendableClosureCaptures]
+Build complete! (72.74s)
+** TEST BUILD SUCCEEDED **
+2026-09-09 14:46:45.775974-0500 OpenOatsUITests-Runner[43139:2151692] [Default] Failed to initialize for UI testing: Error Domain=com.apple.LocalAuthentication Code=-4 "System authentication is running." UserInfo={NSDebugDescription=System authentication is running., NSLocalizedDescription=Authentication canceled., BiometryType=1}
+** TEST EXECUTE FAILED **
+
+Earlier working-tree UI host/test compilation (before the unlocked-desktop retry):
+  xcodebuild -project UITests/OpenOatsUITestHost.xcodeproj -scheme OpenOatsUITestHost
+    -destination platform=macOS -derivedDataPath .build/ui-smoke/DerivedData
+    -clonedSourcePackagesDirPath .build/ui-smoke/SourcePackages
+    ONLY_ACTIVE_ARCH=YES AD_HOC_CODE_SIGNING_ALLOWED=YES build-for-testing
+** TEST BUILD SUCCEEDED **
+
+Unlocked-desktop UI follow-up (same uncommitted baseline SHA, later source changes):
+  Initial retry, 16:17: XCTest ran; missing Whiteboard window assertion failed.
+  Direct root-App launch made the window and answer appear.
+  Later checks exposed AXValue/identifier and source-control interaction issues.
+  One 16:31 runner launch failed at app.launch() despite a responsive sampled app:
+    Application 'com.openoats.ui-test-host' does not have a process ID
+  No macOS permission, authentication agent, or security setting was changed.
+
+Focused final retry command:
+  xcodebuild -project UITests/OpenOatsUITestHost.xcodeproj -scheme OpenOatsUITestHost
+    -destination platform=macOS -derivedDataPath .build/ui-smoke/DerivedData
+    -clonedSourcePackagesDirPath .build/ui-smoke/SourcePackages
+    ONLY_ACTIVE_ARCH=YES AD_HOC_CODE_SIGNING_ALLOWED=YES
+    -test-timeouts-enabled YES -maximum-test-execution-time-allowance 90
+    -only-testing:OpenOatsUITests/SmokeTests/testWhiteboardDisplaysCitedAnswerFromScriptedConversation
+    test-without-building
+Test Case '-[OpenOatsUITests.SmokeTests testWhiteboardDisplaysCitedAnswerFromScriptedConversation]' passed (7.640 seconds).
+Test Suite 'Selected tests' passed at 2026-09-09 16:33:29.404.
+	 Executed 1 test, with 0 failures (0 unexpected) in 7.640 (7.644) seconds
+** TEST EXECUTE SUCCEEDED **
+
+Full UI regression command: same arguments, with -only-testing omitted.
+Test Case '-[OpenOatsUITests.SmokeTests testWhiteboardDisplaysCitedAnswerFromScriptedConversation]' passed (8.543 seconds).
+Test Suite 'All tests' passed at 2026-09-09 16:35:27.831.
+	 Executed 12 tests, with 0 failures (0 unexpected) in 91.204 (91.216) seconds
+** TEST EXECUTE SUCCEEDED **
+Result bundle: .build/ui-smoke/DerivedData/Logs/Test/Test-OpenOatsUITestHost-2026.09.09_16-33-56--0500.xcresult
+The focused run's retained whiteboard-window PNG was inspected locally: synthetic
+answer, sharing warning, expanded pack provenance, source link and excerpt visible.
+No actual microphone/audio transcription latency or remote sharing was tested.
+
+Standalone test-host guard check (recorded command exit, no stdout):
+  env -u OPENOATS_UI_TEST .build/ui-smoke/DerivedData/Build/Products/Debug/OpenOatsUITestHost.app/Contents/MacOS/OpenOatsUITestHost
+  Exit status 0; no test-host process remained afterward.
+
+Release build rerun after final production launch/view edits:
+  swift build -c release (working directory: OpenOats)
+Build complete! (73.50s)
+
+Combined non-UI gate rerun after all final launch/view edits:
+  bash scripts/verify_knowledge_copilot.sh
+Test Suite 'All tests' passed at 2026-09-09 16:37:24.340.
+	 Executed 1067 tests, with 0 failures (0 unexpected) in 84.931 (85.006) seconds
+WHITEBOARD_LOCAL_REPLAY samples=30 p50_ms=0.8605 p95_ms=1.5495 max_ms=1.58675 answer_model_calls=0
+    "falseCardCount" : 0,
+    "passedScenarioCount" : 101,
+    "verdict" : "PASS"
+lint_swift: clean
+ℹ tests 9
+ℹ pass 9
+ℹ fail 0
+Automated checks passed. UI smoke was not run; opt in with RUN_UI_SMOKE=1 on an interactive desktop.
+The final line refers to this non-UI command; the separate full UI result above passed.

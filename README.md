@@ -6,6 +6,12 @@ A meeting note-taker that talks back.
 
 > **Knowledge Copilot development branch:** this fork is extending OpenOats with a domain-neutral, corpus-grounded question and claim engine. The first new foundation is a versioned `KnowledgePack` contract that keeps sources, assertions, calculations, response cards, and citations portable across hospitality, product pitches, and other evidence-heavy conversations. See [the architecture boundary](docs/architecture-boundaries.md), [KnowledgePack v1 contract](docs/knowledge-pack-v1.md), and [current verification record](docs/verification-2026-08-14.md).
 
+> **September 9 remediation — experimental:** the native whiteboard now uses the shared KnowledgePack evidence engine, not the prototype's independent OpenRouter listener/answerer. It is opt-in, requires a validated pack, displays citations and uncertainty, and automatically saves accepted notes with the session. This mode detects prepared questions/claims locally; it does **not** yet provide a general-purpose model listener for arbitrary questions. Transcription and other app services have their own network settings. See [current progress and verification](docs/reviews/2026-09-09-remediation-progress.md) and [editable milestone checklist](docs/reviews/2026-09-09-remediation-plan.md). Public binary release and screen-sharing safety are **not yet verified**.
+
+For a synthetic local check, choose a pack in **Settings → Knowledge Copilot Pack**, explicitly enable the experimental whiteboard, and use the Whiteboard window. Prepare/review documents before use; loose folders are no longer accepted as live answer authority. **History & export → Open last saved** restores accepted notes. Save failures are visible, and clearing the board does not delete session history. Use synthetic data until the pilot gates pass.
+
+Run local automated checks with `bash scripts/verify_knowledge_copilot.sh` after installing Swift package and bench dependencies. Add `RUN_UI_SMOKE=1` only on an unlocked interactive desktop. These tests neither install an app nor make paid model calls. The [fictional historical-discussion fixture](fixtures/knowledge-packs/aster-history-discussion/README.md) complements the hotel and product-pitch fixtures through the native whiteboard tests.
+
 The portability gate now includes a second, completely generic demonstration pack: a synthetic
 baby-product pitch with 17 anticipated questions, citation-bound product and research facts,
 contested wash and market claims, interpretive objections, and explicit safety abstentions. It
@@ -85,7 +91,7 @@ end-to-end private-alpha gate is documented in the
 
 <p align="center">
   <a href="https://github.com/yazinsai/OpenOats/releases/latest">
-    <img src="https://img.shields.io/badge/Download_for_Mac-DMG-black?style=for-the-badge&logo=apple&logoColor=white" alt="Download for Mac" />
+    Upstream OpenOats downloads — not a Knowledge Copilot build
   </a>
 </p>
 

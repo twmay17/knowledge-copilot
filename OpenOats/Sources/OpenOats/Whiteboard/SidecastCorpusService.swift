@@ -26,15 +26,14 @@ enum SidecastCorpusError: LocalizedError {
     }
 }
 
+/// Prototype text retrieval utility, NOT the production whiteboard authority.
+/// The live whiteboard now uses validated KnowledgePacks and the evidence gate.
 /// Reads a local folder of frontier-model-prepared corpus text (see
-/// CORPUS_PREP_PROMPT.md in the bench) and answers retrieval queries against
-/// it for the live whiteboard session.
+/// CORPUS_PREP_PROMPT.md in the bench) for prototype retrieval tests.
 ///
 /// Swift port of the bench's `tools/sidecast-debug/src/corpus.ts` plus its
-/// server-side `/api/corpus` folder scan — semantics ported verbatim,
-/// including treating string length as UTF-16 code units (`.utf16.count`)
-/// everywhere corpus.ts uses JavaScript's `String.length`, so the character
-/// math (chunk sizes, caps) lines up exactly with the reference.
+/// server-side `/api/corpus` folder scan, with bounded chunks and stricter
+/// file admission. Character budgets use UTF-16 units like JavaScript.
 actor SidecastCorpusService {
     private struct LoadedFile {
         let name: String
@@ -58,6 +57,7 @@ actor SidecastCorpusService {
     private static let evidenceCharCap = 9_000
 
     private var loadedFiles: [LoadedFile] = []
+    private var loadedChunks: [Chunk] = []
     private(set) var state: SidecastCorpusState?
 
     // MARK: - Reading
@@ -83,19 +83,21 @@ actor SidecastCorpusService {
         guard let enumerator = fileManager.enumerator(
             at: root,
             includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
-            options: []
+            options: [.skipsHiddenFiles]
         ) else {
             throw SidecastCorpusError.notADirectory(root.path)
         }
 
         var candidates: [(url: URL, relativePath: String)] = []
+        let canonicalRoot = root.resolvingSymlinksInPath().pathComponents
         for case let url as URL in enumerator {
             let isRegularFile = (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile ?? false
             guard isRegularFile else { continue }
-            // Dotfiles are dropped by leaf name only (matching the bench's
-            // `entry.name.startsWith(".")`) — a file inside a non-dot folder
-            // still counts even if some ancestor folder name starts with ".".
+            // The enumerator skips hidden directories and their descendants.
             guard !url.lastPathComponent.hasPrefix(".") else { continue }
+            let canonicalFile = url.resolvingSymlinksInPath().pathComponents
+            guard canonicalFile.count > canonicalRoot.count,
+                  canonicalFile.starts(with: canonicalRoot) else { continue }
             candidates.append((url, Self.relativePath(of: url, in: root)))
         }
         candidates.sort { $0.relativePath < $1.relativePath }
@@ -143,12 +145,14 @@ actor SidecastCorpusService {
         )
 
         loadedFiles = loaded
+        loadedChunks = loaded.flatMap { Self.chunkFile(name: $0.name, text: $0.text) }
         state = newState
         return newState
     }
 
     func clear() {
         loadedFiles = []
+        loadedChunks = []
         state = nil
     }
 
@@ -163,14 +167,15 @@ actor SidecastCorpusService {
 
         let total = loadedFiles.reduce(0) { $0 + $1.text.utf16.count }
         if total <= Self.wholeCorpusCharLimit {
-            return loadedFiles
+            let rendered = loadedFiles
                 .map { "--- \($0.name) ---\n\($0.text)" }
                 .joined(separator: "\n\n")
+            if rendered.utf16.count <= Self.wholeCorpusCharLimit { return rendered }
         }
 
         let queryTokens = Set(Self.tokenize(query))
 
-        let chunks = loadedFiles.flatMap { Self.chunkFile(name: $0.name, text: $0.text) }
+        let chunks = loadedChunks
         var scored: [(chunk: Chunk, score: Int, index: Int)] = []
         scored.reserveCapacity(chunks.count)
         for (index, chunk) in chunks.enumerated() {
@@ -190,13 +195,20 @@ actor SidecastCorpusService {
             lhs.score != rhs.score ? lhs.score > rhs.score : lhs.index < rhs.index
         }
 
-        let top = scored.prefix(Self.topKChunks)
+        // One repetitive file must not consume the entire evidence window.
+        var chunksPerFile: [String: Int] = [:]
+        let top = scored.filter { entry in
+            let count = chunksPerFile[entry.chunk.name, default: 0]
+            guard count < 2 else { return false }
+            chunksPerFile[entry.chunk.name] = count + 1
+            return true
+        }.prefix(Self.topKChunks)
         guard !top.isEmpty else { return nil }
 
         var out = ""
         for entry in top {
             let piece = "--- \(entry.chunk.name) ---\n\(entry.chunk.text)\n\n"
-            if out.utf16.count + piece.utf16.count > Self.evidenceCharCap { break }
+            if out.utf16.count + piece.utf16.count > Self.evidenceCharCap { continue }
             out += piece
         }
 
@@ -206,9 +218,8 @@ actor SidecastCorpusService {
 
     // MARK: - Chunking
 
-    /// Chunks a file's text on line boundaries near `chunkChars`; a single
-    /// line longer than the target is kept whole rather than split mid-line
-    /// (matching the bench's line-accumulate-then-flush algorithm exactly).
+    /// Chunks near line boundaries, splitting oversized lines at Unicode
+    /// scalar boundaries so one long row cannot consume the evidence budget.
     /// CSV chunks re-carry the header line so rows stay legible on their own.
     private static func chunkFile(name: String, text: String) -> [Chunk] {
         guard text.utf16.count > Self.chunkChars else {
@@ -232,7 +243,7 @@ actor SidecastCorpusService {
             size = 0
         }
 
-        for line in lines {
+        for line in lines.flatMap({ boundedLines($0) }) {
             if size + line.utf16.count > Self.chunkChars && !current.isEmpty {
                 flush()
             }
@@ -242,6 +253,26 @@ actor SidecastCorpusService {
         flush()
 
         return chunks
+    }
+
+    /// Bound even a single unbroken line without creating invalid UTF-16.
+    private static func boundedLines(_ line: String) -> [String] {
+        guard line.utf16.count > chunkChars else { return [line] }
+        var result: [String] = []
+        var piece = String.UnicodeScalarView()
+        var count = 0
+        for scalar in line.unicodeScalars {
+            let width = scalar.utf16.count
+            if count + width > chunkChars {
+                result.append(String(piece))
+                piece = String.UnicodeScalarView()
+                count = 0
+            }
+            piece.append(scalar)
+            count += width
+        }
+        if !piece.isEmpty { result.append(String(piece)) }
+        return result
     }
 
     // MARK: - Tokenizing

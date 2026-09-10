@@ -76,7 +76,7 @@ actor SidecastQuestionOrchestrator {
 
     func enqueue(question: String, timestamp: Date, retrievalHint: String?) {
         if recentQuestions.contains(where: { SidecastQuestionSimilarity.jaccard($0, question) > Self.questionDedupThreshold }) {
-            Log.sidecast.debug("[orchestrator] duplicate question dropped: \(question, privacy: .public)")
+            Log.sidecast.debug("[orchestrator] duplicate question dropped")
             return
         }
         recentQuestions.append(question)
@@ -107,7 +107,7 @@ actor SidecastQuestionOrchestrator {
         let evidence = await corpusService.retrieveEvidence(query: query)
 
         if hasCorpus && evidence == nil {
-            Log.sidecast.debug("[orchestrator] no corpus match, dropped: \(item.question, privacy: .public)")
+            Log.sidecast.debug("[orchestrator] no corpus match")
             finish(item)
             return
         }
@@ -133,17 +133,17 @@ actor SidecastQuestionOrchestrator {
                 return
             }
             if hasCorpus && !grounded {
-                Log.sidecast.debug("[orchestrator] ungrounded with corpus present, dropped: \(item.question, privacy: .public)")
+                Log.sidecast.debug("[orchestrator] ungrounded answer dropped")
                 finish(item)
                 return
             }
             if value < Self.minValue {
-                Log.sidecast.debug("[orchestrator] below value threshold (\(value)), dropped: \(item.question, privacy: .public)")
+                Log.sidecast.debug("[orchestrator] below value threshold")
                 finish(item)
                 return
             }
             if recentAnswers.contains(where: { SidecastQuestionSimilarity.jaccard($0, answer) > Self.answerDedupThreshold }) {
-                Log.sidecast.debug("[orchestrator] duplicate answer dropped: \(item.question, privacy: .public)")
+                Log.sidecast.debug("[orchestrator] duplicate answer dropped")
                 finish(item)
                 return
             }
@@ -156,7 +156,7 @@ actor SidecastQuestionOrchestrator {
             onNote(SidecastAnsweredNote(question: item.question, answer: answer, timestamp: item.timestamp))
             finish(item)
         } catch {
-            Log.sidecast.error("[orchestrator] answer failed for \"\(item.question, privacy: .public)\": \(String(describing: error), privacy: .public)")
+            Log.sidecast.error("[orchestrator] answer failed; response and question omitted")
             finish(item)
         }
     }

@@ -158,6 +158,7 @@ actor MeetingDetector {
     private let customBundleIDs: [String]
     private let selfBundleID: String
     private let knownBundleIDs: Set<String>
+    private let runningApplications: @Sendable () async -> [MeetingApp]
 
     /// Set to true once detection is confirmed.
     private(set) var isActive = false
@@ -190,10 +191,19 @@ actor MeetingDetector {
     init(
         audioSource: (any AudioSignalSource)? = nil,
         cameraSource: (any CameraSignalSource)? = nil,
-        customBundleIDs: [String] = []
+        customBundleIDs: [String] = [],
+        runningApplications: @escaping @Sendable () async -> [MeetingApp] = {
+            await MainActor.run {
+                NSWorkspace.shared.runningApplications.compactMap { app in
+                    guard let bundleID = app.bundleIdentifier else { return nil }
+                    return MeetingApp(bundleID: bundleID, name: app.localizedName ?? bundleID)
+                }
+            }
+        }
     ) {
         self.audioSource = audioSource ?? CoreAudioSignalSource()
         self.cameraSource = cameraSource ?? CoreMediaIOSignalSource()
+        self.runningApplications = runningApplications
         self.customBundleIDs = customBundleIDs
         self.selfBundleID = Bundle.main.bundleIdentifier ?? "com.openoats.app"
 
@@ -354,16 +364,14 @@ actor MeetingDetector {
     // MARK: - Process Scanning
 
     private func scanForMeetingApp() async -> MeetingApp? {
-        let runningApps = await MainActor.run {
-            NSWorkspace.shared.runningApplications
-        }
+        let runningApps = await runningApplications()
 
         for app in runningApps {
-            guard let bundleID = app.bundleIdentifier else { continue }
+            let bundleID = app.bundleID
             if knownBundleIDs.contains(bundleID) {
-                let name = app.localizedName
-                    ?? knownApps.first(where: { $0.bundleID == bundleID })?.displayName
-                    ?? bundleID
+                let name = app.name == bundleID
+                    ? (knownApps.first(where: { $0.bundleID == bundleID })?.displayName ?? bundleID)
+                    : app.name
                 return MeetingApp(bundleID: bundleID, name: name)
             }
         }

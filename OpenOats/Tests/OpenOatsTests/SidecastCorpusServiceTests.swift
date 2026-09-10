@@ -5,6 +5,38 @@ import XCTest
 
 final class SidecastCorpusServiceTests: XCTestCase {
 
+    func testHiddenAncestorAndExternalSymlinkAreNotAdmitted() async throws {
+        let root = makeTempFolder("hidden-ancestor")
+        let external = makeTempFolder("external")
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            try? FileManager.default.removeItem(at: external)
+        }
+        let hidden = root.appendingPathComponent(".private")
+        try FileManager.default.createDirectory(at: hidden, withIntermediateDirectories: true)
+        try write("SYNTHETIC HIDDEN", to: hidden.appendingPathComponent("notes.md"))
+        try write("SYNTHETIC EXTERNAL", to: external.appendingPathComponent("outside.md"))
+        try FileManager.default.createSymbolicLink(at: root.appendingPathComponent("linked.md"), withDestinationURL: external.appendingPathComponent("outside.md"))
+        try write("Public fixture", to: root.appendingPathComponent("visible.md"))
+        let service = SidecastCorpusService()
+        let state = try await service.read(folder: root)
+        XCTAssertEqual(state.files.map(\.name), ["visible.md"])
+    }
+
+    func testUnbrokenTopRankedLineCannotHideShortMatchingSource() async throws {
+        let root = makeTempFolder("long-line")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try write(String(repeating: "RevPAR ", count: 1800), to: root.appendingPathComponent("long.txt"))
+        try write("RevPAR in 2020 was $89.50.", to: root.appendingPathComponent("short.txt"))
+        let service = SidecastCorpusService()
+        _ = try await service.read(folder: root)
+        let result = await service.retrieveEvidence(query: "RevPAR")
+        let evidence = try XCTUnwrap(result)
+        XCTAssertTrue(evidence.contains("short.txt"))
+        XCTAssertTrue(evidence.contains("$89.50"))
+        XCTAssertLessThanOrEqual(evidence.utf16.count, 9000)
+    }
+
     // MARK: - Fixture helpers
 
     private func makeTempFolder(_ label: String) -> URL {
@@ -254,7 +286,7 @@ final class SidecastCorpusServiceTests: XCTestCase {
         XCTAssertLessThanOrEqual(evidence.utf16.count, 9_000)
         XCTAssertTrue(evidence.contains("score9.txt"), "highest-scoring chunk should be retained")
         XCTAssertTrue(evidence.contains("score7.txt"))
-        XCTAssertFalse(evidence.contains("score2.txt"), "dropped once the cap is exceeded")
+        XCTAssertTrue(evidence.contains("score2.txt"), "bounded lines let all eight selected matches fit")
         XCTAssertFalse(evidence.contains("score1.txt"), "beyond the top-8 cutoff")
     }
 

@@ -943,6 +943,15 @@ private actor KnowledgeTieredAnswerState {
     let previous = visibleByStream[proposal.streamID]
     let action: KnowledgeTieredAnswerUpdateAction
     if let previous {
+      // Related passages are not an answer to a known corpus gap. Keep an
+      // explicit, reviewed abstention unless actual verified evidence improves
+      // it; generic keyword overlap must not replace it with a vague preview.
+      if previous.presentationQuality == .reviewedCard,
+        previous.supportLevel == .abstention,
+        proposal.supportLevel == .retrievedOnly
+      {
+        return nil
+      }
       if proposal.supportLevel > previous.supportLevel {
         action = .supersede
       } else if proposal.supportLevel == previous.supportLevel,

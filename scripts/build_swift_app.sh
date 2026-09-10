@@ -62,6 +62,17 @@ fi
 # Copy Info.plist
 cp "$SWIFT_DIR/Sources/OpenOats/Info.plist" "$APP_DIR/Contents/Info.plist"
 
+# Keep the storage/TCC identifier unchanged while making this fork recognizable.
+BUILD_REVISION="$(git -C "$ROOT_DIR" rev-parse --short=12 HEAD)"
+if [[ -n "$(git -C "$ROOT_DIR" status --porcelain --untracked-files=normal)" ]]; then
+  BUILD_REVISION="$BUILD_REVISION-dirty"
+fi
+BUILD_DATE="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+/usr/bin/plutil -replace CFBundleDisplayName -string 'Knowledge Copilot Dev' "$APP_DIR/Contents/Info.plist"
+/usr/bin/plutil -replace KnowledgeCopilotBuildRevision -string "$BUILD_REVISION" "$APP_DIR/Contents/Info.plist"
+/usr/bin/plutil -replace KnowledgeCopilotBuildDate -string "$BUILD_DATE" "$APP_DIR/Contents/Info.plist"
+echo "Development build: $BUILD_REVISION ($BUILD_DATE)"
+
 # Stamp the bundle version into the built app. The source Info.plist carries a
 # placeholder version; release builds overwrite it from the tag in CI
 # (release-dmg.yml). Mirror that for local builds by deriving the version from the

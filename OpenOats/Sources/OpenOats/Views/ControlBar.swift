@@ -18,6 +18,7 @@ struct ControlBar: View {
     }
 
     let isRunning: Bool
+    let capturePhase: CaptureStartupPhase
     let audioLevel: Float
     let recordingElapsedSeconds: Int
     let isMicMuted: Bool
@@ -39,6 +40,12 @@ struct ControlBar: View {
     let onConfirmDownload: () -> Void
     let onOpenSettings: () -> Void
     let onOpenMicrophonePrivacySettings: () -> Void
+
+    private var captureLabel: String {
+        guard capturePhase.isCapturing else { return capturePhase.title }
+        let title = isRecordingPaused ? "Paused" : (isMicMuted && capturePhase == .live ? "System audio · mic muted" : capturePhase.title)
+        return "\(title) \(ElapsedTimeFormatter.compactMinutesSeconds(recordingElapsedSeconds))"
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -98,12 +105,12 @@ struct ControlBar: View {
                 if isRunning {
                     HStack(spacing: 6) {
                         Circle()
-                            .fill(isRecordingPaused ? Color.orange : (isMicMuted ? Color.red : Color.green))
+                            .fill(capturePhase != .live || isRecordingPaused ? Color.orange : Color.green)
                             .frame(width: 8, height: 8)
                             .scaleEffect(isRecordingPaused || isMicMuted ? 1.0 : 1.0 + CGFloat(audioLevel) * 0.5)
                             .animation(.easeOut(duration: 0.1), value: audioLevel)
 
-                        Text("\(isRecordingPaused ? "Paused" : (isMicMuted ? "Muted" : "Live")) \(ElapsedTimeFormatter.compactMinutesSeconds(recordingElapsedSeconds))")
+                        Text(captureLabel)
                             .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(isRecordingPaused ? .orange : (isMicMuted ? .red : .primary))
                             .lineLimit(1)
@@ -111,15 +118,12 @@ struct ControlBar: View {
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 7)
-                    .background(isRecordingPaused ? Color.orange.opacity(0.1) : (isMicMuted ? Color.red.opacity(0.1) : Color.green.opacity(0.1)))
+                    .background(capturePhase != .live || isRecordingPaused ? Color.orange.opacity(0.1) : Color.green.opacity(0.1))
                     .clipShape(Capsule())
                     .fixedSize(horizontal: true, vertical: false)
                     .layoutPriority(2)
                     .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(
-                        "\(isRecordingPaused ? "Paused" : (isMicMuted ? "Muted" : "Live")) "
-                            + ElapsedTimeFormatter.compactMinutesSeconds(recordingElapsedSeconds)
-                    )
+                    .accessibilityLabel(captureLabel)
                     .accessibilityIdentifier("app.controlBar.liveStatus")
 
                     Button(action: onToggle) {
@@ -155,7 +159,7 @@ struct ControlBar: View {
                     .accessibilityIdentifier("app.controlBar.toggle")
                 }
 
-                if isRunning {
+                if isRunning && capturePhase.isCapturing {
                     Button(action: onPauseToggle) {
                         Image(systemName: isRecordingPaused ? "play.fill" : "pause.fill")
                             .font(.system(size: 11))
@@ -167,23 +171,10 @@ struct ControlBar: View {
                     .help(isRecordingPaused ? "Resume recording" : "Pause recording")
                     .accessibilityIdentifier("app.controlBar.pauseToggle")
 
-                    Button(action: onMuteToggle) {
-                        Image(systemName: isMicMuted ? "mic.slash.fill" : "mic.fill")
-                            .font(.system(size: 11))
-                            .foregroundStyle(isMicMuted ? .red : .secondary)
-                            .frame(width: 20, height: 20)
-                    }
-                    .buttonStyle(.plain)
-                    .fixedSize(horizontal: true, vertical: false)
-                    .help(isMicMuted ? "Unmute microphone" : "Mute microphone")
-                    .accessibilityIdentifier("app.controlBar.muteToggle")
-                    .opacity(isRecordingPaused ? 0.3 : 1.0)
-                    .disabled(isRecordingPaused)
-
                     AudioLevelView(level: audioLevel)
                         .frame(width: 40, height: 14)
                         .fixedSize(horizontal: true, vertical: false)
-                        .opacity(isRecordingPaused || isMicMuted ? 0.3 : 1.0)
+                        .opacity(isRecordingPaused ? 0.3 : 1.0)
                 }
 
                 Spacer(minLength: 6)
@@ -203,6 +194,25 @@ struct ControlBar: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
+
+            HStack(alignment: .center, spacing: 12) {
+                Button(action: onMuteToggle) {
+                    Label(!isRunning ? "Microphone: Inactive" : (isMicMuted ? "Microphone: Muted" : "Microphone: On"),
+                          systemImage: isMicMuted ? "mic.slash.fill" : "mic.fill")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(!isRunning || capturePhase == .stopping)
+                .help("Controls only Knowledge Copilot's microphone. Does not mute Teams or system audio. You can change it while paused.")
+                .accessibilityIdentifier("app.controlBar.muteToggle")
+                Text(isRunning ? "Only this app's mic. Teams and system audio are separate." : "Start a session to control this app's microphone.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 10)
         }
     }
 

@@ -1,0 +1,3 @@
+{"id":"passage-a","sourceID":"source-a","text":"The fictional Aster council met in the north hall. Archive A places it in 412 of the invented Aster calendar.","locator":{"sectionPath":["Archive A"],"rowStart":3,"rowEnd":3}}
+{"id":"passage-b","sourceID":"source-b","text":"Archive B also places the fictional Aster council in the north hall, but dates it to 413 of the invented Aster calendar.","locator":{"sectionPath":["Archive B"],"rowStart":3,"rowEnd":3}}
+{"id":"passage-interpretation","sourceID":"source-b","text":"The later copy uses a different calendar convention. That difference could explain the one-year discrepancy, but neither account settles the original year or identifies a chairperson.","locator":{"sectionPath":["Archive B"],"rowStart":5,"rowEnd":5}}

@@ -5,7 +5,10 @@
   "scripts": {
     "dev": "concurrently \"vite\" \"tsx server/transcript-proxy.ts\"",
     "dev:client": "vite",
-    "dev:server": "tsx server/transcript-proxy.ts"
+    "dev:server": "tsx server/transcript-proxy.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p server/tsconfig.json",
+    "test": "node --import tsx --test tests/*.test.ts",
+    "verify": "npm run typecheck && npm test"
   },
   "devDependencies": {
     "@types/express": "^5.0.0",

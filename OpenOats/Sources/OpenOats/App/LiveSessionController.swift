@@ -20,6 +20,8 @@ struct RecordingHealthNotice: Equatable {
 @Observable
 final class LiveSessionState {
     var isRunning: Bool = false
+    // Keep stop controls available while preparing; only capturePhase authorizes Live.
+    var capturePhase: CaptureStartupPhase = .idle
     var sessionPhase: MeetingState = .idle
     var audioLevel: Float = 0
     var recordingElapsedSeconds: Int = 0
@@ -182,6 +184,7 @@ final class LiveSessionController {
 
     private var downloadTask: Task<Void, Never>?
     private var startPreflightTask: Task<Void, Never>?
+    private var captureStartedAt: Date?
     private var scratchpadSaveTask: Task<Void, Never>?
     private var pendingInitialScratchpad: String?
 
@@ -366,12 +369,12 @@ final class LiveSessionController {
             state.statusMessage = "Validating \(settings.transcriptionModel.displayName)..."
             startPreflightTask = Task { @MainActor [weak self] in
                 guard let self else { return }
-                defer { self.startPreflightTask = nil }
+                defer { if !Task.isCancelled { self.startPreflightTask = nil } }
                 let issue = await self.coordinator.transcriptionEngine?.preflightStart(
                     transcriptionModel: settings.transcriptionModel
                 )
                 self.syncProjectedState(settings: settings)
-                guard issue == nil else { return }
+                guard !Task.isCancelled, issue == nil else { return }
                 self.coordinator.handle(.userStarted(metadata), settings: settings)
             }
             return
@@ -381,6 +384,8 @@ final class LiveSessionController {
     }
 
     func stopSession(settings: AppSettings) {
+        startPreflightTask?.cancel()
+        startPreflightTask = nil
         DiagnosticsSupport.record(category: "meeting", message: "Stop requested")
         coordinator.handle(.userStopped, settings: settings)
     }
@@ -403,7 +408,7 @@ final class LiveSessionController {
     }
 
     func toggleMicMute() {
-        guard let engine = coordinator.transcriptionEngine, engine.isRunning else { return }
+        guard coordinator.isRecording, let engine = coordinator.transcriptionEngine else { return }
         engine.isMicMuted.toggle()
     }
 
@@ -571,12 +576,11 @@ final class LiveSessionController {
     // MARK: - Utterance Ingestion (migrated from ContentView)
 
     private func handleNewUtterance(_ last: Utterance, settings: AppSettings) {
-        // WB-4: every utterance that reaches this seam feeds the whiteboard
-        // — both .you and system-audio speakers, the board hears the whole
-        // call — regardless of the echo guard below (that guard only scopes
-        // the legacy suggestion/sidecast engines). No-ops entirely when the
-        // feature flag is off. See SidecastWhiteboardCoordinator.receive.
-        coordinator.sidecastWhiteboardCoordinator?.receive(utteranceText: last.text, speaker: last.speaker, at: last.timestamp)
+        // Both speakers feed the evidence-backed board, except utterances
+        // rejected by the shared echo guard. Disabled assistance does no work.
+        if !coordinator.transcriptStore.shouldSkipRealtimeAssistant(for: last) {
+            coordinator.sidecastWhiteboardCoordinator?.receive(utteranceText: last.text, speaker: last.speaker, at: last.timestamp)
+        }
 
         container.detectionController?.noteUtterance()
 
@@ -589,7 +593,7 @@ final class LiveSessionController {
         let sessionID = currentSessionID
 
         // Echoed speaker audio can briefly land as "You"; do not let it drive the sidebar.
-        if !coordinator.transcriptStore.shouldSkipRealtimeAssistant(for: last) {
+        if !settings.sidecastWhiteboardEnabled, !coordinator.transcriptStore.shouldSkipRealtimeAssistant(for: last) {
             switch settings.sidebarMode {
             case .classicSuggestions:
                 coordinator.suggestionEngine?.onUtterance(last)
@@ -684,15 +688,14 @@ final class LiveSessionController {
     // MARK: - Transcription Lifecycle (migrated from AppCoordinator)
 
     func startTranscription(metadata: MeetingMetadata, settings: AppSettings?) async {
+        guard !Task.isCancelled else { return }
         if let settings {
             container.ensureMeetingServicesInitialized(settings: settings, coordinator: coordinator)
         }
-        // WB-4: whiteboard session lifecycle. No-ops entirely when the
-        // feature flag is off (see SidecastWhiteboardCoordinator).
-        coordinator.sidecastWhiteboardCoordinator?.sessionStarted(at: Date())
         if let batchAudioTranscriber = coordinator.batchAudioTranscriber {
             await batchAudioTranscriber.cancel()
         }
+        guard !Task.isCancelled else { return }
 
         coordinator.lastEndedSession = nil
         coordinator.pendingRecoverySessionID = nil
@@ -704,6 +707,7 @@ final class LiveSessionController {
                 coordinator?.lastStorageError = message
             }
         }
+        guard !Task.isCancelled else { return }
 
         // Freeze template choice at start time
         if let template = coordinator.selectedTemplate {
@@ -734,6 +738,7 @@ final class LiveSessionController {
             }
         }
 
+        guard !Task.isCancelled else { return }
         let templateID = coordinator.selectedTemplate?.id
         let startConfig = SessionStartConfig(
             templateID: templateID,
@@ -750,7 +755,9 @@ final class LiveSessionController {
             handle = await coordinator.sessionRepository.startSession(config: startConfig)
             reusedAbandonedRow = false
         }
+        guard !Task.isCancelled else { return }
         _currentSessionID = handle.sessionID
+        coordinator.sidecastWhiteboardCoordinator?.sessionStarted(at: Date(), sessionID: handle.sessionID)
         DiagnosticsSupport.record(
             category: "meeting",
             message: "\(reusedAbandonedRow ? "Reused" : "Started") session \(handle.sessionID) model=\(settings?.transcriptionModel.rawValue ?? "unknown")"
@@ -762,6 +769,7 @@ final class LiveSessionController {
             await coordinator.sessionRepository.saveScratchpad(sessionID: handle.sessionID, text: initialScratchpad)
         }
 
+        guard !Task.isCancelled else { return }
         if let settings {
             let audioRetentionPlan = Self.audioRetentionPlan(settings: settings, utteranceCount: nil)
             if audioRetentionPlan.shouldStartRecorder {
@@ -771,6 +779,7 @@ final class LiveSessionController {
                 coordinator.transcriptionEngine?.audioRecorder = nil
             }
 
+            guard !Task.isCancelled else { return }
             await coordinator.transcriptionEngine?.start(
                 locale: settings.locale,
                 inputDeviceID: settings.inputDeviceID,
@@ -785,9 +794,8 @@ final class LiveSessionController {
     }
 
     func finalizeCurrentSession(settings: AppSettings?) async {
-        // WB-4: whiteboard session lifecycle — status only, board content is
-        // kept for export and an answer already in flight still lands. See
-        // SidecastWhiteboardCoordinator.sessionEnded().
+        // Stop publication immediately. Accepted notes are retained and
+        // flushed to the original session; unfinished answers cannot land.
         coordinator.sidecastWhiteboardCoordinator?.sessionEnded()
 
         // 0. Flush scratchpad
@@ -809,6 +817,7 @@ final class LiveSessionController {
         }
 
         // 2. Drain delayed JSONL writes
+        await coordinator.sidecastWhiteboardCoordinator?.flushNotes()
         await coordinator.sessionRepository.awaitPendingWrites()
 
         // 3. Build finalization metadata
@@ -1531,7 +1540,7 @@ final class LiveSessionController {
         let matchedCalendarEvent: CalendarEvent?
         switch lifecycleState {
         case .recording(let metadata):
-            // Prefer lifecycle state so the primary UI does not lag engine startup.
+            // Session occupancy is separate from confirmed capture readiness.
             isRunning = true
             matchedCalendarEvent = metadata.calendarEvent
         case .ending(let metadata):
@@ -1545,9 +1554,18 @@ final class LiveSessionController {
         // Use set(_:_:) for all Equatable fields: only fires @Observable withMutation
         // when the value actually changed, preventing spurious layout passes on NSHostingView.
         set(\.isRunning, isRunning)
+        let capturePhase: CaptureStartupPhase
+        switch lifecycleState {
+        case .idle: capturePhase = .idle
+        case .ending: capturePhase = .stopping
+        case .recording: capturePhase = coordinator.transcriptionEngine?.captureStartupPhase ?? .preparing
+        }
+        if capturePhase.isCapturing && captureStartedAt == nil { captureStartedAt = Date() }
+        if capturePhase == .idle { captureStartedAt = nil }
+        set(\.capturePhase, capturePhase)
         set(\.sessionPhase, lifecycleState)
         set(\.audioLevel, engineIsRunning ? (coordinator.transcriptionEngine?.audioLevel ?? 0) : 0)
-        set(\.recordingElapsedSeconds, isRunning ? Self.recordingElapsedSeconds(for: lifecycleState) : 0)
+        set(\.recordingElapsedSeconds, capturePhase.isCapturing ? Int(max(0, Date().timeIntervalSince(captureStartedAt ?? Date()))) : 0)
         set(\.volatileYouText, coordinator.transcriptStore.volatileYouText)
         set(\.volatileThemText, coordinator.transcriptStore.volatileThemText)
         set(\.isGeneratingSuggestions, sidebarGenerating)
@@ -1701,7 +1719,7 @@ final class LiveSessionController {
         }
         observedUtteranceCount = utteranceCount
 
-        if currentState.isRunning {
+        if currentState.isRunning && (currentState.capturePhase.isCapturing || currentState.capturePhase == .waitingForAudio) {
             observedPeakAudioLevelSinceStart = max(observedPeakAudioLevelSinceStart, currentState.audioLevel)
             if case .recording(let metadata) = currentState.sessionPhase {
                 let captureHealth = coordinator.transcriptionEngine?.captureHealthSnapshot

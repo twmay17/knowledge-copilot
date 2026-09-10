@@ -48,6 +48,10 @@ final class KnowledgePackStore {
   private(set) var latestQuestionCandidateEvents: [QuestionCandidateEvent] = []
   private(set) var latestLiveKnowledgeEvents: [KnowledgeLiveEvent] = []
   private var requestedPath = ""
+  private var loadGeneration = UUID()
+  // Synchronous delivery of accepted, evidence-gated results on the main actor.
+  @ObservationIgnored var onLiveUpdate: ((KnowledgeTieredAnswerUpdate, KnowledgeOverlayCard?) -> Void)?
+  @ObservationIgnored var onContextChange: (() -> Void)?
   private var liveEventDetector: KnowledgeLiveEventDetector?
   private var answerCardResolver: KnowledgeAnswerCardResolver?
   private(set) var overlaySourceCatalog: KnowledgeOverlaySourceCatalog?
@@ -101,7 +105,11 @@ final class KnowledgePackStore {
     }
 
     requestedPath = normalizedPath
+    let loadToken = UUID()
+    loadGeneration = loadToken
+    resetLiveSession()
     state = .loading(path: normalizedPath)
+    onContextChange?()
     let loader = loader
     let previousPack = selectedPack
     let previousIndex = searchIndex
@@ -128,7 +136,7 @@ final class KnowledgePackStore {
         )
         return (pack, searchBuild, evidenceOutcomeEvaluator, tieredAnswerResolver)
       }.value
-      guard requestedPath == normalizedPath, !Task.isCancelled else { return }
+      guard loadGeneration == loadToken, requestedPath == normalizedPath, !Task.isCancelled else { return }
       resetOverlayPresentation()
       selectedPack = result.0
       selectedPackDirectory = directory
@@ -142,8 +150,9 @@ final class KnowledgePackStore {
       )
       configureLiveKnowledgePath(for: result.0, rootDirectory: directory)
       state = .loaded(path: normalizedPath, summary: KnowledgePackSummary(pack: result.0))
+      onContextChange?()
     } catch {
-      guard requestedPath == normalizedPath, !Task.isCancelled else { return }
+      guard loadGeneration == loadToken, requestedPath == normalizedPath, !Task.isCancelled else { return }
       selectedPack = nil
       selectedPackDirectory = nil
       searchIndex = nil
@@ -153,6 +162,7 @@ final class KnowledgePackStore {
       resetOverlayPresentation()
       clearQuestionCandidateDetector()
       state = .failed(path: normalizedPath, message: String(describing: error))
+      onContextChange?()
     }
   }
 
@@ -170,6 +180,7 @@ final class KnowledgePackStore {
   }
 
   func clear() {
+    loadGeneration = UUID()
     requestedPath = ""
     selectedPack = nil
     selectedPackDirectory = nil
@@ -180,6 +191,7 @@ final class KnowledgePackStore {
     resetOverlayPresentation()
     clearQuestionCandidateDetector()
     state = .idle
+    onContextChange?()
   }
 
   func setNetworkMode(_ mode: KnowledgeNetworkMode) {
@@ -191,6 +203,23 @@ final class KnowledgePackStore {
     // source links without requiring a pack reload.
     if let pack = selectedPack, let directory = selectedPackDirectory {
       overlaySourceCatalog = KnowledgeOverlaySourceCatalog(pack: pack, rootDirectory: directory)
+    }
+    onContextChange?()
+  }
+
+  /// Cancel live work synchronously and reset detector/resolver identities,
+  /// preserving loaded evidence. Previous-session callbacks cannot publish.
+  func resetLiveSession() {
+    resetOverlayPresentation()
+    clearQuestionCandidateDetector()
+    liveRevisionSequenceByStream = [:]
+    if let pack = selectedPack, let directory = selectedPackDirectory,
+       let searchIndex, let evidenceOutcomeEvaluator {
+      configureLiveKnowledgePath(for: pack, rootDirectory: directory)
+      overlaySourceCatalog = KnowledgeOverlaySourceCatalog(pack: pack, rootDirectory: directory)
+      tieredAnswerResolver = try? KnowledgeTieredAnswerResolver(
+        pack: pack, searchIndex: searchIndex,
+        evidenceEvaluator: evidenceOutcomeEvaluator, rootDirectory: directory)
     }
   }
 
@@ -243,6 +272,7 @@ final class KnowledgePackStore {
 
   @discardableResult
   func processLiveTranscriptRevision(_ revision: TranscriptRevision) -> [KnowledgeLiveEvent] {
+    guard case .loaded = state else { return [] }
     guard var detector = liveEventDetector else { return [] }
     let liveLoopStart = ContinuousClock().now
     liveRevisionSequenceByStream[revision.streamID] = max(
@@ -431,10 +461,18 @@ final class KnowledgePackStore {
           synthesizer: synthesizer,
           networkMode: networkMode
         ) {
-          guard !Task.isCancelled, let self else { break }
+          guard !Task.isCancelled, let self,
+                self.tieredAnswerTaskTokens[taskKey] == token,
+                case .loaded = self.state else { break }
           var presentation = self.overlayPresentation
           presentation.apply(update, sourceCatalog: self.overlaySourceCatalog)
           self.overlayPresentation = presentation
+          let card = presentation.activeByStream[update.streamID]
+          if update.action == .retract {
+            self.onLiveUpdate?(update, nil)
+          } else if card?.updateID == update.id {
+            self.onLiveUpdate?(update, card)
+          }
           self.recordTieredAnswerLatency(
             update,
             liveLoopStart: liveLoopStart

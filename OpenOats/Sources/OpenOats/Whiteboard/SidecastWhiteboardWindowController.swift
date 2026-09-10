@@ -1,39 +1,17 @@
 import AppKit
 import SwiftUI
 
-/// Owns the whiteboard's `NSWindow` and the SwiftUI content hosted inside
-/// it.
-///
-/// The one non-negotiable property of this window, and the reason it is a
-/// hand-built `NSWindow` rather than a SwiftUI `Window(id:)` scene: it must
-/// NEVER be capturable by screen sharing. `sharingType = .none` is set
-/// exactly once, in `init`, before the window is ever shown — matching
-/// `MiniBarPanel`/`OverlayPanel`'s documented one-way ratchet (macOS
-/// refuses to make a window capturable again once excluded), except this
-/// window has no toggle and no rebuild-to-re-enable path at all: unlike
-/// those panels, which follow the user's "hide from screen share" setting
-/// and can be asked to become `.readOnly` again, the whiteboard has no
-/// visible-in-share mode, full stop. Nothing in this type may ever assign
-/// `sharingType` a second time.
-///
-/// The window object itself is created in `init` (so `sharingType` can be
-/// set immediately — see above), but its SwiftUI content is deliberately
-/// NOT installed there. `NSHostingView`'s content "appears" (running the
-/// hosted view's `.task`, in this case the corpus bookmark resolve-and-read)
-/// as soon as it is installed as a window's `contentView` — independent of
-/// whether that window is ever ordered front. Installing it eagerly here
-/// would fire that `.task` — and its possibly multi-MB recursive disk read
-/// — the moment this controller is constructed, whether or not the window
-/// is ever shown. `show()` installs the content on its first call instead,
-/// so the trigger is genuinely tied to the window actually being shown, not
-/// merely to the controller existing. (Proven empirically in review: an
-/// instrumented counter plus a wait with no `show()` call showed the `.task`
-/// firing anyway, before this fix.)
+/// Owns the presenter window. Requests capture exclusion with `.none`, but
+/// this setting is not proof of invisibility to ScreenCaptureKit or Teams.
+/// Actual selected-window/full-display behavior requires a remote observer.
+/// Content is installed lazily when first shown, not during app construction.
 @MainActor
 final class SidecastWhiteboardWindowController {
     let window: NSWindow
     let model: SidecastWhiteboardModel
-    let corpusService: SidecastCorpusService
+    let knowledgePackStore: KnowledgePackStore
+    private let onChoosePack: (URL) -> Void
+    private let onOpenSaved: () -> Void
     /// WB-5/I6: the hosted view's Clear button action. Defaults to a
     /// model-only clear (the pre-fix behavior) when no richer closure is
     /// supplied — production always supplies one (see
@@ -48,11 +26,15 @@ final class SidecastWhiteboardWindowController {
 
     init(
         model: SidecastWhiteboardModel = SidecastWhiteboardModel(),
-        corpusService: SidecastCorpusService = SidecastCorpusService(),
+        knowledgePackStore: KnowledgePackStore = KnowledgePackStore(profileRegistry: .empty),
+        onChoosePack: ((URL) -> Void)? = nil,
+        onOpenSaved: @escaping () -> Void = {},
         onClear: (() -> Void)? = nil
     ) {
         self.model = model
-        self.corpusService = corpusService
+        self.knowledgePackStore = knowledgePackStore
+        self.onOpenSaved = onOpenSaved
+        self.onChoosePack = onChoosePack ?? { folder in Task { await knowledgePackStore.load(fromPath: folder.path) } }
         self.onClear = onClear ?? { model.clear() }
 
         let newWindow = NSWindow(
@@ -66,8 +48,7 @@ final class SidecastWhiteboardWindowController {
         newWindow.minSize = NSSize(width: 480, height: 360)
         newWindow.isReleasedWhenClosed = false
 
-        // NEVER appear in a screen share. Set once, here, unconditionally —
-        // see the type-level doc above. Do not add another assignment.
+        // Best-effort exclusion request; see the visible sharing warning.
         newWindow.sharingType = .none
 
         // The board's palette (warm-white, ported from the bench's fixed
@@ -91,7 +72,8 @@ final class SidecastWhiteboardWindowController {
         if !hasInstalledContent {
             hasInstalledContent = true
             window.contentView = NSHostingView(
-                rootView: SidecastWhiteboardView(model: model, corpusService: corpusService, onClear: onClear)
+                rootView: SidecastWhiteboardView(model: model, knowledgePackStore: knowledgePackStore,
+                                                onChoosePack: onChoosePack, onOpenSaved: onOpenSaved, onClear: onClear)
             )
         }
         window.makeKeyAndOrderFront(nil)

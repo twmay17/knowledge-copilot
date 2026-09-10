@@ -17,6 +17,12 @@ are discarded, leaving the deterministic answer visible.
 
 ## Network modes and outbound disclosure
 
+The September 9 experimental native whiteboard is a presentation of this common engine.
+Its production wiring injects no external vector/synthesis adapter or independent answer-model
+client. Selecting a chat model elsewhere does not change that. Recording consent, transcription,
+transcript cleanup, notes generation, legacy suggestions and optional webhooks remain separate
+features with separate settings; "local whiteboard" is not an app-wide offline guarantee.
+
 The Knowledge Copilot settings expose two modes:
 
 - **Offline — no Knowledge Copilot egress:** deterministic pack search remains available;
@@ -64,12 +70,14 @@ an explicit confirmation before it can call the service.
 
 ## Screen-share visibility
 
-macOS treats a window's capture exclusion as one-way for the window's lifetime: once excluded, a
-window cannot be made capturable again by reassignment. The overlay and mini-bar panels are
-rebuilt when "Hide from screen sharing" is turned off, so their visibility toggle is truthful in
-both directions. The main application window follows the setting when hiding but can only rejoin
-screen sharing after the app is relaunched; the setting's caption states this. Window-capture
-exclusion does not protect against full-display sharing; presenters should share a single app window.
+The app requests exclusion using `NSWindow.sharingType = .none`. Overlay and mini-bar managers
+recreate a panel when an attempted `.readOnly` transition does not read back successfully.
+Tests cover successful reuse and fallback reconstruction separately; neither proves actual capture
+behavior. The native whiteboard requests exclusion and displays a full-display warning.
+
+Do not assume this hides a window from Teams, Zoom, ScreenCaptureKit, or full-display capture.
+Share only the intended presentation window and verify what a consenting remote participant sees.
+The separate selected-window/full-display pilot gate remains required before a release claim.
 
 ## Active-pack isolation
 
@@ -79,6 +87,16 @@ already admitted inside that scope. Cross-pack replay scenarios must abstain wit
 card from the inactive pack.
 
 ## Local storage ownership
+
+Accepted whiteboard notes are atomically saved as `sessions/<session-id>/whiteboard.json` in the
+existing session repository, including question text, answer text, evidence excerpts, source paths,
+pack hash and actual engine identity. They are plaintext local meeting data, not telemetry; use
+FileVault and appropriate folder access controls. Automatic saving retains potentially sensitive
+source excerpts after a pack is deselected. Clear only clears the display. Session deletion applies
+to this archive too; recently deleted session folders remain recoverable until purged. Exported
+copies are separate and are not removed by deleting a session. No new automatic retention timer
+is enabled. Crash/force-quit behavior still needs pilot validation; explicit end waits for accepted
+note writes and surfaces failures.
 
 V1 reads a user-selected KnowledgePack directory in place and does not create an app-managed pack
 copy. Its SQLite full-text index is memory-only. This keeps the app from creating a second plaintext

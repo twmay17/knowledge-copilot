@@ -49,13 +49,7 @@ final class StreamingTranscriber: @unchecked Sendable {
     private let onCloudProcessingChanged: (@Sendable (Bool) -> Void)?
 
     /// Resampler from source format to 16kHz mono Float32.
-    private var converter: AVAudioConverter?
-    private let targetFormat = AVAudioFormat(
-        commonFormat: .pcmFormatFloat32,
-        sampleRate: 16000,
-        channels: 1,
-        interleaved: false
-    )!
+    private let audioConverter = StreamingAudioConverter()
 
     // -- Effective sample rate correction --
     // Core Audio process taps can declare one sample rate but deliver audio at a
@@ -483,109 +477,12 @@ final class StreamingTranscriber: @unchecked Sendable {
 
         if divergence > Self.rateDivergenceThreshold {
             effectiveSampleRate = measured
-            converter = nil // force rebuild on next extractSamples call
+            // The converter rebuilds automatically when its effective input rate changes.
             Log.streaming.warning("[\(self.speaker.storageKey, privacy: .public)] rate mismatch: declared=\(declared, privacy: .public) effective=\(measured, privacy: .public) (divergence \(String(format: "%.1f", divergence * 100), privacy: .public)%), correcting resampler")
         }
     }
 
-    /// Extract [Float] samples from an AVAudioPCMBuffer, resampling if needed.
     private func extractSamples(_ buffer: AVAudioPCMBuffer) -> [Float]? {
-        let sourceFormat = buffer.format
-        let frameLength = Int(buffer.frameLength)
-        guard frameLength > 0 else { return nil }
-
-        // Determine the actual sample rate (may differ from declared for process taps)
-        let actualRate = effectiveSampleRate ?? sourceFormat.sampleRate
-
-        // Fast path: already Float32 at 16kHz
-        if sourceFormat.commonFormat == .pcmFormatFloat32 && actualRate == 16000 {
-            guard let channelData = buffer.floatChannelData else { return nil }
-            if sourceFormat.channelCount == 1 {
-                return Array(UnsafeBufferPointer(start: channelData[0], count: frameLength))
-            } else {
-                return Array(UnsafeBufferPointer(start: channelData[0], count: frameLength))
-            }
-        }
-
-        // Downmix multi-channel to mono before resampling
-        // (AVAudioConverter mishandles deinterleaved multi-channel input)
-        var inputBuffer = buffer
-        let monoRate = actualRate
-        if sourceFormat.channelCount > 1, let src = buffer.floatChannelData {
-            let monoFormat = AVAudioFormat(
-                commonFormat: .pcmFormatFloat32,
-                sampleRate: monoRate,
-                channels: 1,
-                interleaved: false
-            )!
-            if let monoBuf = AVAudioPCMBuffer(pcmFormat: monoFormat, frameCapacity: buffer.frameCapacity),
-               let dst = monoBuf.floatChannelData?[0] {
-                monoBuf.frameLength = buffer.frameLength
-                let channels = Int(sourceFormat.channelCount)
-                let scale = 1.0 / Float(channels)
-                for i in 0..<frameLength {
-                    var sum: Float = 0
-                    for ch in 0..<channels { sum += src[ch][i] }
-                    dst[i] = sum * scale
-                }
-                inputBuffer = monoBuf
-            }
-        } else if effectiveSampleRate != nil, sourceFormat.channelCount == 1 {
-            // Mono but rate-corrected: re-wrap buffer with the effective rate so the
-            // converter uses the correct ratio.
-            let correctedFormat = AVAudioFormat(
-                commonFormat: sourceFormat.commonFormat,
-                sampleRate: monoRate,
-                channels: 1,
-                interleaved: sourceFormat.isInterleaved
-            )!
-            if let rewrapped = AVAudioPCMBuffer(pcmFormat: correctedFormat, frameCapacity: buffer.frameCapacity) {
-                rewrapped.frameLength = buffer.frameLength
-                if let srcData = buffer.floatChannelData?[0],
-                   let dstData = rewrapped.floatChannelData?[0] {
-                    memcpy(dstData, srcData, frameLength * MemoryLayout<Float>.size)
-                    inputBuffer = rewrapped
-                }
-            }
-        }
-
-        // Slow path: need to resample via AVAudioConverter
-        let inputFormat = inputBuffer.format
-        if converter == nil || converter?.inputFormat != inputFormat {
-            converter = AVAudioConverter(from: inputFormat, to: targetFormat)
-        }
-        guard let converter else { return nil }
-
-        let ratio = targetFormat.sampleRate / inputFormat.sampleRate
-        let outputFrames = AVAudioFrameCount(Double(inputBuffer.frameLength) * ratio)
-        guard outputFrames > 0 else { return nil }
-
-        guard let outputBuffer = AVAudioPCMBuffer(
-            pcmFormat: targetFormat,
-            frameCapacity: outputFrames
-        ) else { return nil }
-
-        var error: NSError?
-        nonisolated(unsafe) var consumed = false
-        converter.convert(to: outputBuffer, error: &error) { _, outStatus in
-            if consumed {
-                outStatus.pointee = .noDataNow
-                return nil
-            }
-            consumed = true
-            outStatus.pointee = .haveData
-            return inputBuffer
-        }
-
-        if let error {
-            Log.streaming.error("Resample error: \(error, privacy: .public)")
-            return nil
-        }
-
-        guard let channelData = outputBuffer.floatChannelData else { return nil }
-        return Array(UnsafeBufferPointer(
-            start: channelData[0],
-            count: Int(outputBuffer.frameLength)
-        ))
+        audioConverter.extractSamples(buffer, effectiveSampleRate: effectiveSampleRate)
     }
 }

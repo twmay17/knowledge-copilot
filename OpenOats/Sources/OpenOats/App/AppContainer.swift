@@ -1,31 +1,12 @@
 import Foundation
 import Observation
 
-/// Production `SidecastLLM` conformance for `SidecastWhiteboardCoordinator`:
-/// unlike WB-2's `OpenRouterSidecastLLM` (a plain value snapshot — apiKey/
-/// model fixed at construction), this reads `settings.openRouterApiKey`/
-/// `.selectedModel` fresh on every call, matching how the legacy realtime
-/// path (`SidecastEngine`/`SuggestionEngine`) already reads its own
-/// credentials live rather than once at construction — a user who updates
-/// their key mid-session should not need to restart the app for the
-/// whiteboard to notice. `settings` is `@MainActor`-isolated, not `Sendable`
-/// itself; reading it from here (this type conforms to `SidecastLLM: Sendable`
-/// and `call` runs on the listener/orchestrator actors, not the MainActor)
-/// requires the `await MainActor.run` hop below.
-private struct LiveSettingsBackedOpenRouterLLM: SidecastLLM {
-    let client: OpenRouterClient
-    let settings: AppSettings
-
-    func call(system: String, user: String, schema: OpenRouterClient.JSONSchemaSpec) async throws -> String {
-        let (apiKey, model) = await MainActor.run { (settings.openRouterApiKey, settings.selectedModel) }
-        return try await OpenRouterSidecastLLM(client: client, apiKey: apiKey, model: model)
-            .call(system: system, user: user, schema: schema)
-    }
-}
 
 @MainActor
 @Observable
 final class AppContainer {
+    // The root injects one selected pack for all surfaces before services start.
+    var knowledgePackStore: KnowledgePackStore?
     static let notesSmokeSessionID = "session_ui_test_notes"
 
     let mode: AppRuntimeMode
@@ -112,14 +93,12 @@ final class AppContainer {
             defaults.set(true, forKey: "showLiveTranscript")
             defaults.set(false, forKey: "saveAudioRecording")
             defaults.set(false, forKey: "enableLiveTranscriptCleanup")
-            // Scripted UI-test scenarios don't expect a whiteboard window to
-            // pop open on session start (or any of its own live behavior) —
-            // keep them exactly as they were pre-WB-4 even though the flag
-            // now defaults ON for real launches. See SidecastWhiteboardCoordinator.
-            defaults.set(false, forKey: "sidecastWhiteboardEnabled")
+            // Isolated synthetic replay; no microphone, key store, or live provider.
+            defaults.set(scenario == .whiteboardSmoke, forKey: "sidecastWhiteboardEnabled")
             defaults.set(notesDirectory.path, forKey: "notesFolderPath")
             defaults.set("", forKey: "kbFolderPath")
-            defaults.set("", forKey: "knowledgePackFolderPath")
+            defaults.set(scenario == .whiteboardSmoke
+                ? (environment["OPENOATS_UI_TEST_KNOWLEDGE_PACK_PATH"] ?? "") : "", forKey: "knowledgePackFolderPath")
 
             let storage = AppSettingsStorage(
                 defaults: defaults,
@@ -167,9 +146,9 @@ final class AppContainer {
             settings: settings
         )
         let sidecastWhiteboardCoordinator = SidecastWhiteboardCoordinator(
-            model: SidecastWhiteboardModel(configuredModel: settings.selectedModel),
-            llm: LiveSettingsBackedOpenRouterLLM(client: OpenRouterClient(), settings: settings),
-            settings: settings
+            knowledgePackStore: knowledgePackStore ?? KnowledgePackStore(profileRegistry: .empty),
+            settings: settings,
+            repository: coordinator.sessionRepository
         )
 
         return AppViewServices(
@@ -188,11 +167,13 @@ final class AppContainer {
                 transcriptStore: coordinator.transcriptStore,
                 settings: settings
             )
-        case .uiTest:
+        case .uiTest(let scenario):
             transcriptionEngine = TranscriptionEngine(
                 transcriptStore: coordinator.transcriptStore,
                 settings: settings,
-                mode: .scripted(Self.scriptedUtterances)
+                mode: .scripted(scenario == .whiteboardSmoke
+                    ? [Utterance(text: "What is NestArc Go?", speaker: .them, timestamp: Date())]
+                    : Self.scriptedUtterances)
             )
         }
 

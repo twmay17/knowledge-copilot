@@ -79,15 +79,14 @@ final class KnowledgeOverlayPresentationTests: XCTestCase {
     miniBar.applyHideFromScreenShare(true)
     XCTAssertEqual(overlay.sharingType, .none)
     XCTAssertEqual(miniBar.sharingType, .none)
-    // Assigning .readOnly after .none is refused by macOS (one-way
-    // capture-exclusion ratchet), so there is no restore assertion here:
-    // the managers rebuild panels instead — see the manager tests below.
+    // Managers restore the setting in place or rebuild when readback refuses it.
+    // Neither path establishes actual screen-capture behavior.
     overlay.close()
     miniBar.close()
   }
 
   @MainActor
-  func testOverlayManagerRebuildsPanelsToRestoreCaptureVisibility() {
+  func testOverlayManagerRestoresCaptureSettingAndPreservesPresentation() {
     let manager = OverlayManager()
     manager.showSidePanel(content: Text("panel"))
     manager.showSidecastSidebar(content: Text("sidecast"))
@@ -104,8 +103,6 @@ final class KnowledgeOverlayPresentationTests: XCTestCase {
 
     XCTAssertEqual(manager.panel?.sharingType, .readOnly)
     XCTAssertEqual(manager.sidecastPanel?.sharingType, .readOnly)
-    XCTAssertTrue(manager.panel !== hiddenPanel)
-    XCTAssertTrue(manager.sidecastPanel !== hiddenSidecast)
     XCTAssertTrue(manager.panel?.contentView === panelContent)
     XCTAssertTrue(manager.sidecastPanel?.contentView === sidecastContent)
     XCTAssertEqual(manager.panel?.frame, panelFrame)
@@ -115,7 +112,7 @@ final class KnowledgeOverlayPresentationTests: XCTestCase {
   }
 
   @MainActor
-  func testMiniBarManagerRebuildsPanelToRestoreCaptureVisibility() {
+  func testMiniBarManagerRestoresCaptureSettingAndPreservesPresentation() {
     let manager = MiniBarManager()
     manager.show()
     manager.updateHideFromScreenShare(true)
@@ -126,8 +123,48 @@ final class KnowledgeOverlayPresentationTests: XCTestCase {
     manager.updateHideFromScreenShare(false)
 
     XCTAssertEqual(manager.panel?.sharingType, .readOnly)
-    XCTAssertTrue(manager.panel !== hidden)
     XCTAssertTrue(manager.panel?.contentView === content)
+    manager.hide()
+    manager.panel?.close()
+  }
+
+  @MainActor
+  func testOverlayManagerRebuildsWhenCaptureReadbackRefusesRestore() {
+    let manager = OverlayManager()
+    manager.showSidePanel(content: Text("panel"))
+    manager.showSidecastSidebar(content: Text("sidecast"))
+    manager.updateHideFromScreenShare(true)
+    let hidden = manager.panel
+    let hiddenSidebar = manager.sidecastPanel
+    let content = hidden?.contentView
+    let sidebarContent = hiddenSidebar?.contentView
+    manager.captureSharingType = { _ in .none }
+    manager.updateHideFromScreenShare(false)
+    XCTAssertTrue(manager.panel !== hidden)
+    XCTAssertTrue(manager.sidecastPanel !== hiddenSidebar)
+    XCTAssertEqual(manager.panel?.sharingType, .readOnly)
+    XCTAssertEqual(manager.sidecastPanel?.sharingType, .readOnly)
+    XCTAssertTrue(manager.panel?.contentView === content)
+    XCTAssertTrue(manager.sidecastPanel?.contentView === sidebarContent)
+    XCTAssertEqual(manager.panel?.frame, hidden?.frame)
+    manager.hide()
+    manager.panel?.close()
+    manager.sidecastPanel?.close()
+  }
+
+  @MainActor
+  func testMiniBarManagerRebuildsWhenCaptureReadbackRefusesRestore() {
+    let manager = MiniBarManager()
+    manager.show()
+    manager.updateHideFromScreenShare(true)
+    let hidden = manager.panel
+    let content = hidden?.contentView
+    manager.captureSharingType = { _ in .none }
+    manager.updateHideFromScreenShare(false)
+    XCTAssertTrue(manager.panel !== hidden)
+    XCTAssertEqual(manager.panel?.sharingType, .readOnly)
+    XCTAssertTrue(manager.panel?.contentView === content)
+    XCTAssertEqual(manager.panel?.frame, hidden?.frame)
     manager.hide()
     manager.panel?.close()
   }

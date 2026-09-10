@@ -9,16 +9,6 @@ struct MenuBarPopoverView: View {
     let onShowSettings: () -> Void
     let onQuit: () -> Void
 
-    @State private var elapsedSeconds: Int = 0
-    @State private var timerTask: Task<Void, Never>?
-
-    private var recordingStartedAt: Date? {
-        if case .recording(let metadata) = coordinator.state {
-            return metadata.startedAt
-        }
-        return nil
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             statusLine
@@ -36,7 +26,7 @@ struct MenuBarPopoverView: View {
 
             Button(action: onShowMainWindow) {
                 HStack {
-                    Text("Show OpenOats")
+                    Text("Show \(AppBuildIdentity.displayName)")
                     Spacer()
                 }
             }
@@ -44,15 +34,17 @@ struct MenuBarPopoverView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
 
-            Button(action: onCheckForUpdates) {
-                HStack {
-                    Text("Check for Updates…")
-                    Spacer()
+            if AppUpdaterController.updatesEnabled {
+                Button(action: onCheckForUpdates) {
+                    HStack {
+                        Text("Check for Updates…")
+                        Spacer()
+                    }
                 }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
             }
-            .buttonStyle(.plain)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
 
             Button(action: onShowSettings) {
                 HStack {
@@ -68,7 +60,7 @@ struct MenuBarPopoverView: View {
 
             Button(action: onQuit) {
                 HStack {
-                    Text("Quit OpenOats")
+                    Text("Quit \(AppBuildIdentity.displayName)")
                     Spacer()
                 }
             }
@@ -79,30 +71,15 @@ struct MenuBarPopoverView: View {
             .padding(.bottom, 4)
         }
         .frame(width: 280)
-        .onAppear {
-            if coordinator.isRecording {
-                startTimer()
-            }
-        }
-        .onDisappear {
-            stopTimer()
-        }
-        .onChange(of: coordinator.isRecording) { _, recording in
-            if recording {
-                startTimer()
-            } else {
-                stopTimer()
-            }
-        }
     }
 
     private var statusLine: some View {
         HStack(spacing: 6) {
             if coordinator.isRecording {
                 Circle()
-                    .fill(.red)
+                    .fill(coordinator.liveSessionController?.state.capturePhase == .live ? Color.green : Color.orange)
                     .frame(width: 8, height: 8)
-                Text("Recording - \(formattedTime)")
+                Text(coordinator.liveSessionController?.state.capturePhase.title ?? "Preparing")
                     .font(.system(size: 13, weight: .medium))
             } else if settings.meetingAutoDetectEnabled {
                 Circle()
@@ -150,35 +127,4 @@ struct MenuBarPopoverView: View {
         }
     }
 
-    private var formattedTime: String {
-        let minutes = elapsedSeconds / 60
-        let seconds = elapsedSeconds % 60
-        return String(format: "%d:%02d", minutes, seconds)
-    }
-
-    private func startTimer() {
-        updateElapsed()
-        stopTimer()
-        timerTask = Task {
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(1))
-                guard !Task.isCancelled else { break }
-                updateElapsed()
-            }
-        }
-    }
-
-    private func updateElapsed() {
-        if let start = recordingStartedAt {
-            elapsedSeconds = max(0, Int(Date().timeIntervalSince(start)))
-        } else {
-            elapsedSeconds = 0
-        }
-    }
-
-    private func stopTimer() {
-        timerTask?.cancel()
-        timerTask = nil
-        elapsedSeconds = 0
-    }
 }

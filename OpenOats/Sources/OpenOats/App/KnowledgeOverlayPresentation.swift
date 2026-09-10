@@ -1,6 +1,6 @@
 import Foundation
 
-struct KnowledgeOverlaySource: Equatable, Sendable, Identifiable {
+struct KnowledgeOverlaySource: Codable, Equatable, Sendable, Identifiable {
   let id: String
   let title: String
   let locator: String

@@ -154,6 +154,66 @@ final class AudioCaptureVerificationTests: XCTestCase {
     recorder.discardRecording()
   }
 
+  func testSparseMutedTrackCannotNormalizeMissingTimeIntoFullCoverage() throws {
+    let session = try makeSession(duration: 10)
+    let healthy = [
+      TestAnchor(frame: 0, date: session.startedAt),
+      TestAnchor(frame: 480_000, date: session.startedAt.addingTimeInterval(10)),
+    ]
+    let muted = [
+      TestAnchor(frame: 0, date: session.startedAt),
+      TestAnchor(frame: 48_000, date: session.startedAt.addingTimeInterval(10)),
+    ]
+    try writeBatchMeta(micAnchors: muted, sysAnchors: healthy, effectiveSystemRate: 48_000)
+    try writeSineTrack(named: "mic.caf", duration: 1)
+    try writeSineTrack(named: "sys.caf", duration: 10)
+    let report = try AudioCaptureVerifier.verify(
+      sessionDirectory: root, policy: policy, attestations: confirmedAttestations
+    )
+    XCTAssertFalse(report.passed)
+    XCTAssertFalse(report.microphone.passed)
+    XCTAssertEqual(report.microphone.effectiveSampleRate, 48_000)
+    XCTAssertEqual(report.microphone.coverageRatio ?? -1, 0.1, accuracy: 0.001)
+    XCTAssertEqual(report.microphone.maximumUnrecoveredGapSeconds ?? -1, 9, accuracy: 0.001)
+  }
+
+  func testUniformDropoutAcrossEveryIntervalCannotMasqueradeAsLowerRate() throws {
+    let session = try makeSession(duration: 10)
+    let anchors = [
+      TestAnchor(frame: 0, date: session.startedAt),
+      TestAnchor(frame: 48_000, date: session.startedAt.addingTimeInterval(5)),
+      TestAnchor(frame: 96_000, date: session.startedAt.addingTimeInterval(10)),
+    ]
+    try writeBatchMeta(micAnchors: anchors, sysAnchors: anchors, effectiveSystemRate: 9_600)
+    try writeSineTrack(named: "mic.caf", duration: 2)
+    try writeSineTrack(named: "sys.caf", duration: 2)
+    let report = try AudioCaptureVerifier.verify(
+      sessionDirectory: root, policy: policy, attestations: confirmedAttestations
+    )
+    XCTAssertFalse(report.microphone.passed)
+    XCTAssertFalse(report.system.passed)
+    XCTAssertEqual(report.system.coverageRatio ?? -1, 0.2, accuracy: 0.001)
+    XCTAssertEqual(report.system.maximumUnrecoveredGapSeconds ?? -1, 4, accuracy: 0.001)
+  }
+
+  func testRoundedAnchorIntervalsDoNotChangeDeclaredFrameDuration() throws {
+    let session = try makeSession(duration: 10)
+    let anchors = [
+      TestAnchor(frame: 0, date: session.startedAt),
+      TestAnchor(frame: 244_800, date: session.startedAt.addingTimeInterval(5)),
+      TestAnchor(frame: 480_000, date: session.startedAt.addingTimeInterval(10)),
+    ]
+    try writeBatchMeta(micAnchors: anchors, sysAnchors: anchors, effectiveSystemRate: 48_000)
+    try writeSineTrack(named: "mic.caf", duration: 10)
+    try writeSineTrack(named: "sys.caf", duration: 10)
+    let report = try AudioCaptureVerifier.verify(
+      sessionDirectory: root, policy: policy, attestations: confirmedAttestations
+    )
+    XCTAssertTrue(report.passed, report.issues.joined(separator: "\n"))
+    XCTAssertEqual(report.microphone.effectiveSampleRate, 48_000)
+    XCTAssertEqual(report.microphone.coverageRatio ?? -1, 1, accuracy: 0.001)
+  }
+
   private var policy: AudioCaptureVerificationPolicy {
     AudioCaptureVerificationPolicy(
       minimumSessionDurationSeconds: 9.5,

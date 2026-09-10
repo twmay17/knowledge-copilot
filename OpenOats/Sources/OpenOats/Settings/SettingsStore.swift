@@ -1597,7 +1597,7 @@ final class SettingsStore {
         }
         self._sidebarMode = SidebarMode(rawValue: defaults.string(forKey: "sidebarMode") ?? "") ?? .classicSuggestions
         if defaults.object(forKey: "sidecastWhiteboardEnabled") == nil {
-            self._sidecastWhiteboardEnabled = true
+            self._sidecastWhiteboardEnabled = false
         } else {
             self._sidecastWhiteboardEnabled = defaults.bool(forKey: "sidecastWhiteboardEnabled")
         }

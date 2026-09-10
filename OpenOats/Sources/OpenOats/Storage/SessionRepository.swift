@@ -230,6 +230,67 @@ actor SessionRepository {
         Self.cleanupExpiredRetainedBatchAudio(in: sessionsDirectory)
     }
 
+    // MARK: - Evidence-backed whiteboard history
+
+    func saveWhiteboardNote(_ note: SidecastWhiteboardModel.DisplayNote, sessionID: String, startedAt: Date) throws {
+        let url = try whiteboardArchiveURL(sessionID: sessionID)
+        guard FileManager.default.fileExists(atPath: url.deletingLastPathComponent().appendingPathComponent("session.json").path) else {
+            throw WhiteboardArchiveError.invalidSession
+        }
+        guard let evidence = note.evidence, evidence.sessionID == sessionID else {
+            throw WhiteboardArchiveError.invalidArchive
+        }
+        var archive = try loadWhiteboard(sessionID: sessionID)
+            ?? WhiteboardSessionArchive(schemaVersion: 1, sessionID: sessionID, startedAt: startedAt, notes: [])
+        if let index = archive.notes.firstIndex(where: { $0.evidence?.eventID == evidence.eventID }) {
+            guard (archive.notes[index].evidence?.revisionSequence ?? 0) <= evidence.revisionSequence else { return }
+            archive.notes[index] = note
+        } else {
+            archive.notes.append(note)
+        }
+        try encoder.encode(archive).write(to: url, options: .atomic)
+    }
+
+    func loadWhiteboard(sessionID: String) throws -> WhiteboardSessionArchive? {
+        let url = try whiteboardArchiveURL(sessionID: sessionID)
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        let archive = try decoder.decode(WhiteboardSessionArchive.self, from: Data(contentsOf: url))
+        guard archive.schemaVersion == 1, archive.sessionID == sessionID,
+              archive.notes.allSatisfy({ $0.evidence?.sessionID == sessionID }) else {
+            throw WhiteboardArchiveError.invalidArchive
+        }
+        return archive
+    }
+
+    /// "Last saved" is file modification order, not a second-resolution
+    /// session timestamp. Legacy sessions without an archive are skipped.
+    func latestWhiteboard() throws -> WhiteboardSessionArchive? {
+        let candidates = try listSessions().compactMap { session -> (String, Date)? in
+            let url = try whiteboardArchiveURL(sessionID: session.id)
+            guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+            let values = try url.resourceValues(forKeys: [.contentModificationDateKey])
+            return (session.id, values.contentModificationDate ?? .distantPast)
+        }.sorted { $0.1 > $1.1 }
+        guard let sessionID = candidates.first?.0 else { return nil }
+        return try loadWhiteboard(sessionID: sessionID)
+    }
+
+    private func whiteboardArchiveURL(sessionID: String) throws -> URL {
+        guard !sessionID.isEmpty, sessionID != ".", sessionID != "..",
+              !sessionID.contains("/"), !sessionID.contains("\\"),
+              !sessionID.contains("\0") else { throw WhiteboardArchiveError.invalidSession }
+        let root = sessionsDirectory.resolvingSymlinksInPath().standardizedFileURL
+        let directory = sessionDirectory(for: sessionID).resolvingSymlinksInPath().standardizedFileURL
+        guard directory.deletingLastPathComponent().pathComponents == root.pathComponents else {
+            throw WhiteboardArchiveError.invalidSession
+        }
+        let url = directory.appendingPathComponent("whiteboard.json")
+        guard url.resolvingSymlinksInPath().deletingLastPathComponent().pathComponents == directory.pathComponents else {
+            throw WhiteboardArchiveError.invalidSession
+        }
+        return url
+    }
+
     // MARK: - Configuration
 
     /// Update the notes folder path used for mirroring artifacts.
@@ -253,11 +314,18 @@ actor SessionRepository {
 
     // MARK: - Session Lifecycle
 
+    /// Keep readable dates, but never use a second-resolution timestamp as
+    /// identity: rapid restarts and imports can have identical start dates.
+    private func newSessionID(startedAt: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd_HH-mm-ss"
+        return "session_\(formatter.string(from: startedAt))_\(UUID().uuidString)"
+    }
+
     @discardableResult
     func startSession(config: SessionStartConfig = SessionStartConfig()) -> SessionHandle {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd_HH-mm-ss"
-        let sessionID = "session_\(formatter.string(from: Date()))"
+        let sessionID = newSessionID(startedAt: Date())
         currentSessionID = sessionID
         hasReportedWriteError = false
         liveUtteranceCount = 0
@@ -485,9 +553,7 @@ actor SessionRepository {
     /// Unlike `startSession`, this does not open a live file handle.
     @discardableResult
     func createImportedSession(config: ImportedSessionConfig) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd_HH-mm-ss"
-        let sessionID = "session_\(formatter.string(from: config.startedAt))"
+        let sessionID = newSessionID(startedAt: config.startedAt)
 
         let sessionDir = sessionDirectory(for: sessionID)
         try? FileManager.default.createDirectory(at: sessionDir, withIntermediateDirectories: true)
@@ -519,9 +585,7 @@ actor SessionRepository {
             return existingSessionID
         }
 
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd_HH-mm-ss"
-        let sessionID = "session_\(formatter.string(from: config.startedAt))"
+        let sessionID = newSessionID(startedAt: config.startedAt)
 
         let sessionDir = sessionDirectory(for: sessionID)
         try? FileManager.default.createDirectory(at: sessionDir, withIntermediateDirectories: true)
@@ -1283,6 +1347,7 @@ actor SessionRepository {
     }
 
     private func sessionHasMeaningfulArtifacts(sessionID: String) -> Bool {
+        if let archive = try? loadWhiteboard(sessionID: sessionID), !archive.notes.isEmpty { return true }
         if !loadTranscript(sessionID: sessionID).isEmpty { return true }
         if !loadLiveTranscript(sessionID: sessionID).isEmpty { return true }
 

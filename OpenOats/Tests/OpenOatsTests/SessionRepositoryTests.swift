@@ -51,6 +51,18 @@ final class SessionRepositoryTests: XCTestCase {
 
     // MARK: - startSession creates canonical directory layout
 
+    func testSessionsWithIdenticalStartDatesNeverOverwriteEachOther() async {
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+        let first = await repo.createImportedSession(config: .init(
+            title: "First import", startedAt: date, endedAt: date, language: nil, engine: nil))
+        let second = await repo.createImportedSession(config: .init(
+            title: "Second import", startedAt: date, endedAt: date, language: nil, engine: nil))
+        XCTAssertNotEqual(first, second)
+        let sessions = await repo.listSessions()
+        XCTAssertEqual(sessions.first(where: { $0.id == first })?.title, "First import")
+        XCTAssertEqual(sessions.first(where: { $0.id == second })?.title, "Second import")
+    }
+
     func testStartSessionCreatesDirectoryLayout() async {
         let handle = await repo.startSession()
         let sessionID = handle.sessionID

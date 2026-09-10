@@ -223,7 +223,7 @@ final class LiveSessionControllerTests: XCTestCase {
         XCTAssertFalse(controller.state.isRunning)
         XCTAssertEqual(
             controller.state.errorMessage,
-            "The selected microphone is no longer available. Choose another microphone in Settings > Transcription."
+            "The selected microphone is no longer available. Reconnect it or explicitly choose another microphone in Settings > Transcription. System audio is controlled separately."
         )
     }
 
@@ -434,6 +434,63 @@ final class LiveSessionControllerTests: XCTestCase {
         XCTAssertTrue(controller.state.isRunning)
         XCTAssertEqual(controller.state.sessionPhase, coordinator.state)
         XCTAssertNil(coordinator.transcriptionEngine)
+        XCTAssertEqual(controller.state.capturePhase, .preparing)
+        XCTAssertEqual(controller.state.recordingElapsedSeconds, 0)
+    }
+
+    func testImmediateStopCancelsQueuedStartupWithoutTranscription() async {
+        let dirs = makeTempDirs()
+        let settings = makeSettings(notesDirectory: dirs.notes)
+        let (controller, coordinator) = makeController(
+            root: dirs.root, notesDirectory: dirs.notes, settings: settings,
+            scripted: [Utterance(text: "Must not arrive after Stop", speaker: .you)]
+        )
+        coordinator.handle(.userStarted(.manual()), settings: settings)
+        controller.stopSession(settings: settings)
+        for _ in 0..<100 {
+            if coordinator.state == .idle { break }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(coordinator.state, .idle)
+        XCTAssertFalse(coordinator.transcriptionEngine?.isRunning ?? true)
+        XCTAssertTrue(coordinator.transcriptStore.utterances.isEmpty)
+        controller.syncProjectedState(settings: settings)
+        XCTAssertEqual(controller.state.capturePhase, .idle)
+    }
+
+    func testMicrophoneCanBeMutedDuringPreparationWithoutPausingSystemAudio() async {
+        let dirs = makeTempDirs()
+        let settings = makeSettings(notesDirectory: dirs.notes)
+        let (controller, coordinator) = makeController(root: dirs.root, notesDirectory: dirs.notes, settings: settings)
+        coordinator.handle(.userStarted(.manual()), settings: settings)
+        XCTAssertFalse(coordinator.transcriptionEngine!.isRunning)
+        controller.toggleMicMute()
+        XCTAssertTrue(coordinator.transcriptionEngine!.isMicMuted)
+        XCTAssertFalse(coordinator.transcriptionEngine!.isRecordingPaused)
+        controller.stopSession(settings: settings)
+        for _ in 0..<100 {
+            if coordinator.state == .idle { break }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+    }
+
+    func testMicrophoneMuteCanChangeWhilePausedAndDoesNotResumeCapture() async {
+        let dirs = makeTempDirs()
+        let settings = makeSettings(notesDirectory: dirs.notes)
+        let (controller, coordinator) = makeController(root: dirs.root, notesDirectory: dirs.notes, settings: settings)
+        coordinator.handle(.userStarted(.manual()), settings: settings)
+        coordinator.transcriptionEngine!.isRecordingPaused = true
+        controller.toggleMicMute()
+        XCTAssertTrue(coordinator.transcriptionEngine!.isMicMuted)
+        XCTAssertTrue(coordinator.transcriptionEngine!.isRecordingPaused)
+        controller.toggleMicMute()
+        XCTAssertFalse(coordinator.transcriptionEngine!.isMicMuted)
+        XCTAssertTrue(coordinator.transcriptionEngine!.isRecordingPaused)
+        controller.stopSession(settings: settings)
+        for _ in 0..<100 {
+            if coordinator.state == .idle { break }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
     }
 
     func testStopSessionWhileIdleIsNoOp() {
@@ -472,6 +529,9 @@ final class LiveSessionControllerTests: XCTestCase {
         )
         let controller = LiveSessionController(coordinator: coordinator, container: container)
         coordinator.liveSessionController = controller
+        // This test checks synchronous service creation, not real audio capture.
+        // Cancel the queued start before yielding so it cannot outlive the test.
+        defer { controller.stopSession(settings: settings) }
 
         // Queue a start command
         coordinator.queueExternalCommand(.startSession())
@@ -1627,8 +1687,10 @@ final class LiveSessionControllerTests: XCTestCase {
         // Stop
         controller.stopSession(settings: settings)
 
-        // Wait for finalization
-        for _ in 0..<50 {
+        // Delayed transcript enrichment intentionally waits five seconds before
+        // writing. A five-second test deadline races that timer; allow bounded
+        // scheduling/finalization overhead without weakening the assertions.
+        for _ in 0..<100 {
             if case .idle = coordinator.state, coordinator.lastEndedSession != nil { break }
             try? await Task.sleep(for: .milliseconds(100))
         }

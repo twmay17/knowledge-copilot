@@ -6,6 +6,13 @@ export interface TranscriptSegment {
   text: string;
 }
 
+/** A clock the harness can advance through a transcript — YouTube or virtual. */
+export interface PlaybackSource {
+  getCurrentTime(): number;
+  seekTo(seconds: number): void;
+  stop(): void;
+}
+
 // --- Personas ---
 
 export type PersonaVerbosity = "terse" | "short" | "medium";

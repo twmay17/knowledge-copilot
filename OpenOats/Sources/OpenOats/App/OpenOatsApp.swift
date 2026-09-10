@@ -16,6 +16,16 @@ enum OpenOatsWindowSizing {
 }
 
 public struct OpenOatsRootApp: App {
+    private static var launchProfileRegistry = KnowledgeDomainProfileRegistry.empty
+
+    /// Launch this App, not a temporary instance's `body`, so SwiftUI owns
+    /// the root state, environment, and application delegate. Both executable
+    /// entry points use this path; domain plugins are supplied before launch.
+    public static func run(profileRegistry: KnowledgeDomainProfileRegistry = .empty) {
+        launchProfileRegistry = profileRegistry
+        main()
+    }
+
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @Environment(\.openWindow) private var openWindow
     @State private var settings: AppSettings
@@ -38,7 +48,7 @@ public struct OpenOatsRootApp: App {
     private let defaults: UserDefaults
 
     public init() {
-        self.init(profileRegistry: .empty)
+        self.init(profileRegistry: Self.launchProfileRegistry)
     }
 
     public init(profileRegistry: KnowledgeDomainProfileRegistry) {
@@ -47,12 +57,9 @@ public struct OpenOatsRootApp: App {
         self._coordinator = State(initialValue: context.coordinator)
         self._container = State(initialValue: context.container)
         self._whatsNewController = State(initialValue: WhatsNewController(defaults: context.container.defaults))
-        self._knowledgePackStore = State(
-            initialValue: KnowledgePackStore(
-                profileRegistry: profileRegistry,
-                networkMode: context.settings.knowledgeNetworkMode
-            )
-        )
+        let packStore = KnowledgePackStore(profileRegistry: profileRegistry, networkMode: context.settings.knowledgeNetworkMode)
+        self._knowledgePackStore = State(initialValue: packStore)
+        context.container.knowledgePackStore = packStore
         self.updaterController = context.updaterController
         self.defaults = context.container.defaults
         AppLaunchBootstrap.context = .init(
@@ -65,7 +72,7 @@ public struct OpenOatsRootApp: App {
     }
 
     public var body: some Scene {
-        Window("OpenOats", id: "main") {
+        Window(AppBuildIdentity.displayName, id: "main") {
             ContentView(settings: settings)
                 .environment(container)
                 .environment(coordinator)
@@ -102,6 +109,9 @@ public struct OpenOatsRootApp: App {
                 }
                 .onChange(of: settings.knowledgeNetworkMode, initial: true) { _, mode in
                     knowledgePackStore.setNetworkMode(mode)
+                }
+                .onChange(of: settings.sidecastWhiteboardEnabled) {
+                    coordinator.sidecastWhiteboardCoordinator?.settingsChanged()
                 }
                 .onOpenURL { url in
                     guard let command = OpenOatsDeepLink.parse(url) else { return }
@@ -141,7 +151,7 @@ public struct OpenOatsRootApp: App {
         )
         .commands {
             CommandGroup(after: .appInfo) {
-                if case .live = container.mode {
+                if case .live = container.mode, AppUpdaterController.updatesEnabled {
                     CheckForUpdatesView(updater: updaterController.updater)
 
                     Divider()
@@ -261,7 +271,11 @@ extension OpenOatsRootApp {
         container.ensureViewServicesInitialized(settings: settings, coordinator: coordinator)
         let controller = whiteboardWindowController ?? SidecastWhiteboardWindowController(
             model: coordinator.sidecastWhiteboardCoordinator?.model ?? SidecastWhiteboardModel(),
-            corpusService: coordinator.sidecastWhiteboardCoordinator?.corpusService ?? SidecastCorpusService(),
+            knowledgePackStore: knowledgePackStore,
+            onChoosePack: { folder in
+                Task { await coordinator.sidecastWhiteboardCoordinator?.selectPack(folder) }
+            },
+            onOpenSaved: { Task { await coordinator.sidecastWhiteboardCoordinator?.openLastSavedBoard() } },
             // WB-5/I6: Clear must also discard the coordinator's
             // orchestrator queue/in-flight work, not just the board — see
             // `SidecastWhiteboardCoordinator.clear()`.

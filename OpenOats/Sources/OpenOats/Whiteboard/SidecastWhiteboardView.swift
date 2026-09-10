@@ -2,18 +2,14 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Native SwiftUI port of the bench's whiteboard page (`tools/sidecast-debug/index.html`
-/// + `src/ui.ts` + `src/main.ts`), narrowed to what WB-3 needs: the board,
-/// the status strip, the corpus picker, and export. The bench's left
-/// settings rail (LLM provider/key/model) and its YouTube source dock are
-/// intentionally not ported here — this native app configures its LLM
-/// elsewhere in Settings, and there is no video-source concept in the live
-/// meeting flow. No `LiveSessionController` wiring — that is WB-4; today
-/// this view only drives the corpus picker/read and renders whatever
-/// `SidecastWhiteboardModel` already holds.
+/// Quiet presenter view of accepted KnowledgePack results, with source
+/// inspection, session history, and explicit uncertainty. It owns no model
+/// calls or independent corpus ingestion.
 struct SidecastWhiteboardView: View {
     let model: SidecastWhiteboardModel
-    let corpusService: SidecastCorpusService
+    let knowledgePackStore: KnowledgePackStore
+    let onChoosePack: (URL) -> Void
+    let onOpenSaved: () -> Void
     /// WB-5/I6: the Clear button's action, injected by
     /// `SidecastWhiteboardWindowController` rather than this view calling
     /// `model.clear()` directly — clearing must also discard whatever the
@@ -22,14 +18,14 @@ struct SidecastWhiteboardView: View {
     /// doc comment for what the production closure actually does.
     let onClear: () -> Void
 
-    @State private var corpusStatusText = SidecastWhiteboardView.noCorpusMessage
+    @State private var corpusStatusText = ""
     @State private var corpusStatusIsError = false
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    static let noCorpusMessage = "No corpus loaded — answers fall back to general knowledge."
+    static let noCorpusMessage = "No KnowledgePack loaded — general-knowledge answers are disabled."
     static let emptyBoardHint =
-        "Grounded answers appear here as the conversation gives the board something worth saying. Nothing is echoed back — only formed responses drawn from the loaded source."
+        "Prepared answers and corpus checks appear when a question or claim matches the loaded pack. Silence can mean a question was not recognized; it does not mean the claim was verified."
 
     private static let atBottomThreshold: CGFloat = 32
     private static let topFadeHeight: CGFloat = 42
@@ -45,7 +41,6 @@ struct SidecastWhiteboardView: View {
         }
         .frame(minWidth: 480, minHeight: 360)
         .background(Color.whiteboardBackground)
-        .task { await loadSavedCorpusIfAny() }
     }
 
     // MARK: - Status strip
@@ -71,29 +66,44 @@ struct SidecastWhiteboardView: View {
 
     private var headerControls: some View {
         VStack(alignment: .leading, spacing: 6) {
+            if let message = model.storageStatusLine {
+                Text(message).font(.caption).foregroundStyle(Color.whiteboardError)
+            }
             HStack(spacing: 6) {
-                Button("Choose Corpus…") { pickCorpus() }
+                Button("Choose KnowledgePack…") { pickCorpus() }
                 Button("Clear") { onClear() }
                 Spacer()
-                Button("Export .txt") { exportText() }
-                Button("Export .json") { exportJSON() }
+                Menu("History & export") {
+                    Button("Open last saved") { onOpenSaved() }
+                    Button("Export .txt") { exportText() }
+                    Button("Export .json") { exportJSON() }
+                }.fixedSize()
             }
             .font(.system(size: 12))
+
+            Text("Sharing your entire display may expose these notes. Share only your presentation window and verify with a participant.")
+                .font(.caption2)
+                .foregroundStyle(Color.whiteboardMuted)
+                .accessibilityIdentifier("whiteboard.shareWarning")
 
             // Always visible, even mid-session — a silently dead corpus once
             // cost an entire bench run (see the bench's own comment on
             // `readCorpus`'s catch block, `main.ts`).
-            Text(corpusStatusText)
+            Text(corpusStatusText.isEmpty ? packStatusText : corpusStatusText)
                 .font(.system(size: 10.5))
                 .foregroundStyle(corpusStatusIsError ? Color.whiteboardError : Color.whiteboardMuted)
                 .lineLimit(1)
                 .truncationMode(.middle)
 
-            // The live coordinator's own periodic corpus-refresh status
-            // (WB-4/WB-5) — distinct from `corpusStatusText` above, which
-            // only covers this view's own interactive picker/initial-load
-            // flow. `nil` (nothing rendered) whenever the coordinator has
-            // nothing to report, e.g. the feature flag is off.
+            // Authoritative lifecycle/readiness status from the coordinator.
+            if case .loaded = knowledgePackStore.state, let pack = knowledgePackStore.selectedPack {
+                DisclosureGroup("Preparation readiness") {
+                    Text(WhiteboardPackReadiness(pack: pack).summary)
+                    Text("Local prepared-question/claim detection only; no open-ended model listener. Sources were validated on load. Reload the pack after editing source files.")
+                }
+                .font(.caption2)
+                .foregroundStyle(Color.whiteboardMuted)
+            }
             if let corpusStatusLine = model.corpusStatusLine {
                 Text(corpusStatusLine)
                     .font(.system(size: 10.5))
@@ -198,41 +208,24 @@ struct SidecastWhiteboardView: View {
     // MARK: - Corpus
 
     private func pickCorpus() {
-        guard let url = SidecastCorpusBookmark.pick() else { return }
-        Task { await readCorpus(from: url) }
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.message = "Choose a validated KnowledgePack containing manifest.json. Prepare loose documents in the Knowledge Review workflow first."
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        corpusStatusText = ""
+        corpusStatusIsError = false
+        onChoosePack(url)
     }
 
-    private func loadSavedCorpusIfAny() async {
-        guard let url = SidecastCorpusBookmark.resolve() else { return }
-        await readCorpus(from: url)
-    }
-
-    private func readCorpus(from url: URL) async {
-        do {
-            let state = try await corpusService.read(folder: url)
-            corpusStatusIsError = false
-            corpusStatusText =
-                state.files.isEmpty
-                ? "Folder read, but it holds no .md/.txt/.csv files — run the prep prompt first."
-                : Self.describeCorpus(state)
-        } catch {
-            // Always visible, in red — see `headerControls`'s comment.
-            corpusStatusIsError = true
-            corpusStatusText = "Corpus unreadable — \(error.localizedDescription)"
+    private var packStatusText: String {
+        switch knowledgePackStore.state {
+        case .idle: Self.noCorpusMessage
+        case .loading: "Validating KnowledgePack…"
+        case .failed: "KnowledgePack unavailable — no answers will use the previous corpus."
+        case .loaded(_, let summary): "\(summary.title) · \(summary.sourceCount) sources · \(summary.responseCardCount) prepared answers"
         }
-    }
-
-    /// Port of the bench's `describeCorpus` (`main.ts`).
-    private static func describeCorpus(_ state: SidecastCorpusState) -> String {
-        let names = state.files.map(\.name)
-        let head = names.prefix(2).joined(separator: ", ")
-        let more = names.count > 2 ? " +\(names.count - 2) more" : ""
-        let skippedCount = state.skipped.count
-        let skippedText =
-            skippedCount > 0 ? " · \(skippedCount) non-text file\(skippedCount == 1 ? "" : "s") skipped" : ""
-        let kChars = Int((Double(state.totalChars) / 1000).rounded())
-        let readAt = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .short)
-        return "\(head)\(more) · \(kChars)k chars\(skippedText) · read \(readAt)"
     }
 
     // MARK: - Export
@@ -277,6 +270,7 @@ struct SidecastWhiteboardView: View {
 private struct NoteRow: View {
     let model: SidecastWhiteboardModel
     let note: SidecastWhiteboardModel.DisplayNote
+    @State private var evidenceExpanded = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
@@ -285,9 +279,41 @@ private struct NoteRow: View {
                 .tracking(0.3)
                 .foregroundStyle(Color.whiteboardMuted)
             Text(note.answer)
+                .accessibilityIdentifier("whiteboard.answer")
                 .font(.system(size: 20))
                 .lineSpacing(6)
                 .foregroundStyle(Color.whiteboardInk)
+            if let evidence = note.evidence {
+                Text("\(evidence.evidenceState.overlayLabel)\(evidence.isProvisional ? " · Provisional" : "")\(note.isSuperseded ? " · Historical/superseded" : "")")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                // The whole label is actionable, including by keyboard and
+                // accessibility clients, rather than just a tiny chevron.
+                Button {
+                    evidenceExpanded.toggle()
+                } label: {
+                    Label("Evidence · \(evidence.sources.count) source(s)",
+                          systemImage: evidenceExpanded ? "chevron.down" : "chevron.right")
+                        .padding(.vertical, 3)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .font(.caption)
+                .accessibilityIdentifier("whiteboard.evidence")
+                .accessibilityValue(evidenceExpanded ? "Expanded" : "Collapsed")
+                if evidenceExpanded {
+                    Text("Pack: \(evidence.packID) · \(evidence.packContentHash.prefix(12))")
+                        .font(.caption2.monospaced())
+                    ForEach(evidence.sources) { source in
+                        VStack(alignment: .leading, spacing: 4) {
+                            if let url = source.fileURL { Link("\(source.title) · \(source.locator)", destination: url) }
+                            else { Text("\(source.title) · \(source.locator)") }
+                            Text(source.excerpt).font(.caption).textSelection(.enabled)
+                                .accessibilityIdentifier("whiteboard.sourceExcerpt")
+                        }.padding(.vertical, 4)
+                    }
+                }
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 8)

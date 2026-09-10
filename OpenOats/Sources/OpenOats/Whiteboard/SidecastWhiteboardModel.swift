@@ -1,54 +1,50 @@
 import Foundation
 import Observation
 
-/// Live view-model for the whiteboard window: the rolling note stream, the
-/// status strip's state, and export. Owns no session/orchestrator wiring —
-/// that lands in WB-4; every mutation for WB-3 happens through the small,
-/// directly-testable API below (`receive(note:)`, the `noteDiag...` family,
-/// the auto-scroll transitions), so a future `LiveSessionController` only
-/// has to call these same methods rather than reach into stored state.
-///
-/// Swift port of the bench's whiteboard state (`main.ts`'s module-level
-/// `streamNotes`/`diag`/`isAutoScroll`/`answeringCount`, plus `ui.ts`'s
-/// `WhiteboardNote`), narrowed to what the native corpus-only flow needs —
-/// every note here is a grounded corpus answer; the bench's broader
-/// "anticipation" persona-tinted note kind never appears on this board.
+struct WhiteboardEvidenceSnapshot: Codable, Equatable, Sendable {
+    let sessionID: String
+    let eventID: String
+    let revisionSequence: Int
+    let packID: String
+    let packContentHash: String
+    let evidenceState: KnowledgeEvidenceState
+    let sources: [KnowledgeOverlaySource]
+    let isProvisional: Bool
+    let engine: String
+}
+
+/// Presenter state and export for the evidence-backed coordinator. Evidence
+/// states include uncertainty and abstention, not just factual answers.
 @MainActor
 @Observable
 final class SidecastWhiteboardModel {
-    /// One note on the board: the question the listener spotted and the
-    /// grounded answer the orchestrator produced, with the absolute
-    /// wall-clock time it landed. Swift port of the bench's `WhiteboardNote`
-    /// (`ui.ts`), narrowed to the fields the native board shows.
-    struct DisplayNote: Identifiable, Equatable, Sendable {
+    /// A displayed question/result pair with an immutable evidence snapshot.
+    /// Evidence is optional solely for the retained prototype model tests.
+    struct DisplayNote: Codable, Identifiable, Equatable, Sendable {
         let id: UUID
         let question: String
         let answer: String
         let timestamp: Date
+        let evidence: WhiteboardEvidenceSnapshot?
+        var isSuperseded = false
 
-        init(id: UUID = UUID(), question: String, answer: String, timestamp: Date) {
+        init(id: UUID = UUID(), question: String, answer: String, timestamp: Date, evidence: WhiteboardEvidenceSnapshot? = nil) {
             self.id = id
             self.question = question
             self.answer = answer
             self.timestamp = timestamp
+            self.evidence = evidence
         }
     }
 
-    /// Status-strip state. A deliberate reduction of the bench's many
-    /// `setStatus(state, text)` call sites (`main.ts`'s `refreshIdleStatus`)
-    /// down to the shapes WB-3 needs without a live session driving it —
-    /// WB-4 maps real `LiveSessionController` states onto these.
+    /// Lifecycle status supplied by the coordinator.
     enum Status: Equatable {
         case ready
         case live
         case answering(count: Int)
         case paused
         case error(String)
-        /// The live session that was feeding this board has stopped. Distinct
-        /// from `.paused` (a bench video-scrubber concept this app has no
-        /// equivalent of, per WB-3's own doc) — WB-4's session-lifecycle
-        /// mapping needs a state for "nothing more will arrive, but the board
-        /// itself and any answers still in flight are unaffected."
+        /// Accepted notes remain available; unfinished work cannot publish.
         case ended
     }
 
@@ -64,20 +60,14 @@ final class SidecastWhiteboardModel {
     private(set) var notes: [DisplayNote] = []
     var sessionStart: Date?
     var status: Status = .ready
-    /// The configured LLM model id, for the export payload's optional
-    /// `model` field. Not read from `AppSettings` directly — the model has
-    /// no settings dependency of its own — the window controller (or
-    /// WB-4's live wiring) passes it in when it is trivially reachable.
+    /// Legacy prototype export metadata. Production exports identify the
+    /// actual local engine in each evidence snapshot, not a settings choice.
     var configuredModel: String?
 
     private(set) var isAutoScroll = true
 
-    /// Set by the live coordinator (WB-4) when a corpus refresh fails —
-    /// never fatal, the session keeps running; this is purely informational.
-    /// `nil` when the most recent refresh (if any) succeeded. Distinct from
-    /// the window's own interactive picker status (`SidecastWhiteboardView`'s
-    /// private `corpusStatusText`), which covers the "Choose Corpus…"/
-    /// initial-load flow rather than the coordinator's periodic refresh.
+    /// Authoritative readiness. A requested pack that fails validation pauses
+    /// assistance; it must not silently keep answering from the previous pack.
     var corpusStatusLine: String?
 
     /// True when `corpusStatusLine` describes a failure rather than
@@ -86,6 +76,7 @@ final class SidecastWhiteboardModel {
     /// `corpusStatusIsError` pair. Meaningless while `corpusStatusLine`
     /// is `nil`; always `false` there (see `clear()`).
     var corpusStatusLineIsError = false
+    var storageStatusLine: String?
 
     private(set) var heardCount = 0
     private(set) var listensCount = 0
@@ -112,6 +103,43 @@ final class SidecastWhiteboardModel {
     func receive(note: SidecastAnsweredNote) {
         notes.append(DisplayNote(question: note.question, answer: note.answer, timestamp: note.timestamp))
         noteDiagAnswer()
+    }
+
+    /// Production entry point: only the common evidence-gated result type.
+    func receive(card: KnowledgeOverlayCard, question: String, timestamp: Date,
+                 sessionID: String, packID: String, packContentHash: String) {
+        let evidence = WhiteboardEvidenceSnapshot(
+            sessionID: sessionID, eventID: card.eventID, revisionSequence: card.revisionSequence,
+            packID: packID, packContentHash: packContentHash, evidenceState: card.evidenceState,
+            sources: card.sources, isProvisional: card.isProvisional, engine: "local-knowledge-pack")
+        if let index = notes.firstIndex(where: { $0.evidence?.eventID == card.eventID && $0.evidence?.sessionID == sessionID }) {
+            guard (notes[index].evidence?.revisionSequence ?? 0) <= card.revisionSequence else { return }
+            notes[index] = DisplayNote(id: notes[index].id, question: question, answer: card.answer,
+                                      timestamp: timestamp, evidence: evidence)
+        } else {
+            notes.append(DisplayNote(question: question, answer: card.answer, timestamp: timestamp, evidence: evidence))
+            noteDiagAnswer()
+        }
+    }
+
+    func supersede(eventID: String) {
+        for index in notes.indices where notes[index].evidence?.eventID == eventID {
+            notes[index].isSuperseded = true
+        }
+    }
+
+    func supersedeAll() {
+        for index in notes.indices { notes[index].isSuperseded = true }
+    }
+
+    func restore(_ archive: WhiteboardSessionArchive) {
+        clear()
+        notes = archive.notes
+        sessionStart = archive.startedAt
+        configuredModel = nil
+        status = .ended
+        answersCount = notes.count
+        corpusStatusLine = "Saved session · historical evidence; source files may have changed."
     }
 
     /// Resets the board to a fresh, empty session. `configuredModel` is
@@ -240,6 +268,12 @@ final class SidecastWhiteboardModel {
         for note in notes {
             lines.append("[\(sessionRelativeTime(for: note.timestamp))] \(note.question)")
             lines.append(note.answer)
+            if let evidence = note.evidence {
+                lines.append("\(evidence.evidenceState.overlayLabel) · \(evidence.packID) · \(evidence.packContentHash)")
+                if evidence.isProvisional { lines.append("Provisional — question may change.") }
+                if note.isSuperseded { lines.append("Historical/superseded — verify current context.") }
+                for source in evidence.sources { lines.append("Source: \(source.title) · \(source.locator)\n\(source.excerpt)") }
+            }
             lines.append("")
         }
         return lines.joined(separator: "\n")
@@ -260,6 +294,8 @@ final class SidecastWhiteboardModel {
         let timestamp: String
         let question: String
         let text: String
+        let evidence: WhiteboardEvidenceSnapshot?
+        let isSuperseded: Bool
     }
 
     private struct ExportPayload: Encodable {
@@ -284,7 +320,8 @@ final class SidecastWhiteboardModel {
             exportedAt: Self.exportedAtFormatter.string(from: now),
             model: configuredModel,
             notes: notes.map {
-                ExportNote(timestamp: sessionRelativeTime(for: $0.timestamp), question: $0.question, text: $0.answer)
+                ExportNote(timestamp: sessionRelativeTime(for: $0.timestamp), question: $0.question, text: $0.answer,
+                           evidence: $0.evidence, isSuperseded: $0.isSuperseded)
             },
             totalNotes: notes.count
         )

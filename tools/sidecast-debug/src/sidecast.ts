@@ -8,9 +8,11 @@ import type {
 } from "./types.ts";
 import { INTENSITY_CONFIG, CADENCE_COOLDOWN_SECONDS } from "./types.ts";
 import type { ContextWindow } from "./transcript.ts";
+import { GenerationScope } from "./generation-scope.ts";
 
 // --- State ---
-let lastGenerationTime = 0;
+let lastGenerationTime = Number.NEGATIVE_INFINITY;
+const generationScope = new GenerationScope();
 let lastSpokenAtByPersona: Record<string, number> = {};
 let recentBubbleTexts: string[] = [];
 let currentMessages: SidecastMessage[] = [];
@@ -20,7 +22,8 @@ export function getMessages(): SidecastMessage[] {
 }
 
 export function clearState(): void {
-  lastGenerationTime = 0;
+  generationScope.invalidate();
+  lastGenerationTime = Number.NEGATIVE_INFINITY;
   lastSpokenAtByPersona = {};
   recentBubbleTexts = [];
   currentMessages = [];
@@ -104,7 +107,8 @@ async function callLLM(
   system: string,
   user: string,
   settings: AppSettings,
-  webSearch: boolean = false
+  webSearch: boolean = false,
+  signal?: AbortSignal
 ): Promise<LLMResult> {
   let url: string;
   const headers: Record<string, string> = {
@@ -161,8 +165,9 @@ async function callLLM(
 
   console.log(`[sidecast] calling ${settings.llmProvider} (${settings.model}) — ${system.length + user.length} chars`);
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), LLM_TIMEOUT_MS);
+  const timeoutSignal = AbortSignal.timeout(LLM_TIMEOUT_MS);
+  const requestSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
+  requestSignal.throwIfAborted();
 
   let res: Response;
   try {
@@ -170,15 +175,13 @@ async function callLLM(
       method: "POST",
       headers,
       body: JSON.stringify(body),
-      signal: controller.signal,
+      signal: requestSignal,
     });
   } catch (err: any) {
-    if (err.name === "AbortError") {
+    if (timeoutSignal.aborted && !signal?.aborted) {
       throw new Error(`LLM request timed out after ${LLM_TIMEOUT_MS / 1000}s`);
     }
     throw err;
-  } finally {
-    clearTimeout(timeout);
   }
 
   if (!res.ok) {
@@ -204,6 +207,7 @@ async function callLLM(
     }
   }
 
+  requestSignal.throwIfAborted();
   return { content, citations };
 }
 
@@ -211,9 +215,10 @@ async function callLLM(
 export async function llmCall(
   systemPrompt: string,
   userPrompt: string,
-  settings: AppSettings
+  settings: AppSettings,
+  signal?: AbortSignal
 ): Promise<string> {
-  const result = await callLLM(systemPrompt, userPrompt, settings);
+  const result = await callLLM(systemPrompt, userPrompt, settings, false, signal);
   return result.content;
 }
 
@@ -355,8 +360,12 @@ function filterAndRank(
 export async function generate(
   context: ContextWindow,
   currentTime: number,
-  settings: AppSettings
+  settings: AppSettings,
+  signal?: AbortSignal
 ): Promise<GenerationResult> {
+  const generation = generationScope.snapshot();
+  const requestSignal = signal ? AbortSignal.any([signal, generation]) : generation;
+  requestSignal.throwIfAborted();
   const intensityCfg = INTENSITY_CONFIG[settings.intensity];
 
   // Cooldown check
@@ -386,7 +395,8 @@ export async function generate(
   const enabledPersonas = settings.personas.filter((p) => p.isEnabled);
   const webSearch = enabledPersonas.some((p) => p.webSearchEnabled);
 
-  const llmResult = await callLLM(system, user, settings, webSearch);
+  const llmResult = await callLLM(system, user, settings, webSearch, requestSignal);
+  requestSignal.throwIfAborted();
   const rawResponse = llmResult.content;
   const citations = llmResult.citations;
 

@@ -98,10 +98,24 @@ final class MeetingDetectorTests: XCTestCase {
 
     // MARK: - Lifecycle Tests
 
+    func testInjectedAppInventoryRecognizesTeamsAndIgnoresUnrelatedApps() async {
+        let audio = MockAudioSignalSource()
+        let camera = MockCameraSignalSource()
+        let detector = MeetingDetector(audioSource: audio, cameraSource: camera, runningApplications: {
+            [MeetingApp(bundleID: "com.example.editor", name: "Editor"),
+             MeetingApp(bundleID: "com.microsoft.teams2", name: "Microsoft Teams")]
+        })
+        let (_, _, app) = await detector.queryCurrentState()
+        XCTAssertEqual(app?.bundleID, "com.microsoft.teams2")
+        XCTAssertEqual(app?.name, "Microsoft Teams")
+        audio.finish()
+        camera.finish()
+    }
+
     func testStartIsIdempotent() async {
         let audio = MockAudioSignalSource()
         let camera = MockCameraSignalSource()
-        let detector = MeetingDetector(audioSource: audio, cameraSource: camera)
+        let detector = MeetingDetector(audioSource: audio, cameraSource: camera, runningApplications: { [] })
 
         await detector.start()
         await detector.start() // second call should be a no-op
@@ -117,7 +131,7 @@ final class MeetingDetectorTests: XCTestCase {
     func testStopClearsState() async {
         let audio = MockAudioSignalSource()
         let camera = MockCameraSignalSource()
-        let detector = MeetingDetector(audioSource: audio, cameraSource: camera)
+        let detector = MeetingDetector(audioSource: audio, cameraSource: camera, runningApplications: { [] })
 
         await detector.start()
         await detector.stop()
@@ -136,7 +150,7 @@ final class MeetingDetectorTests: XCTestCase {
     func testMicDeactivationWhileInactiveIsNoOp() async throws {
         let audio = MockAudioSignalSource()
         let camera = MockCameraSignalSource()
-        let detector = MeetingDetector(audioSource: audio, cameraSource: camera)
+        let detector = MeetingDetector(audioSource: audio, cameraSource: camera, runningApplications: { [] })
         let collector = EventCollector()
 
         let stream = await detector.events
@@ -163,7 +177,7 @@ final class MeetingDetectorTests: XCTestCase {
     func testMicAloneDoesNotTriggerDetection() async throws {
         let audio = MockAudioSignalSource()
         let camera = MockCameraSignalSource()
-        let detector = MeetingDetector(audioSource: audio, cameraSource: camera)
+        let detector = MeetingDetector(audioSource: audio, cameraSource: camera, runningApplications: { [] })
         let collector = EventCollector()
 
         let stream = await detector.events
@@ -196,7 +210,7 @@ final class MeetingDetectorTests: XCTestCase {
     func testCameraOnTriggersInstantDetection() async throws {
         let audio = MockAudioSignalSource()
         let camera = MockCameraSignalSource()
-        let detector = MeetingDetector(audioSource: audio, cameraSource: camera)
+        let detector = MeetingDetector(audioSource: audio, cameraSource: camera, runningApplications: { [] })
         let collector = EventCollector()
 
         let stream = await detector.events
@@ -237,7 +251,7 @@ final class MeetingDetectorTests: XCTestCase {
     func testCameraOffWhileMicAppActiveContinues() async throws {
         let audio = MockAudioSignalSource()
         let camera = MockCameraSignalSource()
-        let detector = MeetingDetector(audioSource: audio, cameraSource: camera)
+        let detector = MeetingDetector(audioSource: audio, cameraSource: camera, runningApplications: { [] })
         let collector = EventCollector()
 
         let stream = await detector.events
@@ -292,7 +306,7 @@ final class MeetingDetectorTests: XCTestCase {
     func testMicOffWhileCameraActiveSessionContinues() async throws {
         let audio = MockAudioSignalSource()
         let camera = MockCameraSignalSource()
-        let detector = MeetingDetector(audioSource: audio, cameraSource: camera)
+        let detector = MeetingDetector(audioSource: audio, cameraSource: camera, runningApplications: { [] })
         let collector = EventCollector()
 
         let stream = await detector.events
@@ -335,7 +349,7 @@ final class MeetingDetectorTests: XCTestCase {
     func testBothOffEndsSession() async throws {
         let audio = MockAudioSignalSource()
         let camera = MockCameraSignalSource()
-        let detector = MeetingDetector(audioSource: audio, cameraSource: camera)
+        let detector = MeetingDetector(audioSource: audio, cameraSource: camera, runningApplications: { [] })
         let collector = EventCollector()
 
         let stream = await detector.events
@@ -383,7 +397,7 @@ final class MeetingDetectorTests: XCTestCase {
     func testQueryCurrentStateIncludesCamera() async {
         let audio = MockAudioSignalSource()
         let camera = MockCameraSignalSource()
-        let detector = MeetingDetector(audioSource: audio, cameraSource: camera)
+        let detector = MeetingDetector(audioSource: audio, cameraSource: camera, runningApplications: { [] })
 
         await detector.start()
 
@@ -422,7 +436,10 @@ final class MeetingDetectorTests: XCTestCase {
         let detector = MeetingDetector(
             audioSource: audio,
             cameraSource: camera,
-            customBundleIDs: ["com.example.custom-meeting-app"]
+            customBundleIDs: ["com.example.custom-meeting-app"],
+            runningApplications: {
+                [MeetingApp(bundleID: "com.example.custom-meeting-app", name: "Synthetic Meeting")]
+            }
         )
 
         // Just verify construction succeeds and basic operations work.
@@ -430,6 +447,8 @@ final class MeetingDetectorTests: XCTestCase {
 
         let active = await detector.isActive
         XCTAssertFalse(active, "Should not be active before any signals")
+        let (_, _, app) = await detector.queryCurrentState()
+        XCTAssertEqual(app?.bundleID, "com.example.custom-meeting-app")
 
         await detector.stop()
         audio.finish()

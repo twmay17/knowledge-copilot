@@ -47,4 +47,4 @@ jobs:
         run: bash "${{ github.workspace }}/scripts/lint_swift.sh"
 
       - name: Run Swift tests
-        run: swift test --skip MeetingDetectorTests
+        run: swift test

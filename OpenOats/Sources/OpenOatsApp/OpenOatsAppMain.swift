@@ -3,12 +3,13 @@ import SwiftUI
 import OpenOatsKit
 
 @main
-struct OpenOatsApp: App {
-    var body: some Scene {
-        OpenOatsRootApp(
+enum OpenOatsApp {
+    @MainActor
+    static func main() {
+        OpenOatsRootApp.run(
             profileRegistry: KnowledgeDomainProfileRegistry(
                 profiles: [HospitalityDomainProfile()]
             )
-        ).body
+        )
     }
 }

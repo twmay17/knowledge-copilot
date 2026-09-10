@@ -234,11 +234,11 @@ public enum AudioCaptureVerifier {
     do {
       let file = try AVAudioFile(forReading: url)
       let declaredRate = file.processingFormat.sampleRate
-      let effectiveRate = effectiveSampleRate(
-        declaredSampleRate: declaredRate,
-        anchors: anchors,
-        storedEffectiveSampleRate: storedEffectiveSampleRate
-      )
+      // Frame progression is the evidence under test, not an independent clock
+      // calibration. Deriving a rate from these same anchors can turn a muted or
+      // consistently dropping stream into 100% coverage at a fictitious low rate.
+      // Certify against the file's declared rate; fail closed on known mismatches.
+      let effectiveRate = declaredRate
       let metrics = try sampleMetrics(file: file, audibleThreshold: policy.minimumAudiblePeak)
       let duration = effectiveRate > 0 ? Double(file.length) / effectiveRate : nil
       let coverage: Double? =
@@ -250,6 +250,15 @@ public enum AudioCaptureVerifier {
       let maximumGap = maximumUnrecoveredGap(anchors: anchors, effectiveSampleRate: effectiveRate)
 
       var issues: [String] = []
+      if let storedEffectiveSampleRate,
+        !storedEffectiveSampleRate.isFinite
+          || abs(storedEffectiveSampleRate - declaredRate) / declaredRate > 0.05
+      {
+        issues.append(
+          "Stored sample-rate estimate differs from the file rate by more than 5% or is invalid. "
+            + "Independent clock calibration is required; timing anchors cannot certify their own rate."
+        )
+      }
       if let coverage, coverage < policy.minimumTrackCoverageRatio {
         issues.append(
           String(
@@ -451,32 +460,6 @@ public enum AudioCaptureVerifier {
     sumSquares += Double(value * value)
     sampleCount += 1
     if magnitude >= threshold { audibleSampleCount += 1 }
-  }
-
-  private static func effectiveSampleRate(
-    declaredSampleRate: Double,
-    anchors: [TimingAnchorFile],
-    storedEffectiveSampleRate: Double?
-  ) -> Double {
-    let rates = zip(anchors, anchors.dropFirst()).compactMap { first, second -> Double? in
-      let wallSeconds = second.date.timeIntervalSince(first.date)
-      let frames = second.frame - first.frame
-      guard wallSeconds > 0, frames > 0 else { return nil }
-      return Double(frames) / wallSeconds
-    }.filter { $0 > 1_000 }
-
-    if !rates.isEmpty {
-      let sorted = rates.sorted()
-      let upperQuartileIndex = min(
-        sorted.count - 1,
-        Int(ceil(Double(sorted.count - 1) * 0.75))
-      )
-      return sorted[upperQuartileIndex]
-    }
-    if let storedEffectiveSampleRate, storedEffectiveSampleRate > 1_000 {
-      return storedEffectiveSampleRate
-    }
-    return declaredSampleRate
   }
 
   private static func maximumUnrecoveredGap(

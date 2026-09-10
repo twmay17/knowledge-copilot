@@ -1,12 +1,15 @@
+import type { PlaybackSource } from "./types.ts";
+
 type PlayerCallback = (currentTime: number) => void;
 
-export class YouTubePlayer {
+export class YouTubePlayer implements PlaybackSource {
   private player: YT.Player | null = null;
   private container: HTMLElement;
   private onTimeUpdate: PlayerCallback;
   private onSeek: PlayerCallback;
   private pollInterval: number | null = null;
   private lastReportedTime = -1;
+  private loadGeneration = 0;
 
   constructor(
     containerId: string,
@@ -19,7 +22,10 @@ export class YouTubePlayer {
   }
 
   async loadVideo(videoId: string): Promise<void> {
+    const generation = ++this.loadGeneration;
     await this.ensureAPI();
+    if (generation !== this.loadGeneration) return;
+    this.lastReportedTime = -1;
 
     if (this.player) {
       this.player.destroy();
@@ -40,10 +46,11 @@ export class YouTubePlayer {
         playerVars: { autoplay: 0, modestbranding: 1, rel: 0 },
         events: {
           onReady: () => {
-            this.startPolling();
+            if (generation === this.loadGeneration) this.startPolling();
             resolve();
           },
           onStateChange: (event: YT.OnStateChangeEvent) => {
+            if (generation !== this.loadGeneration) return;
             if (event.data === YT.PlayerState.PLAYING) {
               this.startPolling();
             } else {
@@ -62,6 +69,13 @@ export class YouTubePlayer {
   seekTo(seconds: number): void {
     this.player?.seekTo(seconds, true);
     this.onSeek(seconds);
+  }
+
+  /** Yield the clock — called when a pasted transcript takes over playback. */
+  stop(): void {
+    this.loadGeneration++;
+    this.player?.pauseVideo();
+    this.stopPolling();
   }
 
   private startPolling(): void {

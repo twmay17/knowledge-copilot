@@ -878,6 +878,11 @@ private struct IntelligenceSettingsTab: View {
                 }
 
                 Section("Knowledge Copilot Pack") {
+                    Toggle("Enable experimental whiteboard", isOn: $settings.sidecastWhiteboardEnabled)
+                    Text("Opt-in development feature. Use synthetic documents until the evidence, session-isolation and screen-sharing verification gates pass. Local-only pack answers remain available in the evidence overlay.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+
                     Text("Experimental. Choose one validated, versioned evidence pack for grounded live answers. This is separate from the loose-document Knowledge Base above.")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)

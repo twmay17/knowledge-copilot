@@ -3,6 +3,9 @@ import Sparkle
 
 @MainActor
 final class AppUpdaterController {
+    // Fork distribution is not configured yet. Both automatic and manual checks
+    // stay disabled until the fork-owned feed, identity and signing chain pass M4.
+    static let updatesEnabled = false
     let updater: SPUUpdater
     private let userDriver: OpenOatsUserDriver
     private let delegateProxy: AppUpdaterDelegateProxy
@@ -20,7 +23,7 @@ final class AppUpdaterController {
         )
         delegateProxy.owner = self
 
-        guard startUpdater else { return }
+        guard startUpdater, Self.updatesEnabled else { return }
 
         // Sparkle requires a bundled app with an Info.plist (feed URL, version,
         // etc.). When running unbundled (e.g. via `swift run`), starting the
@@ -43,6 +46,7 @@ final class AppUpdaterController {
     }
 
     func checkForUpdatesFromMenuBar() {
+        guard Self.updatesEnabled else { return }
         let launchedFromAccessoryMode = NSApp.activationPolicy() == .accessory
         shouldRestoreAccessoryModeAfterUpdateCycle = launchedFromAccessoryMode
 

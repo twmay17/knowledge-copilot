@@ -515,13 +515,10 @@ final class AudioRecorder: @unchecked Sendable {
         let outFrames = AVAudioFrameCount(Double(frameCount) * ratio) + 1
         guard let outBuf = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: outFrames) else { return [] }
 
-        var consumed = false
+        let provider = SingleUseAudioConverterInput(converterInput)
         var convError: NSError?
         converter.convert(to: outBuf, error: &convError) { _, status in
-            if consumed { status.pointee = .endOfStream; return nil }
-            consumed = true
-            status.pointee = .haveData
-            return converterInput
+            provider.next(status: status, exhausted: .endOfStream)
         }
 
         return extractSamples(from: outBuf)

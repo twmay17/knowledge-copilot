@@ -167,6 +167,7 @@ final class AppCoordinator {
 
     /// The active finalization task, retained so the timeout can cancel it.
     private var finalizationTask: Task<Void, Never>?
+    private var startupTask: Task<Void, Never>?
 
     /// Retained reference to the active settings for side effects.
     var activeSettings: AppSettings?
@@ -227,9 +228,12 @@ final class AppCoordinator {
 
         switch event {
         case .userStarted(let metadata):
-            Task { await liveSessionController?.startTranscription(metadata: metadata, settings: settings) }
+            startupTask = Task { await liveSessionController?.startTranscription(metadata: metadata, settings: settings) }
 
         case .userStopped:
+            startupTask?.cancel()
+            startupTask = nil
+            transcriptionEngine?.cancelPendingStartup()
             finalizationTimeoutTask = Task {
                 try? await Task.sleep(for: .seconds(30))
                 guard !Task.isCancelled else { return }
@@ -244,6 +248,9 @@ final class AppCoordinator {
             }
 
         case .userDiscarded:
+            startupTask?.cancel()
+            startupTask = nil
+            transcriptionEngine?.cancelPendingStartup()
             Task { liveSessionController?.discardSession() }
 
         case .finalizationComplete:

@@ -91,6 +91,14 @@ The report passes only when:
 
 Silence is not treated as a dropout. The verifier compares periodic frame progress with wall-clock progress, so it can distinguish a quiet interval from a capture callback that stopped and never recovered.
 
+Coverage and gap measurements use the CAF file's declared sample rate. Do not infer
+that rate from the same timing gaps being tested: a muted or dropping stream can
+otherwise appear complete at an artificially low rate. A stored rate estimate that
+differs by more than 5% fails closed until independently calibrated. A system-only
+rehearsal with the OpenOats microphone muted is useful functional evidence, but is
+not a passing uninterrupted two-track baseline. See the
+[solo rehearsal audit](reviews/2026-09-10-solo-teams-audit.md) for the regression.
+
 ## Evidence to retain
 
 Retain only what the project needs:

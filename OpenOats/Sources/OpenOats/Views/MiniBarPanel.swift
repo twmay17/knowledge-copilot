@@ -61,6 +61,7 @@ final class MiniBarManager: ObservableObject {
     private var hostingView: NSHostingView<AnyView>?
     let state = MiniBarState()
     var defaults: UserDefaults = .standard
+    var captureSharingType: (NSWindow) -> NSWindow.SharingType = { $0.sharingType }
 
     func show() {
         if panel == nil {
@@ -107,11 +108,10 @@ final class MiniBarManager: ObservableObject {
     func updateHideFromScreenShare(_ enabled: Bool) {
         guard let existing = panel else { return }
         existing.applyHideFromScreenShare(enabled)
-        guard !enabled, existing.sharingType != .readOnly else { return }
+        guard !enabled, captureSharingType(existing) != .readOnly else { return }
 
-        // macOS refuses to make a window capturable again once it has been
-        // excluded (one-way ratchet); rebuild the panel and transplant its
-        // content and placement. MiniBarPanel sets its own autosave name.
+        // Readback refused the setting; rebuild while preserving presentation.
+        // Actual share visibility still requires a capture test.
         let frame = existing.frame
         let wasVisible = existing.isVisible
         let content = existing.contentView

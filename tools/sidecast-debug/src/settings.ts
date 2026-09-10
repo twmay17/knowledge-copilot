@@ -13,7 +13,11 @@ export function loadSettings(): AppSettings {
     try {
       const parsed = JSON.parse(stored);
       // Merge with defaults to handle new fields added after initial save
-      return { ...defaultSettings(), ...parsed };
+      const settings = { ...defaultSettings(), ...parsed, apiKey: "" };
+      // Purge credentials persisted by older versions; keys now live only in
+      // this tab's memory and must never enter presets or localStorage.
+      saveSettings(settings);
+      return settings;
     } catch {
       // Corrupted, return defaults
     }
@@ -22,7 +26,8 @@ export function loadSettings(): AppSettings {
 }
 
 export function saveSettings(settings: AppSettings): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+  const { apiKey: _secret, ...preferences } = settings;
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(preferences));
 }
 
 function defaultSettings(): AppSettings {
@@ -106,7 +111,6 @@ export function exportSettingsJSON(settings: AppSettings): string {
     version: 1,
     exported_from: "sidecast-debug-tool",
     llmProvider: settings.llmProvider,
-    apiKey: settings.apiKey,
     baseURL: settings.baseURL,
     model: settings.model,
     temperature: settings.temperature,

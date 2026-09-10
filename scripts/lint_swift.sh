@@ -13,6 +13,9 @@ cd "$(dirname "$0")/../OpenOats"
 strict_source_paths=(
   Sources/OpenOats/KnowledgePack
   Sources/OpenOats/Utils/SensitiveDataGuard.swift
+  Sources/OpenOats/Whiteboard/SidecastWhiteboardCoordinator.swift
+  Sources/OpenOats/Whiteboard/WhiteboardSessionArchive.swift
+  Sources/OpenOats/Whiteboard/WhiteboardPackReadiness.swift
   Sources/DomainProfiles
   Sources/KnowledgePackTool
   Sources/AudioCaptureVerificationTool
@@ -27,6 +30,7 @@ swift format lint --strict --recursive "${strict_source_paths[@]}"
 # 2-space, but doesn't match the Knowledge* prefix, so it's added explicitly.
 knowledge_test_files=(
   Tests/OpenOatsTests/HospitalityUnderwritingImporterTests.swift
+  Tests/OpenOatsTests/SidecastWhiteboardCoordinatorTests.swift
 )
 knowledge_glob_matches=0
 for f in Tests/OpenOatsTests/Knowledge*.swift; do

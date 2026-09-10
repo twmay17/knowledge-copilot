@@ -137,7 +137,7 @@ actor SidecastQuestionListener {
                 await orchestrator.enqueue(question: question, timestamp: latestAt, retrievalHint: hint)
             }
         } catch {
-            Log.sidecast.error("[listener] failed: \(String(describing: error), privacy: .public)")
+            Log.sidecast.error("[listener] failed; response and transcript omitted")
         }
     }
 }

@@ -1,35 +1,20 @@
 import express from "express";
-// youtube-transcript has broken ESM packaging — import from the ESM bundle directly
-import { fetchTranscript as ytFetchTranscript } from "youtube-transcript/dist/youtube-transcript.esm.js";
+import { fetchTranscriptSeconds } from "./transcript-adapter.js";
 
 const app = express();
 const PORT = 3001;
 
-app.use((_req, res, next) => {
-  res.header("Access-Control-Allow-Origin", "*");
-  next();
-});
-
-interface TranscriptSegment {
-  start: number;
-  duration: number;
-  text: string;
-}
+// Vite proxies same-origin requests. Do not expose transcripts cross-origin.
 
 app.get("/api/transcript", async (req, res) => {
-  const videoId = req.query.v as string;
-  if (!videoId) {
-    res.status(400).json({ error: "Missing ?v= parameter" });
+  const videoId = req.query.v;
+  if (typeof videoId !== "string" || !/^[A-Za-z0-9_-]{11}$/.test(videoId)) {
+    res.status(400).json({ error: "Provide an 11-character video ID in ?v=" });
     return;
   }
 
   try {
-    const raw = await ytFetchTranscript(videoId, { lang: "en" });
-    const segments: TranscriptSegment[] = raw.map((entry: any) => ({
-      start: entry.offset / 1000, // offset is in ms
-      duration: entry.duration / 1000,
-      text: entry.text,
-    }));
+    const segments = await fetchTranscriptSeconds(videoId);
     console.log(`[transcript-proxy] ${videoId}: ${segments.length} segments`);
     res.json({ segments });
   } catch (err: any) {
@@ -38,6 +23,6 @@ app.get("/api/transcript", async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, "127.0.0.1", () => {
   console.log(`[transcript-proxy] listening on http://localhost:${PORT}`);
 });

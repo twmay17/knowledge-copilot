@@ -1,0 +1,4 @@
+{"id":"evidence-location","assertionID":"assertion-location","passageID":"passage-a","relation":"supports"}
+{"id":"evidence-year-a","assertionID":"assertion-year-a","passageID":"passage-a","relation":"supports"}
+{"id":"evidence-year-b","assertionID":"assertion-year-b","passageID":"passage-b","relation":"supports"}
+{"id":"evidence-interpretation","assertionID":"assertion-interpretation","passageID":"passage-interpretation","relation":"contextualizes"}

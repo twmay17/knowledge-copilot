@@ -43,12 +43,8 @@
     <string>public.app-category.productivity</string>
     <key>LSMultipleInstancesProhibited</key>
     <true/>
-    <key>SUFeedURL</key>
-    <string>https://raw.githubusercontent.com/yazinsai/OpenOats/gh-pages/appcast.xml</string>
     <key>SUEnableAutomaticChecks</key>
-    <true/>
-    <key>SUPublicEDKey</key>
-    <string>RMSxoyjk8gEBvqmECGMvBLYQ7Kl7ptbacDBWSbsdgeI=</string>
+    <false/>
     <key>LSUIElement</key>
     <true/>
     <key>NSAppTransportSecurity</key>

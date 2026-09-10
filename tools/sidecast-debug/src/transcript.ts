@@ -1,9 +1,10 @@
 import type { TranscriptSegment, AppSettings } from "./types.ts";
 
 export async function fetchTranscript(
-  videoId: string
+  videoId: string,
+  signal?: AbortSignal
 ): Promise<TranscriptSegment[]> {
-  const res = await fetch(`/api/transcript?v=${videoId}`);
+  const res = await fetch(`/api/transcript?v=${encodeURIComponent(videoId)}`, { signal });
   if (!res.ok) {
     const err = await res.json();
     throw new Error(err.error || "Failed to fetch transcript");
@@ -40,8 +41,10 @@ export interface ContextWindow {
 let runningSummary = "";
 let summaryCoversUpToIndex = -1;
 let summaryInFlight = false;
+let summaryGeneration = 0;
 
 export function resetSummary(): void {
+  summaryGeneration += 1;
   runningSummary = "";
   summaryCoversUpToIndex = -1;
   summaryInFlight = false;
@@ -99,15 +102,18 @@ export async function ensureSummary(
     : `Summarize this conversation so far:\n${transcript}`;
 
   summaryInFlight = true;
+  const generation = summaryGeneration;
   try {
     console.log(`[transcript] summarizing segments ${summarizeFrom}–${windowStart} (${toSummarize.length} segs)`);
-    runningSummary = await llmCall(systemPrompt, userPrompt);
+    const summary = await llmCall(systemPrompt, userPrompt);
+    if (generation !== summaryGeneration) return;
+    runningSummary = summary;
     summaryCoversUpToIndex = windowStart;
     console.log(`[transcript] summary updated, covers up to segment ${windowStart}`);
   } catch (err) {
-    console.error("[transcript] summary update failed:", err);
+    if (generation === summaryGeneration) console.error("[transcript] summary update failed");
   } finally {
-    summaryInFlight = false;
+    if (generation === summaryGeneration) summaryInFlight = false;
   }
 }
 

@@ -48,6 +48,22 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual(store.llmProvider, .openRouter)
     }
 
+    func testWhiteboardIsExplicitlyOptInAndPersistsTheChoice() {
+        let suiteName = "com.openoats.test.whiteboard-opt-in.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = makeStore(defaults: defaults)
+        XCTAssertFalse(store.sidecastWhiteboardEnabled)
+        store.sidecastWhiteboardEnabled = true
+        XCTAssertTrue(makeStore(defaults: defaults).sidecastWhiteboardEnabled)
+        store.sidecastWhiteboardEnabled = false
+        XCTAssertFalse(makeStore(defaults: defaults).sidecastWhiteboardEnabled)
+    }
+
+    func testForkUpdaterIsDisabledUntilDistributionIsConfigured() {
+        XCTAssertFalse(AppUpdaterController.updatesEnabled)
+    }
+
     func testKnowledgeNetworkModeDefaultsToOffline() {
         let suiteName = "com.openoats.test.knowledge-network.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!

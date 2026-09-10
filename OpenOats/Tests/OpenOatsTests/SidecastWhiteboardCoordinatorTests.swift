@@ -1,673 +1,420 @@
 import Foundation
+import HospitalityDomainProfile
 import XCTest
-import os
+
 @testable import OpenOatsKit
 
-// MARK: - Test doubles
-
-/// Scriptable `SidecastLLM` double — records every call (so tests can prove
-/// "zero llm calls"), returns canned listen/answer JSON keyed off the
-/// schema name (`SidecastSchemas.listen`/`.answer`), and can suspend answer
-/// calls on demand so a test can land its own coordinator calls
-/// (`sessionEnded()`/`sessionStarted()`) precisely while an answer is in
-/// flight — the same shape of control WB-2's own `SidecastListenerOrchestratorTests`
-/// uses for its epoch/end-of-session behaviors, trimmed to what this
-/// coordinator-level suite needs.
-private actor MockLLM: SidecastLLM {
-    struct Call: Sendable {
-        let system: String
-        let user: String
-        let schemaName: String
-    }
-
-    private(set) var calls: [Call] = []
-    private var listenResponse: Result<String, Error> = .success("{\"items\":[]}")
-    private var answerResponse: Result<String, Error> = .success("{\"answer\":\"\",\"grounded\":false,\"value\":0}")
-
-    private var suspendAnswers = false
-    private var suspendedAnswerContinuations: [CheckedContinuation<Void, Never>] = []
-    private var callWaiters: [(target: Int, continuation: CheckedContinuation<Void, Never>)] = []
-
-    func setListenResponse(_ json: String) { listenResponse = .success(json) }
-    func setAnswerResponse(_ json: String) { answerResponse = .success(json) }
-    func setSuspendAnswers(_ value: Bool) { suspendAnswers = value }
-
-    /// Resumes the single oldest suspended answer call, if any.
-    func resumeOneAnswer() {
-        guard !suspendedAnswerContinuations.isEmpty else { return }
-        suspendedAnswerContinuations.removeFirst().resume()
-    }
-
-    func callCount() -> Int { calls.count }
-
-    /// True happens-before wait, resolved the moment the target call
-    /// *starts* (recorded below) — even if that call then suspends waiting
-    /// for `resumeOneAnswer()`. Checked-and-registered atomically: no
-    /// `await` happens between the count check and appending to
-    /// `callWaiters`, so a concurrent `call(...)` can't slip in between.
-    func waitForCallCount(_ target: Int) async {
-        if calls.count >= target { return }
-        await withCheckedContinuation { continuation in
-            callWaiters.append((target, continuation))
-        }
-    }
-
-    func call(system: String, user: String, schema: OpenRouterClient.JSONSchemaSpec) async throws -> String {
-        let isAnswer = schema.name == SidecastSchemas.answer.name
-
-        calls.append(Call(system: system, user: user, schemaName: schema.name))
-        let ready = callWaiters.filter { calls.count >= $0.target }
-        callWaiters.removeAll { calls.count >= $0.target }
-        for waiter in ready { waiter.continuation.resume() }
-
-        if isAnswer && suspendAnswers {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                suspendedAnswerContinuations.append(continuation)
-            }
-        }
-
-        let result = isAnswer ? answerResponse : listenResponse
-        switch result {
-        case .success(let json): return json
-        case .failure(let error): throw error
-        }
-    }
-}
-
-/// Manually-advanced clock handed to the coordinator as `now: @Sendable () -> Date`.
-private final class TestClock: @unchecked Sendable {
-    private let box: OSAllocatedUnfairLock<Date>
-
-    init(_ start: Date) {
-        box = OSAllocatedUnfairLock(initialState: start)
-    }
-
-    func now() -> Date { box.withLock { $0 } }
-    func advance(_ seconds: TimeInterval) { box.withLock { $0 = $0.addingTimeInterval(seconds) } }
-}
-
-// MARK: - Tests
-
+/// End-to-end native whiteboard regressions: actual detector, selected pack,
+/// evidence resolver and presentation. No provider, microphone or private data.
 @MainActor
 final class SidecastWhiteboardCoordinatorTests: XCTestCase {
+  private func fixture(_ name: String = "minimal-hospitality") -> URL {
+    URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+      .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+      .appendingPathComponent("fixtures/knowledge-packs/\(name)")
+  }
 
-    // MARK: Fixture helpers
+  private func makeSettings(enabled: Bool = true) -> AppSettings {
+    let name = "com.openoats.tests.verified-whiteboard.\(UUID())"
+    let defaults = UserDefaults(suiteName: name)!
+    addTeardownBlock { defaults.removePersistentDomain(forName: name) }
+    let settings = AppSettings(
+      storage: AppSettingsStorage(
+        defaults: defaults, secretStore: .ephemeral,
+        defaultNotesDirectory: FileManager.default.temporaryDirectory,
+        runMigrations: false))
+    settings.sidecastWhiteboardEnabled = enabled
+    return settings
+  }
 
-    private func makeSettings(
-        whiteboardEnabled: Bool = true,
-        llmProvider: LLMProvider = .openRouter,
-        openRouterApiKey: String = "test-key-123"
-    ) -> AppSettings {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("sidecast-whiteboard-coordinator-\(UUID().uuidString)", isDirectory: true)
-        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+  private func makeStore(_ name: String = "minimal-hospitality") async -> KnowledgePackStore {
+    let store = KnowledgePackStore(
+      profileRegistry: KnowledgeDomainProfileRegistry(profiles: [HospitalityDomainProfile()]))
+    await store.load(fromPath: fixture(name).path)
+    return store
+  }
 
-        let suiteName = "com.openoats.tests.whiteboardcoordinator.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName) ?? .standard
-        defaults.removePersistentDomain(forName: suiteName)
-        let storage = AppSettingsStorage(
-            defaults: defaults,
-            secretStore: .ephemeral,
-            defaultNotesDirectory: root,
-            runMigrations: false
-        )
-        let settings = AppSettings(storage: storage)
-        settings.sidecastWhiteboardEnabled = whiteboardEnabled
-        settings.llmProvider = llmProvider
-        settings.openRouterApiKey = openRouterApiKey
-        return settings
+  private func drain(
+    _ store: KnowledgePackStore, file: StaticString = #filePath, line: UInt = #line
+  ) async {
+    let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+    while store.activeTieredAnswerTaskCount > 0, ContinuousClock.now < deadline {
+      await Task.yield()
     }
+    XCTAssertEqual(
+      store.activeTieredAnswerTaskCount, 0, "Pipeline did not quiesce", file: file, line: line)
+  }
 
-    private func makeCoordinator(
-        settings: AppSettings,
-        llm: MockLLM,
-        clock: TestClock,
-        model: SidecastWhiteboardModel = SidecastWhiteboardModel(),
-        resolveCorpusBookmark: @escaping @Sendable () -> URL? = { nil }
-    ) -> SidecastWhiteboardCoordinator {
-        SidecastWhiteboardCoordinator(
-            model: model,
-            llm: llm,
-            settings: settings,
-            now: { clock.now() },
-            resolveCorpusBookmark: resolveCorpusBookmark
-        )
+  private func ask(_ question: String, on coordinator: SidecastWhiteboardCoordinator) async {
+    coordinator.receive(utteranceText: question, speaker: .them, at: Date())
+    await drain(coordinator.knowledgePackStore)
+  }
+
+  func testDisabledFeatureDoesNotProcessSpeech() async {
+    let store = await makeStore()
+    let board = SidecastWhiteboardCoordinator(
+      knowledgePackStore: store, settings: makeSettings(enabled: false))
+    board.sessionStarted(at: Date())
+    await ask("What was RevPAR for this asset in 2020?", on: board)
+    XCTAssertTrue(board.model.notes.isEmpty)
+    XCTAssertEqual(store.tieredAnswerTaskStartCount, 0)
+    XCTAssertEqual(board.model.status, .paused)
+  }
+
+  func testNoCorpusNeverFallsBackToGeneralKnowledge() async {
+    let store = KnowledgePackStore(profileRegistry: .empty)
+    let board = SidecastWhiteboardCoordinator(knowledgePackStore: store, settings: makeSettings())
+    board.sessionStarted(at: Date())
+    await ask("What did this asset earn?", on: board)
+    XCTAssertTrue(board.model.notes.isEmpty)
+    XCTAssertTrue(board.model.corpusStatusLineIsError)
+    XCTAssertTrue(board.model.corpusStatusLine?.contains("disabled") == true)
+  }
+
+  func testSingleQuestionFollowedBySilenceProducesCitedLocalAnswer() async throws {
+    let store = await makeStore()
+    let settings = makeSettings()
+    settings.llmProvider = .ollama
+    settings.openRouterApiKey = ""
+    let board = SidecastWhiteboardCoordinator(knowledgePackStore: store, settings: settings)
+    board.sessionStarted(at: Date(), sessionID: "session-test")
+    await ask("What was RevPAR for this asset in 2020?", on: board)
+    let note = try XCTUnwrap(board.model.notes.last)
+    XCTAssertTrue(note.answer.contains("$89.50"))
+    XCTAssertEqual(note.evidence?.evidenceState, .calculated)
+    XCTAssertEqual(note.evidence?.sessionID, "session-test")
+    XCTAssertEqual(note.evidence?.packContentHash, store.searchIndex?.packContentHash)
+    XCTAssertFalse(note.evidence?.sources.isEmpty ?? true)
+    XCTAssertEqual(note.evidence?.engine, "local-knowledge-pack")
+    XCTAssertEqual(board.model.status, .live)
+  }
+
+  func testMissingPeriodProducesAbstentionInsteadOfWrongYear() async throws {
+    let store = await makeStore()
+    let board = SidecastWhiteboardCoordinator(knowledgePackStore: store, settings: makeSettings())
+    board.sessionStarted(at: Date())
+    await ask("What was RevPAR for this asset in 2020?", on: board)
+    await ask("What was RevPAR in 2018?", on: board)
+    let note = try XCTUnwrap(board.model.notes.last)
+    XCTAssertEqual(note.evidence?.evidenceState, .notFoundInCorpus)
+    XCTAssertFalse(note.answer.contains("$89.50"))
+    XCTAssertGreaterThanOrEqual(board.model.notes.count, 2)
+  }
+
+  func testChangedYearIsNotLexicallyDeduplicated() async {
+    let store = await makeStore()
+    let board = SidecastWhiteboardCoordinator(knowledgePackStore: store, settings: makeSettings())
+    board.sessionStarted(at: Date())
+    await ask("What was the reported RevPAR for this particular asset in 2020?", on: board)
+    let count = store.tieredAnswerTaskStartCount
+    await ask("What was the reported RevPAR for this particular asset in 2021?", on: board)
+    XCTAssertGreaterThan(store.tieredAnswerTaskStartCount, count)
+    XCTAssertFalse(board.model.notes.last?.answer.contains("2021 RevPAR was $89.50") == true)
+  }
+
+  func testConflictingSourcesRemainContestedWithBothCitations() async throws {
+    let store = await makeStore()
+    let board = SidecastWhiteboardCoordinator(knowledgePackStore: store, settings: makeSettings())
+    board.sessionStarted(at: Date())
+    await ask("Do all sources agree on 2020 RevPAR?", on: board)
+    let note = try XCTUnwrap(board.model.notes.last)
+    XCTAssertEqual(note.evidence?.evidenceState, .contested)
+    XCTAssertGreaterThanOrEqual(note.evidence?.sources.count ?? 0, 2)
+    XCTAssertTrue(note.answer.contains("$89.50"))
+    XCTAssertTrue(note.answer.contains("$92"))
+  }
+
+  func testClearSynchronouslyRetiresQueuedAnswersAndAllowsFreshQuestions() async {
+    let store = await makeStore()
+    let board = SidecastWhiteboardCoordinator(knowledgePackStore: store, settings: makeSettings())
+    board.sessionStarted(at: Date())
+    board.receive(
+      utteranceText: "What was RevPAR for this asset in 2020?", speaker: .them, at: Date())
+    XCTAssertGreaterThan(store.activeTieredAnswerTaskCount, 0)
+    board.clear()
+    XCTAssertEqual(store.activeTieredAnswerTaskCount, 0)
+    XCTAssertTrue(board.model.notes.isEmpty)
+    await ask("What was RevPAR in 2018?", on: board)
+    XCTAssertTrue(board.model.notes.allSatisfy { $0.question.contains("2018") })
+  }
+
+  func testOldSessionCannotPublishAfterNewSessionStarts() async throws {
+    let store = await makeStore()
+    let board = SidecastWhiteboardCoordinator(knowledgePackStore: store, settings: makeSettings())
+    board.sessionStarted(at: Date(), sessionID: "old")
+    board.receive(
+      utteranceText: "What was RevPAR for this asset in 2020?", speaker: .them, at: Date())
+    board.sessionEnded()
+    board.sessionStarted(at: Date(), sessionID: "new")
+    await ask("What was RevPAR in 2018?", on: board)
+    XCTAssertFalse(board.model.notes.isEmpty)
+    XCTAssertTrue(
+      board.model.notes.allSatisfy {
+        $0.evidence?.sessionID == "new" && $0.question.contains("2018")
+      })
+  }
+
+  func testEndStopsQueuedAndSubsequentWorkButPreservesAcceptedNotes() async {
+    let store = await makeStore()
+    let board = SidecastWhiteboardCoordinator(knowledgePackStore: store, settings: makeSettings())
+    board.sessionStarted(at: Date())
+    await ask("What was RevPAR for this asset in 2020?", on: board)
+    let accepted = board.model.notes
+    board.receive(utteranceText: "What was RevPAR in 2018?", speaker: .them, at: Date())
+    board.sessionEnded()
+    await ask("What was 2020 occupancy?", on: board)
+    XCTAssertEqual(board.model.notes, accepted)
+    XCTAssertEqual(store.activeTieredAnswerTaskCount, 0)
+    XCTAssertEqual(board.model.status, .ended)
+    board.clear()
+    XCTAssertEqual(board.model.status, .ended)
+  }
+
+  func testDisablementDoesNotNeedAnotherUtteranceToRejectPublication() async {
+    let store = await makeStore()
+    let settings = makeSettings()
+    let board = SidecastWhiteboardCoordinator(knowledgePackStore: store, settings: settings)
+    board.sessionStarted(at: Date())
+    board.receive(
+      utteranceText: "What was RevPAR for this asset in 2020?", speaker: .them, at: Date())
+    settings.sidecastWhiteboardEnabled = false
+    await drain(store)
+    XCTAssertTrue(board.model.notes.isEmpty)
+    board.settingsChanged()
+    XCTAssertEqual(board.model.status, .paused)
+    XCTAssertEqual(store.activeTieredAnswerTaskCount, 0)
+  }
+
+  func testProviderChangeCannotStartIndependentCloudAnswer() async throws {
+    let store = await makeStore()
+    let settings = makeSettings()
+    settings.openRouterApiKey = "synthetic-unused-key"
+    let board = SidecastWhiteboardCoordinator(knowledgePackStore: store, settings: settings)
+    board.sessionStarted(at: Date())
+    board.receive(
+      utteranceText: "What was RevPAR for this asset in 2020?", speaker: .them, at: Date())
+    settings.llmProvider = .ollama
+    await drain(store)
+    XCTAssertEqual(try XCTUnwrap(board.model.notes.last).evidence?.engine, "local-knowledge-pack")
+    XCTAssertEqual(store.networkMode, .offline)
+    // The shipping coordinator has no SidecastLLM/provider dependency.
+  }
+
+  func testFailedCorpusSwitchPausesRatherThanAnsweringFromLastGoodPack() async {
+    let store = await makeStore()
+    let board = SidecastWhiteboardCoordinator(knowledgePackStore: store, settings: makeSettings())
+    board.sessionStarted(at: Date())
+    board.receive(
+      utteranceText: "What was RevPAR for this asset in 2020?", speaker: .them, at: Date())
+    await store.load(fromPath: fixture("nonexistent-synthetic-pack").path)
+    await ask("What was 2020 occupancy?", on: board)
+    XCTAssertNil(store.selectedPack)
+    XCTAssertTrue(board.model.notes.isEmpty)
+    XCTAssertTrue(board.model.corpusStatusLineIsError)
+    XCTAssertEqual(store.activeTieredAnswerTaskCount, 0)
+  }
+
+  func testSuccessfulSwitchPreservesOldNoteIdentityButRetiresIt() async throws {
+    let store = await makeStore()
+    let board = SidecastWhiteboardCoordinator(knowledgePackStore: store, settings: makeSettings())
+    board.sessionStarted(at: Date())
+    await ask("What was RevPAR for this asset in 2020?", on: board)
+    let hash = try XCTUnwrap(board.model.notes.last?.evidence?.packContentHash)
+    await store.load(fromPath: fixture("nestarc-product-pitch").path)
+    XCTAssertEqual(board.model.notes.first?.evidence?.packContentHash, hash)
+    XCTAssertTrue(board.model.notes.first?.isSuperseded == true)
+    XCTAssertNotEqual(store.searchIndex?.packContentHash, hash)
+  }
+
+  func testPartialQuestionIsRevisedRatherThanDuplicated() async {
+    let store = await makeStore()
+    let board = SidecastWhiteboardCoordinator(knowledgePackStore: store, settings: makeSettings())
+    board.sessionStarted(at: Date())
+    board.receivePartial(text: "what was revpar for this asset", speaker: .them, at: Date())
+    await drain(store)
+    await ask("What was RevPAR for this asset in 2020?", on: board)
+    XCTAssertEqual(board.model.notes.count, 1)
+    XCTAssertFalse(board.model.notes.last?.evidence?.isProvisional ?? true)
+  }
+
+  func testExportsCarryEvidenceAndNeverPretendTheConfiguredCloudModelWasUsed() async throws {
+    let store = await makeStore()
+    let board = SidecastWhiteboardCoordinator(knowledgePackStore: store, settings: makeSettings())
+    board.sessionStarted(at: Date())
+    await ask("What was RevPAR for this asset in 2020?", on: board)
+    let data = try board.model.exportJSON()
+    let text = String(decoding: data, as: UTF8.self)
+    XCTAssertTrue(text.contains("packContentHash"))
+    XCTAssertTrue(text.contains("local-knowledge-pack"))
+    XCTAssertTrue(text.contains("sources"))
+    XCTAssertTrue(board.model.exportText().contains("Source:"))
+  }
+
+  func testEnablingDuringAnExistingSessionUsesItsActualIdentity() async {
+    let store = await makeStore()
+    let settings = makeSettings()
+    settings.sidecastWhiteboardEnabled = false
+    let board = SidecastWhiteboardCoordinator(knowledgePackStore: store, settings: settings)
+    board.sessionStarted(at: Date(), sessionID: "already-recording")
+    settings.sidecastWhiteboardEnabled = true
+    board.settingsChanged()
+    await ask("What was RevPAR for this asset in 2020?", on: board)
+    XCTAssertEqual(board.model.notes.first?.evidence?.sessionID, "already-recording")
+  }
+
+  func testHistoricalDiscussionUsesGenericEvidenceStatesAndIgnoresDocumentInstructions()
+    async throws
+  {
+    let store = KnowledgePackStore(profileRegistry: .empty)
+    await store.load(fromPath: fixture("aster-history-discussion").path)
+    guard case .loaded = store.state else {
+      XCTFail("Historical pack failed validation: \(store.state)")
+      return
     }
-
-    private func jsonStringLiteral(_ text: String) -> String {
-        // swiftlint:disable:next force_try
-        let data = try! JSONEncoder().encode(text)
-        return String(data: data, encoding: .utf8)!
+    let readiness = WhiteboardPackReadiness(pack: try XCTUnwrap(store.selectedPack))
+    XCTAssertEqual(readiness.totalQuestionFamilies, 4)
+    XCTAssertEqual(readiness.reviewedQuestionFamilies, 4)
+    XCTAssertEqual(readiness.knownGaps, 1)
+    XCTAssertEqual(readiness.disagreements, 1)
+    XCTAssertEqual(readiness.cardsAwaitingReview, 0)
+    let board = SidecastWhiteboardCoordinator(knowledgePackStore: store, settings: makeSettings())
+    board.sessionStarted(at: Date())
+    let cases: [(String, KnowledgeEvidenceState, String, Int)] = [
+      ("Where did the Aster council meet?", .directlySourced, "north hall", 1),
+      ("Do the accounts agree on the Aster council year?", .contested, "413", 2),
+      ("Why might the Aster accounts differ?", .interpretive, "not proof", 1),
+      ("Who chaired the Aster council?", .notFoundInCorpus, "does not identify", 0),
+    ]
+    for (question, state, fragment, sourceCount) in cases {
+      board.clear()
+      await ask(question, on: board)
+      let note = try XCTUnwrap(board.model.notes.last, question)
+      XCTAssertEqual(note.evidence?.evidenceState, state, question)
+      XCTAssertTrue(note.answer.contains(fragment), question)
+      XCTAssertEqual(note.evidence?.sources.count, sourceCount, question)
+      XCTAssertFalse(note.answer.contains("SECRET-SENTINEL"))
+      XCTAssertEqual(note.evidence?.packID, "aster-history-discussion-v1")
     }
+  }
 
-    private func listenJSON(_ questions: [String]) -> String {
-        let items = questions.map { "{\"question\":\(jsonStringLiteral($0))}" }.joined(separator: ",")
-        return "{\"items\":[\(items)]}"
+  func testThreeDomainPreparedReplayRecordsLocalLatencyAndNeverCallsAnAnswerModel() async throws {
+    let cases = [
+      ("minimal-hospitality", "What was RevPAR for this asset in 2020?", "$89.50"),
+      ("nestarc-product-pitch", "What is NestArc Go?", "modular organizer insert"),
+      ("aster-history-discussion", "Where did the Aster council meet?", "north hall"),
+    ]
+    var milliseconds: [Double] = []
+    for (pack, question, fragment) in cases {
+      let store = await makeStore(pack)
+      let board = SidecastWhiteboardCoordinator(knowledgePackStore: store, settings: makeSettings())
+      board.sessionStarted(at: Date())
+      for _ in 0..<10 {
+        board.clear()
+        let started = ContinuousClock.now
+        await ask(question, on: board)
+        let elapsed = started.duration(to: .now).components
+        milliseconds.append(Double(elapsed.seconds) * 1000 + Double(elapsed.attoseconds) / 1e15)
+        let note = try XCTUnwrap(board.model.notes.last, pack)
+        XCTAssertTrue(note.answer.contains(fragment), pack)
+        XCTAssertFalse(note.evidence?.sources.isEmpty ?? true, pack)
+        XCTAssertEqual(note.evidence?.engine, "local-knowledge-pack")
+      }
     }
+    milliseconds.sort()
+    print(
+      "WHITEBOARD_LOCAL_REPLAY samples=\(milliseconds.count) p50_ms=\(milliseconds[14]) p95_ms=\(milliseconds[28]) max_ms=\(milliseconds[29]) answer_model_calls=0"
+    )
+    // Observational only: a loaded-pack, synthetic, final-question-to-model
+    // replay. It excludes capture/STT, cold loading and actual UI rendering.
+  }
 
-    private func answerJSON(answer: String, grounded: Bool = true, value: Double = 0.9) -> String {
-        "{\"answer\":\(jsonStringLiteral(answer)),\"grounded\":\(grounded),\"value\":\(value)}"
+  func testAcceptedNotesSurviveClearNewSessionAndRepositoryReopen() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+      "whiteboard-save-\(UUID())")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let repository = SessionRepository(rootDirectory: root)
+    let first = await repository.startSession()
+    let store = await makeStore()
+    let settings = makeSettings()
+    let board = SidecastWhiteboardCoordinator(
+      knowledgePackStore: store, settings: settings, repository: repository)
+    board.sessionStarted(at: Date(), sessionID: first.sessionID)
+    await ask("What was RevPAR for this asset in 2020?", on: board)
+    board.clear()  // Clear the display, not the saved session history.
+    await ask("What was RevPAR in 2018?", on: board)
+    await board.flushNotes()
+    XCTAssertNil(board.model.storageStatusLine)
+    board.sessionEnded()
+    let second = await repository.startSession()
+    XCTAssertNotEqual(first.sessionID, second.sessionID)
+    board.sessionStarted(at: Date(), sessionID: second.sessionID)
+    await ask("What was 2020 occupancy?", on: board)
+    board.sessionEnded()
+    await board.flushNotes()
+
+    let reopened = SessionRepository(rootDirectory: root)
+    let loadedFirst = try await reopened.loadWhiteboard(sessionID: first.sessionID)
+    let loadedSecond = try await reopened.loadWhiteboard(sessionID: second.sessionID)
+    XCTAssertEqual(loadedFirst?.notes.count, 2)
+    XCTAssertTrue(
+      loadedFirst?.notes.allSatisfy { $0.evidence?.sessionID == first.sessionID } == true)
+    XCTAssertEqual(loadedSecond?.notes.count, 1)
+    XCTAssertTrue(
+      loadedSecond?.notes.allSatisfy { $0.evidence?.sessionID == second.sessionID } == true)
+    let restored = SidecastWhiteboardModel()
+    restored.restore(try XCTUnwrap(loadedFirst))
+    XCTAssertEqual(restored.notes.count, 2)
+    XCTAssertEqual(restored.status, .ended)
+    XCTAssertTrue(restored.exportText().contains("Source:"))
+    // Deterministic save ordering even when both sessions start in one second.
+    for (offset, handle) in [first, second].enumerated() {
+      let path = root.appendingPathComponent("sessions/\(handle.sessionID)/whiteboard.json").path
+      try FileManager.default.setAttributes(
+        [.modificationDate: Date(timeIntervalSince1970: Double(100 + offset))], ofItemAtPath: path)
     }
-
-    /// A handful of yields — cheap extra margin before a check that's
-    /// already otherwise justified by a hard wait just before it.
-    private func settle(_ iterations: Int = 20) async {
-        for _ in 0..<iterations {
-            await Task.yield()
-        }
-    }
-
-    /// Retries `action` with a short real sleep between tries — for
-    /// conditions with no exposed signal to await directly (MainActor
-    /// view-model state mutated from inside an unstructured `Task` this
-    /// test has no continuation into). Same idiom as
-    /// `SidecastListenerOrchestratorTests`'s own `eventually(_:)`.
-    @discardableResult
-    private func eventually(attempts: Int = 100, _ action: () async -> Bool) async -> Bool {
-        for attempt in 0..<attempts {
-            if await action() { return true }
-            if attempt < attempts - 1 {
-                try? await Task.sleep(for: .milliseconds(2))
-            }
-        }
-        return false
-    }
-
-    /// For asserting a negative within a bounded window — mirrors
-    /// `SidecastListenerOrchestratorTests`'s `NoteRecorder.exceededCount`.
-    private func callCountStaysAtMost(_ maxAllowed: Int, llm: MockLLM, within duration: Duration = .milliseconds(200)) async -> Bool {
-        let deadline = ContinuousClock.now + duration
-        while ContinuousClock.now < deadline {
-            if await llm.callCount() > maxAllowed { return false }
-            try? await Task.sleep(for: .milliseconds(2))
-        }
-        return await llm.callCount() <= maxAllowed
-    }
-
-    // MARK: - a. Flag OFF
-
-    func testFlagOffProducesZeroLLMCallsAndZeroViewModelMutation() async {
-        let clock = TestClock(Date(timeIntervalSince1970: 1_700_000_000))
-        let llm = MockLLM()
-        let model = SidecastWhiteboardModel()
-        let settings = makeSettings(whiteboardEnabled: false)
-        let coordinator = makeCoordinator(settings: settings, llm: llm, clock: clock, model: model)
-
-        coordinator.sessionStarted(at: clock.now())
-        coordinator.receive(utteranceText: "What is the pricing?", speaker: .them, at: clock.now())
-        clock.advance(9)
-        coordinator.receive(utteranceText: "Let me check that.", speaker: .you, at: clock.now())
-        coordinator.sessionEnded()
-
-        let stayedQuiet = await callCountStaysAtMost(0, llm: llm)
-        XCTAssertTrue(stayedQuiet, "flag off: the pipeline must never reach the llm")
-
-        XCTAssertEqual(model.status, .ready, "flag off: sessionStarted/sessionEnded must not touch the view model")
-        XCTAssertNil(model.sessionStart)
-        XCTAssertEqual(model.heardCount, 0, "flag off: receive must not bump the heard counter")
-        XCTAssertTrue(model.notes.isEmpty)
-    }
-
-    // MARK: - b. Flag ON: session start, utterances feed listener, note lands
-
-    func testFlagOnSessionStartFeedsListenerAndLandedNoteUpdatesViewModel() async {
-        let clock = TestClock(Date(timeIntervalSince1970: 1_700_000_000))
-        let llm = MockLLM()
-        let model = SidecastWhiteboardModel()
-        let settings = makeSettings()
-        let coordinator = makeCoordinator(settings: settings, llm: llm, clock: clock, model: model)
-
-        let sessionStart = clock.now()
-        coordinator.sessionStarted(at: sessionStart)
-        XCTAssertEqual(model.status, .live)
-        XCTAssertEqual(model.sessionStart, sessionStart)
-
-        await llm.setListenResponse(listenJSON(["What is the pricing?"]))
-        await llm.setAnswerResponse(answerJSON(answer: "It's $10 per month."))
-
-        coordinator.receive(utteranceText: "What is the pricing?", speaker: .them, at: clock.now())
-        await settle()
-        coordinator.receive(utteranceText: "Let me check that.", speaker: .you, at: clock.now())
-
-        // Listen call, then answer call: two calls total once the pass and
-        // the enqueued question have both gone through.
-        await llm.waitForCallCount(2)
-        let landed = await eventually { model.notes.count == 1 }
-        XCTAssertTrue(landed, "an answered question should land on the board")
-
-        XCTAssertEqual(model.notes.first?.question, "What is the pricing?")
-        XCTAssertEqual(model.notes.first?.answer, "It's $10 per month.")
-        XCTAssertEqual(model.answersCount, 1)
-        XCTAssertEqual(model.heardCount, 2, "bumped once per utterance received, independent of listen/answer outcome")
-        XCTAssertTrue(model.diagText.contains("answers 1"))
-
-        // Post-review addition: the listener's onPassCompleted hook and the
-        // note landing (via onNote) are two independently-scheduled
-        // unstructured tasks with no ordering guarantee between them, even
-        // though the note landing implies the pass that found this question
-        // has already run — so this polls rather than asserting immediately
-        // after `landed`.
-        let diagCountersMoved = await eventually { model.listensCount == 1 && model.questionsCount == 1 }
-        XCTAssertTrue(diagCountersMoved, "one completed pass that found one question should bump both counters exactly once")
-    }
-
-    // MARK: - c. Session end: status ended, board retained, in-flight answer still lands
-
-    func testSessionEndKeepsBoardAndLetsInFlightAnswerLandWithoutRevivingStatus() async {
-        let clock = TestClock(Date(timeIntervalSince1970: 1_700_000_000))
-        let llm = MockLLM()
-        let model = SidecastWhiteboardModel()
-        let settings = makeSettings()
-        let coordinator = makeCoordinator(settings: settings, llm: llm, clock: clock, model: model)
-
-        coordinator.sessionStarted(at: clock.now())
-        await llm.setListenResponse(listenJSON(["What is the pricing?"]))
-        await llm.setAnswerResponse(answerJSON(answer: "It's $10 per month."))
-        await llm.setSuspendAnswers(true)
-
-        coordinator.receive(utteranceText: "What is the pricing?", speaker: .them, at: clock.now())
-        await settle()
-        coordinator.receive(utteranceText: "Let me check that.", speaker: .you, at: clock.now())
-
-        // Wait until the answer call has actually started (and is now
-        // suspended) before ending the session, so this genuinely proves
-        // "already in flight when the session ends", not "enqueued after".
-        await llm.waitForCallCount(2)
-        await settle()
-
-        coordinator.sessionEnded()
-        XCTAssertEqual(model.status, .ended)
-        XCTAssertTrue(model.notes.isEmpty, "the answer has not landed yet")
-
-        await llm.resumeOneAnswer()
-        let landed = await eventually { model.notes.count == 1 }
-        XCTAssertTrue(landed, "an answer already in flight at end time must still land — end is not clear/new-session")
-
-        XCTAssertEqual(model.notes.first?.answer, "It's $10 per month.")
-        XCTAssertEqual(
-            model.status, .ended,
-            "the note landing (onNote) must not resurrect Live/Answering (onActivity) once ended"
-        )
-    }
-
-    // MARK: - c2. WB-5/I1: receive() after sessionEnded produces zero new listener activity,
-    // while an answer already in flight before the end still lands.
-
-    /// Regression test for the cross-boundary bug the WB-5 review caught:
-    /// `LiveSessionController.finalizeCurrentSession` calls `sessionEnded()`
-    /// (status only) and only *afterward* drains its own transcription
-    /// buffers (`finalize()`), so utterances already queued there keep
-    /// reaching `receive()` after the user pressed Stop. Pre-fix, `receive`
-    /// only guarded the feature flag — none of those late utterances were
-    /// rejected, so they could drive a brand-new listen pass and even a
-    /// brand-new answer LLM call after end. This proves the fix
-    /// (`isSessionActive`, checked in `receive`) closes that: no new mock
-    /// LLM calls, and `heardCount` itself never moves, for anything
-    /// received after `sessionEnded()` — while the answer that was already
-    /// in flight *before* the end (WB-4's documented, unchanged intent)
-    /// still lands.
-    func testReceiveAfterSessionEndedProducesNoNewListenerActivityWhileInFlightAnswerStillLands() async {
-        let clock = TestClock(Date(timeIntervalSince1970: 1_700_000_000))
-        let llm = MockLLM()
-        let model = SidecastWhiteboardModel()
-        let settings = makeSettings()
-        let coordinator = makeCoordinator(settings: settings, llm: llm, clock: clock, model: model)
-
-        coordinator.sessionStarted(at: clock.now())
-        await llm.setListenResponse(listenJSON(["What is the pricing?"]))
-        await llm.setAnswerResponse(answerJSON(answer: "It's $10 per month."))
-        await llm.setSuspendAnswers(true)
-
-        coordinator.receive(utteranceText: "What is the pricing?", speaker: .them, at: clock.now())
-        await settle()
-        coordinator.receive(utteranceText: "Let me check that.", speaker: .you, at: clock.now())
-
-        // Both the listen call and the (now-suspended) answer call have
-        // genuinely started before end — same happens-before idiom as
-        // test c above.
-        await llm.waitForCallCount(2)
-        await settle()
-
-        coordinator.sessionEnded()
-        let callCountAtEnd = await llm.callCount()
-        XCTAssertEqual(model.heardCount, 2, "sanity: both pre-end utterances were heard")
-
-        // Utterances that keep arriving after Stop (the exact
-        // finalize()-drains-after-sessionEnded race the review found) must
-        // produce zero new listener/LLM activity.
-        clock.advance(1)
-        coordinator.receive(utteranceText: "Late utterance 1 after stop", speaker: .them, at: clock.now())
-        clock.advance(1)
-        coordinator.receive(utteranceText: "Late utterance 2 after stop", speaker: .you, at: clock.now())
-        clock.advance(1)
-        coordinator.receive(utteranceText: "Late utterance 3 after stop", speaker: .them, at: clock.now())
-
-        let stayedQuiet = await callCountStaysAtMost(callCountAtEnd, llm: llm)
-        XCTAssertTrue(stayedQuiet, "receive() after sessionEnded must not drive any new listener/LLM activity")
-        XCTAssertEqual(model.heardCount, 2, "heardCount must not move for utterances received after sessionEnded")
-
-        // The answer already in flight *before* the end must still land —
-        // this fix must not regress WB-4's documented in-flight-still-lands
-        // behavior (see test c above).
-        await llm.resumeOneAnswer()
-        let landed = await eventually { model.notes.count == 1 }
-        XCTAssertTrue(landed, "an answer already in flight before sessionEnded must still land")
-        XCTAssertEqual(model.status, .ended)
-    }
-
-    // MARK: - d. New session start after a previous one: epoch bumped, stale in-flight discarded
-
-    func testNewSessionStartBumpsEpochAndDiscardsStaleInFlightAnswer() async {
-        let clock = TestClock(Date(timeIntervalSince1970: 1_700_000_000))
-        let llm = MockLLM()
-        let model = SidecastWhiteboardModel()
-        let settings = makeSettings()
-        let coordinator = makeCoordinator(settings: settings, llm: llm, clock: clock, model: model)
-
-        coordinator.sessionStarted(at: clock.now())
-        await llm.setListenResponse(listenJSON(["What is the pricing?"]))
-        await llm.setAnswerResponse(answerJSON(answer: "It's $10 per month."))
-        await llm.setSuspendAnswers(true)
-
-        coordinator.receive(utteranceText: "What is the pricing?", speaker: .them, at: clock.now())
-        await settle()
-        coordinator.receive(utteranceText: "Let me check that.", speaker: .you, at: clock.now())
-        await llm.waitForCallCount(2)
-        await settle()
-
-        // A brand-new session starts while the first session's answer is
-        // still in flight — this is the WB-2 epoch pattern invoked at the
-        // coordinator level: sessionStarted -> orchestrator.clear() bumps
-        // the epoch, so the stale item's eventual completion discards
-        // itself (SidecastQuestionOrchestrator.answer(_:)'s own epoch
-        // check), not anything this coordinator re-implements.
-        clock.advance(120)
-        let secondSessionStart = clock.now()
-        coordinator.sessionStarted(at: secondSessionStart)
-        XCTAssertEqual(model.sessionStart, secondSessionStart)
-
-        await llm.resumeOneAnswer()
-        await settle(200)
-
-        XCTAssertTrue(model.notes.isEmpty, "the stale first-session answer must be discarded, not appear in the new session")
-    }
-
-    // MARK: - h. WB-5/I2: a new session clears the board, not just the orchestrator epoch
-
-    /// Regression test: `sessionStarted` previously never cleared
-    /// `model.notes`, so a second session's notes accumulated on top of
-    /// the first session's — and since `sessionRelativeTime` clamps a
-    /// before-`sessionStart` timestamp to `0:00`, the first session's
-    /// leftover notes would re-render (and export) stamped `0:00` once
-    /// `sessionStart` was overwritten for session 2. Proves
-    /// `sessionStarted` now clears the board first, synchronously (no
-    /// polling needed): session 2 starts with zero notes, ends up `.live`
-    /// with the correct `sessionStart`, and both the in-memory board and
-    /// the text/JSON exports after session 2 contain only session 2's note.
-    func testSecondSessionStartClearsFirstSessionsNotesFromBoardAndExports() async throws {
-        let clock = TestClock(Date(timeIntervalSince1970: 1_700_000_000))
-        let llm = MockLLM()
-        let model = SidecastWhiteboardModel()
-        let settings = makeSettings()
-        let coordinator = makeCoordinator(settings: settings, llm: llm, clock: clock, model: model)
-
-        // Session 1: one question lands.
-        coordinator.sessionStarted(at: clock.now())
-        await llm.setListenResponse(listenJSON(["What is the pricing?"]))
-        await llm.setAnswerResponse(answerJSON(answer: "It's $10 per month."))
-        coordinator.receive(utteranceText: "What is the pricing?", speaker: .them, at: clock.now())
-        await settle()
-        coordinator.receive(utteranceText: "Let me check that.", speaker: .you, at: clock.now())
-        await llm.waitForCallCount(2)
-        let firstLanded = await eventually { model.notes.count == 1 }
-        XCTAssertTrue(firstLanded, "sanity: session 1's question landed")
-
-        coordinator.sessionEnded()
-
-        // Session 2 starts later.
-        clock.advance(300)
-        let secondSessionStart = clock.now()
-        coordinator.sessionStarted(at: secondSessionStart)
-
-        // Cleared synchronously — no need to poll.
-        XCTAssertTrue(model.notes.isEmpty, "session 2 must start with an empty board, not session 1's leftover note")
-        XCTAssertEqual(model.sessionStart, secondSessionStart)
-        XCTAssertEqual(model.status, .live, "clear()'s own .ready reset must not leak past sessionStarted")
-
-        // Session 2: a different question lands.
-        await llm.setListenResponse(listenJSON(["Who is the general manager?"]))
-        await llm.setAnswerResponse(answerJSON(answer: "Jordan Alvarez."))
-        coordinator.receive(utteranceText: "Who is the general manager?", speaker: .them, at: clock.now())
-        await settle()
-        coordinator.receive(utteranceText: "One moment.", speaker: .you, at: clock.now())
-        await llm.waitForCallCount(4)
-        let secondLanded = await eventually { model.notes.count == 1 }
-        XCTAssertTrue(secondLanded, "session 2's question landed")
-
-        XCTAssertEqual(model.notes.first?.question, "Who is the general manager?", "only session 2's note is on the board")
-        XCTAssertEqual(model.notes.first?.answer, "Jordan Alvarez.")
-
-        let exportedText = model.exportText()
-        XCTAssertFalse(exportedText.contains("pricing"), "session 1's question must not appear in session 2's export")
-        XCTAssertTrue(exportedText.contains("general manager"), "session 2's question must appear in the export")
-
-        let exportedJSON = try model.exportJSON()
-        guard let jsonObject = (try? JSONSerialization.jsonObject(with: exportedJSON)) as? [String: Any],
-            let notesArray = jsonObject["notes"] as? [[String: Any]]
-        else {
-            XCTFail("failed to decode export JSON")
-            return
-        }
-        XCTAssertEqual(
-            notesArray.compactMap { $0["question"] as? String },
-            ["Who is the general manager?"],
-            "the JSON export's notes array must contain only session 2's note"
-        )
-    }
-
-    // MARK: - e. Corpus refresh failure surfaces on VM corpus line, session continues
-
-    func testCorpusRefreshFailureSurfacesOnViewModelAndSessionContinues() async {
-        let clock = TestClock(Date(timeIntervalSince1970: 1_700_000_000))
-        let llm = MockLLM()
-        let model = SidecastWhiteboardModel()
-        let settings = makeSettings()
-        // A path that is guaranteed not to be a real directory — the exact
-        // failure `SidecastCorpusService.read(folder:)` reports.
-        let brokenFolder = FileManager.default.temporaryDirectory
-            .appendingPathComponent("sidecast-whiteboard-coordinator-missing-\(UUID().uuidString)", isDirectory: true)
-        let coordinator = makeCoordinator(
-            settings: settings, llm: llm, clock: clock, model: model,
-            resolveCorpusBookmark: { brokenFolder }
-        )
-
-        coordinator.sessionStarted(at: clock.now())
-        coordinator.receive(utteranceText: "What is the pricing?", speaker: .them, at: clock.now())
-
-        let surfaced = await eventually { model.corpusStatusLine != nil }
-        XCTAssertTrue(surfaced, "a corpus refresh failure must surface on the view model, not disappear silently")
-        // WB-5/I3: the failure must also be flagged as an error, so the
-        // view can render it in red alongside the picker's own status.
-        XCTAssertTrue(model.corpusStatusLineIsError, "a genuine read failure must set the error flag")
-        XCTAssertEqual(model.status, .live, "never fatal — the session keeps running")
-
-        // Session continues: a second utterance still reaches the listener
-        // (heard count keeps counting) rather than the coordinator wedging.
-        clock.advance(1)
-        coordinator.receive(utteranceText: "Let me check that.", speaker: .you, at: clock.now())
-        XCTAssertEqual(model.heardCount, 2)
-    }
-
-    /// WB-5/I3: `maybeRefreshCorpus`'s resolve-failure branch (no bookmark
-    /// resolves at all — `resolveCorpusBookmark()` returns `nil`) used to
-    /// silently return, setting nothing: `model.corpusStatusLine` stayed
-    /// whatever it was before, forever, for the rest of the session. Proves
-    /// that branch now surfaces its own status line (flagged as an error)
-    /// instead of going quiet, and that the session still keeps running.
-    func testCorpusResolveFailureBranchSurfacesOnViewModelAndSessionContinues() async {
-        let clock = TestClock(Date(timeIntervalSince1970: 1_700_000_000))
-        let llm = MockLLM()
-        let model = SidecastWhiteboardModel()
-        let settings = makeSettings()
-        let coordinator = makeCoordinator(
-            settings: settings, llm: llm, clock: clock, model: model,
-            resolveCorpusBookmark: { nil }
-        )
-
-        XCTAssertNil(model.corpusStatusLine, "sanity: nothing set before the first refresh attempt")
-
-        coordinator.sessionStarted(at: clock.now())
-        coordinator.receive(utteranceText: "What is the pricing?", speaker: .them, at: clock.now())
-
-        XCTAssertNotNil(model.corpusStatusLine, "a resolve failure must surface a status line, not leave it untouched")
-        XCTAssertTrue(model.corpusStatusLineIsError)
-        XCTAssertEqual(model.status, .live, "never fatal — the session keeps running")
-
-        clock.advance(1)
-        coordinator.receive(utteranceText: "Let me check that.", speaker: .you, at: clock.now())
-        XCTAssertEqual(model.heardCount, 2, "the session keeps counting heard utterances")
-    }
-
-    // MARK: - f. Egress gate: gate closed, flag ON produces zero llm calls
-
-    func testEgressGateClosedProducesZeroLLMCallsEvenWithFlagOn() async {
-        let clock = TestClock(Date(timeIntervalSince1970: 1_700_000_000))
-        let llm = MockLLM()
-        let model = SidecastWhiteboardModel()
-        // Flag ON, but no OpenRouter key configured — the same
-        // "presence of credentials" gate the legacy realtime path checks.
-        let settings = makeSettings(whiteboardEnabled: true, openRouterApiKey: "")
-        let coordinator = makeCoordinator(settings: settings, llm: llm, clock: clock, model: model)
-
-        coordinator.sessionStarted(at: clock.now())
-        coordinator.receive(utteranceText: "What is the pricing?", speaker: .them, at: clock.now())
-        await settle()
-        coordinator.receive(utteranceText: "Let me check that.", speaker: .you, at: clock.now())
-
-        let stayedQuiet = await callCountStaysAtMost(0, llm: llm)
-        XCTAssertTrue(stayedQuiet, "with the egress gate closed, the wrapped llm must never be reached")
-
-        // The gate closing a provider mismatch (right settings, wrong
-        // provider selected) must behave identically.
-        let wrongProviderSettings = makeSettings(whiteboardEnabled: true, llmProvider: .anthropic, openRouterApiKey: "present-but-unselected")
-        let llm2 = MockLLM()
-        let coordinator2 = makeCoordinator(settings: wrongProviderSettings, llm: llm2, clock: clock, model: SidecastWhiteboardModel())
-        coordinator2.sessionStarted(at: clock.now())
-        coordinator2.receive(utteranceText: "What is the pricing?", speaker: .them, at: clock.now())
-        await settle()
-        coordinator2.receive(utteranceText: "Let me check that.", speaker: .you, at: clock.now())
-        let stayedQuiet2 = await callCountStaysAtMost(0, llm: llm2)
-        XCTAssertTrue(stayedQuiet2, "an OpenRouter key alone must not open egress when a different provider is active")
-    }
-
-    // MARK: - i. WB-5/I6: user-triggered clear() also clears the orchestrator, coherently
-
-    /// Regression test: the Clear button used to wipe only the board
-    /// (`model.clear()`), leaving the orchestrator's queue/in-flight work
-    /// untouched — a queued or in-flight answer would silently repopulate
-    /// the board the user had just asked to be emptied. Proves
-    /// `coordinator.clear()` (wired to the button via
-    /// `SidecastWhiteboardWindowController`'s `onClear`) discards that work
-    /// (epoch bump — same mechanism `sessionStarted` already uses), keeps
-    /// `status` at `.live` throughout with no visible detour through
-    /// `model.clear()`'s own unconditional `.ready` reset, and that the
-    /// discarded item's later (stale) completion neither repopulates the
-    /// board nor disturbs status.
-    func testClearMidSessionDiscardsQueuedWorkKeepsStatusLiveAndDiscardsLaterStaleCompletion() async {
-        let clock = TestClock(Date(timeIntervalSince1970: 1_700_000_000))
-        let llm = MockLLM()
-        let model = SidecastWhiteboardModel()
-        let settings = makeSettings()
-        let coordinator = makeCoordinator(settings: settings, llm: llm, clock: clock, model: model)
-
-        coordinator.sessionStarted(at: clock.now())
-        await llm.setListenResponse(listenJSON(["What is the pricing?"]))
-        await llm.setAnswerResponse(answerJSON(answer: "It's $10 per month."))
-        await llm.setSuspendAnswers(true)
-
-        coordinator.receive(utteranceText: "What is the pricing?", speaker: .them, at: clock.now())
-        await settle()
-        coordinator.receive(utteranceText: "Let me check that.", speaker: .you, at: clock.now())
-
-        // The answer call has genuinely started (and is now suspended)
-        // before clear() — proving "already in flight", not "enqueued after".
-        await llm.waitForCallCount(2)
-        await settle()
-
-        coordinator.clear()
-
-        // Synchronous: no observer can ever see a transient `.ready`.
-        XCTAssertEqual(model.status, .live, "clearing mid-session must not flip status away from live")
-        XCTAssertTrue(model.notes.isEmpty)
-
-        // The answer already in flight before clear() must be discarded
-        // (epoch bump), not land on the freshly-cleared board.
-        await llm.resumeOneAnswer()
-        await settle(200)
-        XCTAssertTrue(model.notes.isEmpty, "a stale pre-clear answer must be discarded, not repopulate the board")
-        XCTAssertEqual(model.status, .live, "a stale completion must not disturb status either")
-    }
-
-    /// Companion to the mid-session case above: clearing *after* a session
-    /// has ended must not resurrect `.live`/`.answering` — `model.clear()`'s
-    /// own unconditional `.ready` reset would otherwise defeat the
-    /// `onActivity` `.ended` guard the moment any of the just-discarded
-    /// work's stale completion still lands (status no longer reads
-    /// `.ended` by the time that guard runs, so it would no-op-check
-    /// against the wrong thing and resurrect "Live").
-    func testClearAfterSessionEndedDoesNotEnableStatusResurrection() async {
-        let clock = TestClock(Date(timeIntervalSince1970: 1_700_000_000))
-        let llm = MockLLM()
-        let model = SidecastWhiteboardModel()
-        let settings = makeSettings()
-        let coordinator = makeCoordinator(settings: settings, llm: llm, clock: clock, model: model)
-
-        coordinator.sessionStarted(at: clock.now())
-        await llm.setListenResponse(listenJSON(["What is the pricing?"]))
-        await llm.setAnswerResponse(answerJSON(answer: "It's $10 per month."))
-        await llm.setSuspendAnswers(true)
-
-        coordinator.receive(utteranceText: "What is the pricing?", speaker: .them, at: clock.now())
-        await settle()
-        coordinator.receive(utteranceText: "Let me check that.", speaker: .you, at: clock.now())
-        await llm.waitForCallCount(2)
-        await settle()
-
-        coordinator.sessionEnded()
-        XCTAssertEqual(model.status, .ended)
-
-        coordinator.clear()
-        XCTAssertEqual(model.status, .ended, "clearing after end must not resurrect Live/Ready — status must stay ended")
-        XCTAssertTrue(model.notes.isEmpty)
-
-        await llm.resumeOneAnswer()
-        await settle(200)
-        XCTAssertEqual(model.status, .ended, "a stale completion after a post-end clear must not resurrect status")
-        XCTAssertTrue(model.notes.isEmpty, "the stale answer must not repopulate the board either")
-    }
-
-    // MARK: - g. Diag guard: answers-only nonzero -> diagText visible
-
-    func testDiagTextIsVisibleOnceAnAnswerLandsThroughTheFullPipeline() async {
-        let clock = TestClock(Date(timeIntervalSince1970: 1_700_000_000))
-        let llm = MockLLM()
-        let model = SidecastWhiteboardModel()
-        let settings = makeSettings()
-        let coordinator = makeCoordinator(settings: settings, llm: llm, clock: clock, model: model)
-
-        XCTAssertEqual(model.diagText, "", "nothing has happened yet")
-
-        coordinator.sessionStarted(at: clock.now())
-        await llm.setListenResponse(listenJSON(["What is the pricing?"]))
-        await llm.setAnswerResponse(answerJSON(answer: "It's $10 per month."))
-
-        coordinator.receive(utteranceText: "What is the pricing?", speaker: .them, at: clock.now())
-        await settle()
-        coordinator.receive(utteranceText: "Let me check that.", speaker: .you, at: clock.now())
-        await llm.waitForCallCount(2)
-
-        let visible = await eventually { !model.diagText.isEmpty && model.diagText.contains("answers 1") }
-        XCTAssertTrue(visible, "an answers-only-nonzero board must show the diag line, not stay blank")
-    }
+    await board.openLastSavedBoard()
+    XCTAssertEqual(board.model.notes.first?.evidence?.sessionID, second.sessionID)
+    await reopened.moveToRecentlyDeleted(sessionID: second.sessionID)
+    let deleted = try await reopened.loadWhiteboard(sessionID: second.sessionID)
+    XCTAssertNil(deleted)
+    let recoverable = root.appendingPathComponent(
+      "sessions/.recently-deleted/\(second.sessionID)/whiteboard.json")
+    XCTAssertTrue(FileManager.default.fileExists(atPath: recoverable.path))
+  }
+
+  func testWriteFailureIsVisibleAndDoesNotDiscardTheInMemoryAnswer() async {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+      "whiteboard-missing-session-\(UUID())")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let repository = SessionRepository(rootDirectory: root)
+    let store = await makeStore()
+    let board = SidecastWhiteboardCoordinator(
+      knowledgePackStore: store, settings: makeSettings(), repository: repository)
+    board.sessionStarted(at: Date(), sessionID: "session-does-not-exist")
+    await ask("What was RevPAR for this asset in 2020?", on: board)
+    await board.flushNotes()
+    XCTAssertEqual(board.model.notes.count, 1)
+    XCTAssertTrue(board.model.storageStatusLine?.contains("could not be saved") == true)
+  }
+
+  func testArchiveRejectsTraversalAndMismatchedSessionIdentity() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+      "whiteboard-boundary-\(UUID())")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let repository = SessionRepository(rootDirectory: root)
+    do {
+      _ = try await repository.loadWhiteboard(sessionID: "../outside")
+      XCTFail("Traversal must be rejected")
+    } catch WhiteboardArchiveError.invalidSession {}
+    let handle = await repository.startSession()
+    let store = await makeStore()
+    let board = SidecastWhiteboardCoordinator(knowledgePackStore: store, settings: makeSettings())
+    board.sessionStarted(at: Date(), sessionID: "another-session")
+    await ask("What was RevPAR for this asset in 2020?", on: board)
+    do {
+      try await repository.saveWhiteboardNote(
+        try XCTUnwrap(board.model.notes.first), sessionID: handle.sessionID, startedAt: Date())
+      XCTFail("Cross-session note must be rejected")
+    } catch WhiteboardArchiveError.invalidArchive {}
+  }
 }

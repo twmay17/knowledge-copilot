@@ -4,29 +4,20 @@ import XCTest
 
 @testable import OpenOatsKit
 
-/// Proves the one non-negotiable property of the whiteboard window: it must
-/// never be capturable by screen sharing. Follows the same harness
-/// arrangement as Wave-1's `KnowledgeOverlayPresentationTests`
-/// (`testPanelsHideFromCaptureAndFreshPanelsAreCapturable` et al.) — plain
-/// `@MainActor` synchronous test functions constructing the AppKit type
-/// directly and asserting `sharingType` immediately, no app-hosted harness
-/// needed.
-///
-/// Per `grep -rn "sharingType" OpenOats/Tests/`, this is the established
-/// pattern in this repo; there is no separate app-hosted arrangement to
-/// borrow beyond `@MainActor`.
+/// Checks the requested AppKit exclusion policy, NOT real capture behavior.
+/// Full-display and selected-window sharing need a remote-observed test.
 final class SidecastWhiteboardSharingTests: XCTestCase {
 
     @MainActor
-    func testWindowIsExcludedFromScreenShareImmediatelyAfterCreation() {
+    func testWindowRequestsCaptureExclusionImmediatelyAfterCreation() {
         let controller = SidecastWhiteboardWindowController()
         XCTAssertEqual(
             controller.window.sharingType, .none,
-            "the whiteboard window must never be capturable — set at creation, before it is ever shown")
+            "request capture exclusion before the window is shown")
     }
 
     @MainActor
-    func testWindowStaysExcludedFromScreenShareAfterAShowHideCycle() {
+    func testWindowRetainsExclusionPolicyAfterAShowHideCycle() {
         let controller = SidecastWhiteboardWindowController()
         controller.show()
         controller.hide()
@@ -34,10 +25,7 @@ final class SidecastWhiteboardSharingTests: XCTestCase {
             controller.window.sharingType, .none,
             "unlike MiniBarPanel/OverlayPanel, this window has no visible-in-share mode — a show/hide cycle must not change it")
 
-        // A second cycle, to rule out a transition-driven false pass — the
-        // one-way capture-exclusion ratchet documented on MiniBarPanel means
-        // this could only regress by code that explicitly reassigns
-        // sharingType, so this also guards against that ever being added.
+        // A second cycle verifies that visibility transitions retain policy.
         controller.show()
         controller.hide()
         XCTAssertEqual(controller.window.sharingType, .none)

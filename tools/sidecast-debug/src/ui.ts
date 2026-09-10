@@ -150,7 +150,7 @@ function renderModelPicker(settings: AppSettings, onChange: OnChange): HTMLEleme
          </div>
          <div class="model-selected-info">
            <div class="model-selected-tier">Custom</div>
-           <div class="model-selected-name">${modelId}</div>
+           <div class="model-selected-name">${escapeHtml(modelId)}</div>
          </div>
          <svg class="model-selected-chevron" width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6l4 4 4-4"/></svg>`;
   };
@@ -408,7 +408,7 @@ function renderPersonaCard(
   row.appendChild(dot);
 
   const info = el("div", "persona-info");
-  info.innerHTML = `<span class="persona-name">${persona.name}</span><span class="persona-subtitle">${persona.subtitle}</span>`;
+  updatePersonaInfo(info, persona);
   info.style.cursor = "pointer";
   row.appendChild(info);
 
@@ -477,7 +477,7 @@ function renderPersonaCard(
       editDiv.appendChild(fieldInput("text", persona[key], "", (v) => {
         (persona as any)[key] = v;
         saveSettings(settings);
-        info.innerHTML = `<span class="persona-name">${persona.name}</span><span class="persona-subtitle">${persona.subtitle}</span>`;
+        updatePersonaInfo(info, persona);
       }));
     }
   });
@@ -558,6 +558,20 @@ function renderPersonaCard(
 }
 
 // --- Transcript Viewer ---
+function textElement(tag: string, className: string, text: string): HTMLElement {
+  const element = document.createElement(tag);
+  element.className = className;
+  element.textContent = text;
+  return element;
+}
+
+function updatePersonaInfo(container: HTMLElement, persona: SidecastPersona): void {
+  container.replaceChildren(
+    textElement("span", "persona-name", persona.name),
+    textElement("span", "persona-subtitle", persona.subtitle)
+  );
+}
+
 export function renderTranscriptViewer(
   container: HTMLElement,
   segments: { start: number; duration: number; text: string }[],
@@ -573,7 +587,7 @@ export function renderTranscriptViewer(
     const seconds = Math.floor(seg.start % 60);
     const ts = `${minutes}:${seconds.toString().padStart(2, "0")}`;
 
-    div.innerHTML = `<span class="ts">${ts}</span>${seg.text}`;
+    div.append(textElement("span", "ts", ts), document.createTextNode(seg.text));
     div.addEventListener("click", () => onClickSegment(seg.start));
     container.appendChild(div);
 
@@ -594,20 +608,18 @@ export function renderSidecastBubbles(
 
   messages.forEach((msg) => {
     const persona = personaById.get(msg.personaId);
-    const tint = persona?.avatarTint ?? "#666";
+    const tint = /^#[0-9a-f]{6}$/i.test(persona?.avatarTint ?? "") ? persona!.avatarTint : "#666666";
 
     const bubble = document.createElement("div");
     bubble.className = "bubble";
     bubble.style.borderColor = tint + "30";
     bubble.style.background = tint + "10";
     const emoji = persona?.avatarEmoji ?? "";
-    bubble.innerHTML = `
-      <div class="bubble-header">
-        <span class="bubble-name" style="color:${tint}">${emoji ? emoji + " " : ""}${msg.personaName}</span>
-        <span class="bubble-meta">v:${msg.value.toFixed(2)} p:${msg.priority.toFixed(2)} c:${msg.confidence.toFixed(2)}</span>
-      </div>
-      <div class="bubble-text">${escapeHtml(msg.text)}</div>
-    `;
+    const header = textElement("div", "bubble-header", "");
+    const name = textElement("span", "bubble-name", `${emoji ? emoji + " " : ""}${msg.personaName}`);
+    name.style.color = tint;
+    header.append(name, textElement("span", "bubble-meta", `v:${msg.value.toFixed(2)} p:${msg.priority.toFixed(2)} c:${msg.confidence.toFixed(2)}`));
+    bubble.append(header, textElement("div", "bubble-text", msg.text));
     container.appendChild(bubble);
   });
 }
